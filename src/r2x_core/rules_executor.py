@@ -180,6 +180,22 @@ def _convert_component_with_class(
     )
 
     def create_component(kwargs: dict[str, Any]) -> Result[Any, ValueError]:
+        """
+        Create a target component instance with the given keyword arguments.
+
+        If `regenerate_uuid` is True and 'uuid' is present in kwargs, a new UUID is generated.
+        Returns an Ok result with the created component, or an Err if creation fails.
+
+        Parameters
+        ----------
+        kwargs : dict[str, Any]
+            The keyword arguments to use for constructing the component.
+
+        Returns
+        -------
+        Result[Any, ValueError]
+            Ok(component) if successful, Err(ValueError) if creation fails.
+        """
         if regenerate_uuid and "uuid" in kwargs:
             kwargs = dict(kwargs)
             kwargs["uuid"] = str(uuid4())

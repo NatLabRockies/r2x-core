@@ -132,15 +132,16 @@ def _transfer_associations(
                 SELECT {column_csv}
                 FROM src_ts.time_series_associations s
                 WHERE s.owner_uuid IN (SELECT uuid FROM target_components)
+                AND s.time_series_type != 'Deterministic'
                 AND NOT EXISTS (
                     SELECT 1 FROM time_series_associations t
                     WHERE t.owner_uuid = s.owner_uuid
-                      AND t.owner_type = s.owner_type
-                      AND t.owner_category = s.owner_category
-                      AND t.time_series_uuid = s.time_series_uuid
-                      AND t.name = s.name
-                      AND t.time_series_type = s.time_series_type
-                      AND t.features = s.features
+                    AND t.owner_type = s.owner_type
+                    AND t.owner_category = s.owner_category
+                    AND t.time_series_uuid = s.time_series_uuid
+                    AND t.name = s.name
+                    AND t.time_series_type = s.time_series_type
+                    AND t.features = s.features
                 )
                 """
             )
@@ -152,7 +153,12 @@ def _transfer_associations(
     else:
         src_rows = src_metadata.execute(f"SELECT {column_csv} FROM time_series_associations").fetchall()
         target_uuids = set(uuid_to_type.keys())
-        filtered_rows = [row for row in src_rows if row[columns.index("owner_uuid")] in target_uuids]
+        ts_type_idx = columns.index("time_series_type")
+        filtered_rows = [
+            row for row in src_rows
+            if row[columns.index("owner_uuid")] in target_uuids
+            and row[ts_type_idx] != "DeterministicSingleTimeSeries"
+        ]
         if filtered_rows:
             tgt_metadata.executemany(
                 f"INSERT OR IGNORE INTO time_series_associations ({column_csv}) VALUES ({placeholders})",

@@ -7,7 +7,6 @@ from collections.abc import Mapping
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
-from loguru import logger
 from rust_ok import Err, Ok, Result
 
 from ..plugin_context import PluginContext
@@ -63,7 +62,6 @@ def _resolve_component_type(type_name: str, *, context: PluginContext) -> Result
 
 def _create_target_component(target_class: type, *, kwargs: dict[str, Any]) -> Any:
     """Instantiate a target component safely."""
-    logger.trace("Building {} with kwargs {}", target_class, kwargs)
     return target_class(**kwargs)
 
 
@@ -125,32 +123,36 @@ def build_component_kwargs(
             # Multi-field mappings must be handled by a getter; skip direct assignment.
             continue
         value = getattr(source_obj, source_field, None)
-        if value is None and target_field in defaults:
-            value = defaults[target_field]
-        elif value is None:
+        if value is not None:
+            kwargs[target_field] = value
+        elif target_field in defaults:
+            kwargs[target_field] = defaults[target_field]
+        else:
             return Err(
                 ValueError(
                     f"No attribute '{source_field}' on source component and no default for '{target_field}'"
                 )
             )
 
-        kwargs[target_field] = value
-
     for target_field, getter_func in getters.items():
-        if callable(getter_func):
-            result = getter_func(source_obj, context=context)
-        else:
+        if not callable(getter_func):
             return Err(ValueError(f"Getter for '{target_field}' is not callable: {getter_func}"))
-
+        result = getter_func(source_obj, context=context)
         match result:
             case Ok(value):
                 if value is not None:
                     kwargs[target_field] = value
+                elif target_field in defaults:
+                    kwargs[target_field] = defaults[target_field]
             case Err(e):
                 if target_field in defaults:
                     kwargs[target_field] = defaults[target_field]
                 else:
                     return Err(ValueError(f"Getter for '{target_field}' failed: {e}"))
+
+    for target_field, default_value in defaults.items():
+        if target_field not in kwargs:
+            kwargs[target_field] = default_value
 
     return Ok(kwargs)
 

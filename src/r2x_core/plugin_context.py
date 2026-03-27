@@ -85,6 +85,7 @@ class PluginContext(Generic[ConfigT]):
     """
 
     __slots__ = (
+        "_cache",
         "auto_add_composed_components",
         "config",
         "current_version",
@@ -156,6 +157,7 @@ class PluginContext(Generic[ConfigT]):
         self.current_version = current_version
         self.target_version = target_version
         self.version_strategy = version_strategy
+        self._cache: dict[str, Any] = {}
 
     def evolve(self, **kwargs: Any) -> PluginContext[ConfigT]:
         """Create a new context with updated fields.

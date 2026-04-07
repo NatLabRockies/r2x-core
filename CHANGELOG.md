@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.0](https://github.com/NatLabRockies/r2x-core/compare/v0.4.2...v0.5.0) (2026-04-07)
+
+
+### Features
+
+* optimize translation process with single pass and caching ([#86](https://github.com/NatLabRockies/r2x-core/issues/86)) ([dae7cb3](https://github.com/NatLabRockies/r2x-core/commit/dae7cb3c45b277498f9c0f4ff58a414d649629f5))
+
+
+### Build
+
+* **deps:** bump actions/upload-artifact from 6 to 7 ([#84](https://github.com/NatLabRockies/r2x-core/issues/84)) ([9c8f8d1](https://github.com/NatLabRockies/r2x-core/commit/9c8f8d1e088bd3e6077d9255ca2f884b53b0dd74))
+
 ## [0.4.2](https://github.com/NatLabRockies/r2x-core/compare/v0.4.1...v0.4.2) (2026-02-11)
 
 

@@ -1,0 +1,886 @@
+<!doctype html>
+<html class="no-js" lang="en" data-content_root="../">
+  <head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Rule System Architecture" href="rules-system.html"><link rel="prev" title="Unit System Design and Architecture" href="unit-system.html">
+
+    <!-- Generated with Sphinx 7.4.7 and Furo 2025.12.19 -->
+        <title>HDF5 Reader System - r2x-core</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d111a655" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/autodoc_pydantic.css" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-reports.e44b1595f1e09d5e109d001839ba3f42.css?v=0b41afa8" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=48ff25d5" />
+    
+    
+
+
+<style>
+  body {
+    --color-code-background: #f2f2f2;
+  --color-code-foreground: #1e1e1e;
+  
+  }
+  @media not print {
+    body[data-theme="dark"] {
+      --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+    }
+    @media (prefers-color-scheme: dark) {
+      body:not([data-theme="light"]) {
+        --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+      }
+    }
+  }
+</style></head>
+  <body>
+    
+    <script>
+      document.body.dataset.theme = localStorage.getItem("theme") || "auto";
+    </script>
+    
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <symbol id="svg-toc" viewBox="0 0 24 24">
+    <title>Contents</title>
+    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024">
+      <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504-486H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0 632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 0 0 0 13.8z"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+    <title>Menu</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-menu">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+    <title>Expand</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-chevron-right">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </symbol>
+  <symbol id="svg-sun" viewBox="0 0 24 24">
+    <title>Light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="feather-sun">
+      <circle cx="12" cy="12" r="5"></circle>
+      <line x1="12" y1="1" x2="12" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="23"></line>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+      <line x1="1" y1="12" x2="3" y2="12"></line>
+      <line x1="21" y1="12" x2="23" y2="12"></line>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon" viewBox="0 0 24 24">
+    <title>Dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-moon">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  </symbol>
+  <symbol id="svg-sun-with-moon" viewBox="0 0 24 24">
+    <title>Auto light/dark, in light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path style="opacity: 50%" d="M 5.411 14.504 C 5.471 14.504 5.532 14.504 5.591 14.504 C 3.639 16.319 4.383 19.569 6.931 20.352 C 7.693 20.586 8.512 20.551 9.25 20.252 C 8.023 23.207 4.056 23.725 2.11 21.184 C 0.166 18.642 1.702 14.949 4.874 14.536 C 5.051 14.512 5.231 14.5 5.411 14.5 L 5.411 14.504 Z"/>
+      <line x1="14.5" y1="3.25" x2="14.5" y2="1.25"/>
+      <line x1="14.5" y1="15.85" x2="14.5" y2="17.85"/>
+      <line x1="10.044" y1="5.094" x2="8.63" y2="3.68"/>
+      <line x1="19" y1="14.05" x2="20.414" y2="15.464"/>
+      <line x1="8.2" y1="9.55" x2="6.2" y2="9.55"/>
+      <line x1="20.8" y1="9.55" x2="22.8" y2="9.55"/>
+      <line x1="10.044" y1="14.006" x2="8.63" y2="15.42"/>
+      <line x1="19" y1="5.05" x2="20.414" y2="3.636"/>
+      <circle cx="14.5" cy="9.55" r="3.6"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon-with-sun" viewBox="0 0 24 24">
+    <title>Auto light/dark, in dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path d="M 8.282 7.007 C 8.385 7.007 8.494 7.007 8.595 7.007 C 5.18 10.184 6.481 15.869 10.942 17.24 C 12.275 17.648 13.706 17.589 15 17.066 C 12.851 22.236 5.91 23.143 2.505 18.696 C -0.897 14.249 1.791 7.786 7.342 7.063 C 7.652 7.021 7.965 7 8.282 7 L 8.282 7.007 Z"/>
+      <line style="opacity: 50%" x1="18" y1="3.705" x2="18" y2="2.5"/>
+      <line style="opacity: 50%" x1="18" y1="11.295" x2="18" y2="12.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="4.816" x2="14.464" y2="3.964"/>
+      <line style="opacity: 50%" x1="20.711" y1="10.212" x2="21.563" y2="11.063"/>
+      <line style="opacity: 50%" x1="14.205" y1="7.5" x2="13.001" y2="7.5"/>
+      <line style="opacity: 50%" x1="21.795" y1="7.5" x2="23" y2="7.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="10.184" x2="14.464" y2="11.036"/>
+      <line style="opacity: 50%" x1="20.711" y1="4.789" x2="21.563" y2="3.937"/>
+      <circle style="opacity: 50%" cx="18" cy="7.5" r="2.169"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-pencil" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-pencil-code">
+      <path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" />
+      <path d="M13.5 6.5l4 4" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+  <symbol id="svg-eye" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-eye-code">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+      <path
+        d="M11.11 17.958c-3.209 -.307 -5.91 -2.293 -8.11 -5.958c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6c-.21 .352 -.427 .688 -.647 1.008" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+</svg>
+
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation" aria-label="Toggle site navigation sidebar">
+<input type="checkbox" class="sidebar-toggle" name="__toc" id="__toc" aria-label="Toggle table of contents sidebar">
+<label class="overlay sidebar-overlay" for="__navigation"></label>
+<label class="overlay toc-overlay" for="__toc"></label>
+
+<a class="skip-to-content muted-link" href="#furo-main-content">Skip to content</a>
+
+<div class="announcement">
+  <aside class="announcement-content">
+     
+        <strong>🎉 R2X Core v1.0.0 is now available!</strong>
+        This is our first Long-Term Support (LTS) release.
+        <a href="https://github.com/NREL/r2x-core/releases/tag/v0.1.0" target="_blank">View release notes</a>
+     
+  </aside>
+</div>
+
+<div class="page">
+  <header class="mobile-header">
+    <div class="header-left">
+      <label class="nav-overlay-icon" for="__navigation">
+        <span class="icon"><svg><use href="#svg-menu"></use></svg></span>
+      </label>
+    </div>
+    <div class="header-center">
+      <a href="../index.html"><div class="brand">r2x-core</div></a>
+    </div>
+    <div class="header-right">
+      <div class="theme-toggle-container theme-toggle-header">
+        <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+          <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+          <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+          <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+          <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+        </button>
+      </div>
+      <label class="toc-overlay-icon toc-header-icon" for="__toc">
+        <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+      </label>
+    </div>
+  </header>
+  <aside class="sidebar-drawer">
+    <div class="sidebar-container">
+      
+      <div class="sidebar-sticky"><a class="sidebar-brand" href="../index.html">
+  
+  <span class="sidebar-brand-text">r2x-core</span>
+  
+</a><form class="sidebar-search-container" method="get" action="../search.html" role="search">
+  <input class="sidebar-search" placeholder="Search" name="q" aria-label="Search">
+  <input type="hidden" name="check_keywords" value="yes">
+  <input type="hidden" name="area" value="default">
+</form>
+<div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
+  <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../install.html">Installation</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../tutorials/index.html">Tutorials</a><input aria-label="Toggle navigation of Tutorials" class="toctree-checkbox" id="toctree-checkbox-1" name="toctree-checkbox-1" role="switch" type="checkbox"/><label for="toctree-checkbox-1"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/getting-started.html">Getting Started with R2X Core</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/working-with-units.html">Create Power System Components with Units</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/plugin-system.html">Plugin System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/plugin-context.html">Plugin Context</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/plugin-discovery.html">Plugin Discovery</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/plugin-utilities.html">Plugin Developer Utilities</a></li>
+</ul>
+</li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../how-tos/index.html">How-To Guides</a><input aria-label="Toggle navigation of How-To Guides" class="toctree-checkbox" id="toctree-checkbox-2" name="toctree-checkbox-2" role="switch" type="checkbox"/><label for="toctree-checkbox-2"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/configure-data-settings.html">Configuring Data Settings</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/configure-data-files.html">Working with DataFiles</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/read-data-files.html">Read Data Files</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/read-hdf5-files.html">Reading HDF5 Data Files</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/manage-datastores.html">Managing Datastores</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/process-file-data.html">Processing File Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/convert-units.html">Work with Units</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/manage-systems.html">Managing Systems</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/attach-timeseries.html">Attaching Time Series</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/build-parsers.html">Parser Basics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/build-exporters.html">Exporter Basics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/create-function-plugins.html">Create Function-Based Transform Plugins</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/structure-plugin-directories.html">Plugin Directory Structure</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/register-plugins.html">Create and Register Plugins</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/run-plugins.html">Using Plugins</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/define-rule-mappings.html">Working with Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/create-rules.html">Create Translation Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/apply-rules.html">Apply Translation Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/create-rule-filters.html">Rule Filters</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/manage-versions.html">Managing Versions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/upgrade-data-files.html">Upgrade Data Between Versions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/upgrade-systems.html">Upgrade Systems Between Versions</a></li>
+</ul>
+</li>
+<li class="toctree-l1 current has-children"><a class="reference internal" href="index.html">Explanations</a><input aria-label="Toggle navigation of Explanations" checked="" class="toctree-checkbox" id="toctree-checkbox-3" name="toctree-checkbox-3" role="switch" type="checkbox"/><label for="toctree-checkbox-3"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="plugin-system.html">Plugin System Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="unit-system.html">Unit System Design and Architecture</a></li>
+<li class="toctree-l2 current current-page"><a class="current reference internal" href="#">HDF5 Reader System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="rules-system.html">Rule System Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="data-management.html">Data Management: Design Philosophy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="versioning.html">Versioning and Upgrades: Design Philosophy</a></li>
+</ul>
+</li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../references/index.html">Reference</a><input aria-label="Toggle navigation of Reference" class="toctree-checkbox" id="toctree-checkbox-4" name="toctree-checkbox-4" role="switch" type="checkbox"/><label for="toctree-checkbox-4"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../references/api.html">API Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/system.html">System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/units.html">Units Module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/parser.html">Parser Framework</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/exporter.html">Exporter Framework</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/plugins.html">Plugin System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/versioning.html">Versioning Strategies</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/upgrader.html">Upgrade System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/processors.html">Data Processors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/utils.html">Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/exceptions.html">Exceptions Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/file-formats.html">File Formats</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/file-types.html">File Types API Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/models.html">Data Models</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/results.html">Results</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../contributing.html">Contributing</a></li>
+</ul>
+
+</div>
+</div>
+
+      </div>
+      
+    </div>
+  </aside>
+  <div class="main">
+    <div class="content">
+      <div class="article-container">
+        <a href="#" class="back-to-top muted-link">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"></path>
+          </svg>
+          <span>Back to top</span>
+        </a>
+        <div class="content-icon-container">
+          <div class="view-this-page">
+  <a class="muted-link" href="https://github.com/NREL/r2x-core/blob/main/docs/source/explanations/h5-readers.md?plain=true" title="View this page">
+    <svg><use href="#svg-eye"></use></svg>
+    <span class="visually-hidden">View this page</span>
+  </a>
+</div><div class="edit-this-page">
+  <a class="muted-link" href="https://github.com/NREL/r2x-core/edit/main/docs/source/explanations/h5-readers.md" rel="edit" title="Edit this page">
+    <svg><use href="#svg-pencil"></use></svg>
+    <span class="visually-hidden">Edit this page</span>
+  </a>
+</div><div class="theme-toggle-container theme-toggle-content">
+            <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+              <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+              <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+              <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+              <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+            </button>
+          </div>
+          <label class="toc-overlay-icon toc-content-icon" for="__toc">
+            <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+          </label>
+        </div>
+        <article role="main" id="furo-main-content">
+          <section id="hdf5-reader-system">
+<h1>HDF5 Reader System<a class="headerlink" href="#hdf5-reader-system" title="Link to this heading">¶</a></h1>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">¶</a></h2>
+<p>The HDF5 reader in r2x-core uses a configuration-driven approach to read files
+with any structure. Instead of hardcoding logic for specific file formats, users
+describe their file’s structure through configuration parameters.</p>
+</section>
+<section id="design-philosophy">
+<h2>Design Philosophy<a class="headerlink" href="#design-philosophy" title="Link to this heading">¶</a></h2>
+<p>HDF5 files have no standard structure. Different models, tools, and users
+organize data differently. Dataset names vary between <code class="docutils literal notranslate"><span class="pre">data</span></code>, <code class="docutils literal notranslate"><span class="pre">values</span></code>,
+<code class="docutils literal notranslate"><span class="pre">measurements</span></code>, and countless other possibilities. Column names might be in
+separate datasets or embedded within the data. Datetime fields have different
+formats and timezone handling requirements. Metadata can be stored anywhere in
+the file hierarchy.</p>
+<p>The reader addresses this variability through configuration. Users describe what
+their file contains and where to find it. A file with data in a dataset called
+<code class="docutils literal notranslate"><span class="pre">measurements</span></code> and column names in <code class="docutils literal notranslate"><span class="pre">sensor_names</span></code> needs only this configuration:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">reader_kwargs</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;data_key&quot;</span><span class="p">:</span> <span class="s2">&quot;measurements&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;columns_key&quot;</span><span class="p">:</span> <span class="s2">&quot;sensor_names&quot;</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>This approach keeps the library model-agnostic. The framework doesn’t need to
+know about ReEDS, PLEXOS, or any specific model format. Users adapt the reader
+to their files through configuration rather than waiting for library updates or
+writing custom code.</p>
+</section>
+<section id="how-the-reader-works">
+<h2>How the Reader Works<a class="headerlink" href="#how-the-reader-works" title="Link to this heading">¶</a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">configurable_h5_reader()</span></code> function adapts its behavior based on the
+configuration provided.</p>
+<section id="default-behavior">
+<h3>Default Behavior<a class="headerlink" href="#default-behavior" title="Link to this heading">¶</a></h3>
+<p>When no configuration is provided, the reader finds the first dataset in the
+file and reads it. For 1D arrays, this creates a single column. For 2D arrays,
+it creates numbered columns like <code class="docutils literal notranslate"><span class="pre">col_0</span></code>, <code class="docutils literal notranslate"><span class="pre">col_1</span></code>, and so on.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">r2x_core</span><span class="w"> </span><span class="kn">import</span> <span class="n">DataFile</span>
+
+<span class="c1"># No reader_kwargs provided</span>
+<span class="n">datafile</span> <span class="o">=</span> <span class="n">DataFile</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;data&quot;</span><span class="p">,</span> <span class="n">fpath</span><span class="o">=</span><span class="n">Path</span><span class="p">(</span><span class="s2">&quot;file.h5&quot;</span><span class="p">))</span>
+</pre></div>
+</div>
+</section>
+<section id="specifying-the-data-location">
+<h3>Specifying the Data Location<a class="headerlink" href="#specifying-the-data-location" title="Link to this heading">¶</a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">data_key</span></code> parameter tells the reader which dataset contains the main data.
+This is useful when files contain multiple datasets and you want a specific one
+rather than just the first.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">reader_kwargs</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;data_key&quot;</span><span class="p">:</span> <span class="s2">&quot;measurements&quot;</span><span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="adding-column-names">
+<h3>Adding Column Names<a class="headerlink" href="#adding-column-names" title="Link to this heading">¶</a></h3>
+<p>For 2D data arrays, the <code class="docutils literal notranslate"><span class="pre">columns_key</span></code> parameter points to a dataset containing
+column names. The reader splits the 2D array into named columns using these
+names. Byte strings are automatically decoded to UTF-8 for convenience.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">reader_kwargs</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;data_key&quot;</span><span class="p">:</span> <span class="s2">&quot;values&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;columns_key&quot;</span><span class="p">:</span> <span class="s2">&quot;sensor_names&quot;</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="parsing-datetime-fields">
+<h3>Parsing Datetime Fields<a class="headerlink" href="#parsing-datetime-fields" title="Link to this heading">¶</a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">datetime_key</span></code> parameter identifies a dataset containing datetime strings.
+The reader parses these strings, stripping timezone information by default, and
+converts them to numpy <code class="docutils literal notranslate"><span class="pre">datetime64[us]</span></code> format for compatibility with Polars.
+The resulting column is named <code class="docutils literal notranslate"><span class="pre">datetime</span></code> by default, though this can be
+customized with <code class="docutils literal notranslate"><span class="pre">datetime_column_name</span></code>.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">reader_kwargs</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;data_key&quot;</span><span class="p">:</span> <span class="s2">&quot;data&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;datetime_key&quot;</span><span class="p">:</span> <span class="s2">&quot;timestamps&quot;</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>Timezone stripping handles the common case where energy models use a single
+reference timezone. Most datetime parsing in numpy and Polars is simpler without
+timezone information. Users who need to preserve the original timezone strings
+can set <code class="docutils literal notranslate"><span class="pre">strip_timezone=False</span></code>.</p>
+</section>
+<section id="including-additional-metadata">
+<h3>Including Additional Metadata<a class="headerlink" href="#including-additional-metadata" title="Link to this heading">¶</a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">additional_keys</span></code> parameter specifies other datasets to include as columns.
+The reader automatically formats these names for cleaner output, converting
+names like <code class="docutils literal notranslate"><span class="pre">index_year</span></code> to <code class="docutils literal notranslate"><span class="pre">solve_year</span></code>. If a specified key doesn’t exist in the
+file, it’s simply skipped.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">reader_kwargs</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;data_key&quot;</span><span class="p">:</span> <span class="s2">&quot;data&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;columns_key&quot;</span><span class="p">:</span> <span class="s2">&quot;columns&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;additional_keys&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;year&quot;</span><span class="p">,</span> <span class="s2">&quot;scenario&quot;</span><span class="p">,</span> <span class="s2">&quot;location&quot;</span><span class="p">]</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="configuration-parameters">
+<h2>Configuration Parameters<a class="headerlink" href="#configuration-parameters" title="Link to this heading">¶</a></h2>
+<p>Configuration parameters fall into three categories based on what data they
+extract from your HDF5 file.</p>
+<p>For data configuration, the <code class="docutils literal notranslate"><span class="pre">data_key</span></code> parameter tells the reader which dataset
+contains the main data array. It accepts a string and defaults to the first
+dataset if not provided, making it optional for simple files. The <code class="docutils literal notranslate"><span class="pre">columns_key</span></code>
+parameter points to a dataset containing column names for 2D data arrays. This
+is optional and only needed if your file stores column names separately. The
+<code class="docutils literal notranslate"><span class="pre">index_key</span></code> parameter identifies a dataset to include as an index column
+separate from datetime indices, useful for zone names, component IDs, or other
+index-like information.</p>
+<p>For datetime configuration, the <code class="docutils literal notranslate"><span class="pre">datetime_key</span></code> parameter specifies which dataset
+contains datetime strings to parse. Datetime parsing is optional if your time
+series doesn’t need temporal information. The <code class="docutils literal notranslate"><span class="pre">datetime_column_name</span></code> parameter
+sets what to name the resulting datetime column in your DataFrame. It defaults
+to “datetime” but can be customized to match your naming convention. The
+<code class="docutils literal notranslate"><span class="pre">strip_timezone</span></code> parameter controls timezone handling. It defaults to true,
+stripping timezone information before parsing. Set it to false if you need to
+preserve the original timezone strings from your HDF5 file.</p>
+<p>For additional data, the <code class="docutils literal notranslate"><span class="pre">additional_keys</span></code> parameter lists other datasets to
+include as columns in your output. This defaults to an empty list and accepts a
+list of strings pointing to any other datasets you want. The <code class="docutils literal notranslate"><span class="pre">decode_bytes</span></code>
+parameter controls whether byte strings (how HDF5 often stores text) are decoded
+to UTF-8. It defaults to true, which is appropriate for almost all use cases
+where you want human-readable strings in your output DataFrame.</p>
+</section>
+<section id="automatic-behaviors">
+<h2>Automatic Behaviors<a class="headerlink" href="#automatic-behaviors" title="Link to this heading">¶</a></h2>
+<p>The reader automatically detects array dimensions and creates appropriate
+columns. A 1D array becomes a single column. A 2D array without column names
+gets numbered columns like <code class="docutils literal notranslate"><span class="pre">data_col_0</span></code> and <code class="docutils literal notranslate"><span class="pre">data_col_1</span></code>. A 2D array with column
+names (via <code class="docutils literal notranslate"><span class="pre">columns_key</span></code>) gets those human-readable names applied.</p>
+<p>Column name formatting happens automatically for cleaner output. Dataset keys
+like <code class="docutils literal notranslate"><span class="pre">index_year</span></code> are automatically transformed to <code class="docutils literal notranslate"><span class="pre">solve_year</span></code> following energy
+model conventions. The <code class="docutils literal notranslate"><span class="pre">index_</span></code> prefix common in HDF5 files is stripped away to
+produce clean column names in your DataFrame. This saves configuration and makes
+the resulting data more usable without manual column renaming.</p>
+<p>Byte string decoding converts HDF5 byte strings to Python Unicode strings
+automatically when <code class="docutils literal notranslate"><span class="pre">decode_bytes</span></code> is true. HDF5 typically stores text as bytes
+since it predates Python 3’s Unicode strings. The reader handles this conversion
+transparently, so your DataFrame contains native Python strings ready for
+analysis.</p>
+</section>
+<section id="architecture-decisions">
+<h2>Architecture Decisions<a class="headerlink" href="#architecture-decisions" title="Link to this heading">¶</a></h2>
+<section id="configuration-over-custom-functions">
+<h3>Configuration Over Custom Functions<a class="headerlink" href="#configuration-over-custom-functions" title="Link to this heading">¶</a></h3>
+<p>The library could allow users to provide custom reader functions that contain
+arbitrary logic for reading files. While flexible, this approach doesn’t work
+with JSON configuration files. Users would need to write Python code, making it
+harder to version control configurations separately from code. Testing would
+require understanding each custom function’s logic. Configuration, by contrast,
+works seamlessly with JSON, requires no code, and is self-documenting.</p>
+</section>
+<section id="single-generic-reader-over-multiple-reader-classes">
+<h3>Single Generic Reader Over Multiple Reader Classes<a class="headerlink" href="#single-generic-reader-over-multiple-reader-classes" title="Link to this heading">¶</a></h3>
+<p>The library could provide different reader classes for different model formats,
+like <code class="docutils literal notranslate"><span class="pre">ReedsH5Reader</span></code> or <code class="docutils literal notranslate"><span class="pre">PlexosH5Reader</span></code>. This would create coupling between the
+library and specific models. The library would need to know about every format
+and maintain code for each. Users would be locked into predefined formats. A
+single generic reader configured by users avoids all these issues while
+providing unlimited flexibility.</p>
+</section>
+<section id="single-dispatch-for-file-types">
+<h3>Single Dispatch for File Types<a class="headerlink" href="#single-dispatch-for-file-types" title="Link to this heading">¶</a></h3>
+<p>The file reading system uses Python’s <code class="docutils literal notranslate"><span class="pre">functools.singledispatch</span></code> to route
+different file formats to appropriate readers. Each file format type
+(<code class="docutils literal notranslate"><span class="pre">H5Format</span></code>, <code class="docutils literal notranslate"><span class="pre">TableFormat</span></code>, etc.) gets dedicated reading logic. This provides
+type-based routing at runtime, makes it easy to extend with new formats, and
+maintains clear separation of concerns between different file types.</p>
+</section>
+</section>
+<section id="trade-offs">
+<h2>Trade-offs<a class="headerlink" href="#trade-offs" title="Link to this heading">¶</a></h2>
+<p>Configuration requires users to specify file structure explicitly. This
+verbosity is acceptable because most users read the same files repeatedly, so
+configuration is written once. The explicitness prevents silent errors from
+wrong assumptions. Configuration serves as documentation of file structure and
+can be version controlled alongside data.</p>
+<p>The reader doesn’t validate that specified keys exist until files are actually
+read. Early validation would require opening files during configuration, which
+is expensive and unnecessary. Delayed validation provides better error messages
+with context about what failed during reading. Missing keys in lists like
+<code class="docutils literal notranslate"><span class="pre">additional_keys</span></code> are gracefully handled by skipping them.</p>
+<p>Datetime parsing assumes ISO 8601 format with specific timezone handling. This
+covers the vast majority of HDF5 datetime storage. Edge cases can disable
+automatic parsing with <code class="docutils literal notranslate"><span class="pre">strip_timezone=False</span></code> and handle conversion manually.
+Complex datetime parsing belongs in preprocessing steps rather than the core
+library.</p>
+</section>
+<section id="future-considerations">
+<h2>Future Considerations<a class="headerlink" href="#future-considerations" title="Link to this heading">¶</a></h2>
+<p>Chunk reading for very large files could improve memory efficiency by processing
+data in pieces. Lazy evaluation could defer reading until data is actually
+needed. Optional schema validation could check file structure against expected
+configurations. Automatic compression handling could simplify working with
+compressed datasets.</p>
+<p>The library intentionally avoids auto-detecting file structure. Users should
+know their data. Format conversion between different HDF5 structures belongs in
+external tools. Model-specific logic defeats the purpose of a generic,
+configuration-driven approach.</p>
+</section>
+<section id="power-system-data-in-hdf5">
+<h2>Power System Data in HDF5<a class="headerlink" href="#power-system-data-in-hdf5" title="Link to this heading">¶</a></h2>
+<p>Power system models (ReEDS, PLEXOS, SWITCH, Sienna, etc.) store results as time
+series data in HDF5 format. Understanding the structure of power system outputs
+is key to configuring the reader correctly.</p>
+<section id="common-power-system-data-characteristics">
+<h3>Common Power System Data Characteristics<a class="headerlink" href="#common-power-system-data-characteristics" title="Link to this heading">¶</a></h3>
+<p>Power system models output data at consistent temporal intervals, though the
+granularity varies by tool. ReEDS produces 8760 hourly records per year,
+covering a complete year at hourly resolution. PLEXOS can generate much
+finer-grained data with 5-minute interval output (105,120 intervals per year).
+When analyzing multi-year scenarios, these intervals simply stack together, so a
+10-year ReEDS run contains 87,600 records. This temporal structure fundamentally
+drives decisions about how the HDF5 file should be organized.</p>
+<p>Spatial aggregation also varies significantly across power system models. ReEDS
+aggregates results to approximately 134 geographic regions, maintaining
+consistent spatial definitions across different output types like generation,
+demand, and curtailment. PLEXOS, by contrast, operates at the bus level for
+maximum nodal detail. SWITCH uses zones for spatial aggregation. Within a single
+model, different output types can have different spatial definitions. For
+example, generation results might be aggregated to regions while price results
+remain at the bus level. This complexity requires careful configuration to
+extract the right data.</p>
+<p>A single HDF5 file rarely contains just one output metric. Most power system
+runs produce multiple related outputs stored in the same file: generation by
+resource type, transmission flows, nodal prices, reserve margins, load shedding,
+and many more. Each metric may have different spatial resolution (regional
+versus bus-level) or temporal resolution (hourly versus sub-hourly intervals).
+This creates a nested structure in the HDF5 file where each metric gets its own
+group or set of datasets.</p>
+<p>Power system models typically explore multiple scenarios representing different
+policy assumptions, technology costs, or operational strategies. A single model
+run might include ten scenarios under different decarbonization pathways, and
+longer planning analyses examine multiple years or decades. The output file
+includes metadata identifying which scenario, base year, and solve year
+corresponds to each record. This metadata is often stored alongside the time
+series data, requiring careful configuration to extract and include it.</p>
+<p>Most power system models use a reference timezone throughout analysis, often UTC
+or a specific regional timezone. HDF5 stores datetime strings with explicit
+timezone information (like <code class="docutils literal notranslate"><span class="pre">2026-01-18T12:30:00Z</span></code>). The configurable reader
+strips timezones by default because most power system analysis uses a single
+consistent timezone. This simplifies parsing and matches the typical workflow
+where analysts work in their model’s reference timezone rather than converting
+between zones.</p>
+</section>
+<section id="typical-power-system-hdf5-layout">
+<h3>Typical Power System HDF5 Layout<a class="headerlink" href="#typical-power-system-hdf5-layout" title="Link to this heading">¶</a></h3>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>power_system_results.h5
+├── time_series_metric_1/
+│   ├── data                    # 2D array (time × space)
+│   ├── columns                 # Spatial dimension names
+│   ├── timestamps              # Temporal dimension
+│   └── metadata_columns        # Scenario, year, or other attributes
+├── time_series_metric_2/
+│   ├── data
+│   ├── columns
+│   ├── timestamps
+│   └── metadata_columns
+├── ...
+└── attributes/
+    ├── scenario_name
+    ├── base_year
+    ├── version
+    └── description
+</pre></div>
+</div>
+<p>Different power system models use different naming conventions that reflect
+their design philosophy and intended use. ReEDS uses descriptive flat names like
+<code class="docutils literal notranslate"><span class="pre">hourly_demand</span></code>, <code class="docutils literal notranslate"><span class="pre">hourly_generation</span></code>, and <code class="docutils literal notranslate"><span class="pre">hourly_curtailment</span></code> making the HDF5
+structure self-documenting. PLEXOS employs hierarchical groups organizing
+results by category: <code class="docutils literal notranslate"><span class="pre">Solution/Generator</span> <span class="pre">Output</span></code>, <code class="docutils literal notranslate"><span class="pre">Solution/Price</span></code>, and so on,
+separating results from metadata. SWITCH uses a flat naming structure like
+<code class="docutils literal notranslate"><span class="pre">dispatch_zone_power_mw</span></code> where the name itself describes the metric. Sienna
+stores time series with resource-specific names reflecting its component-based
+architecture.</p>
+<p>Despite these differences in naming and organization, all require configuration
+to tell r2x-core where to find the data arrays, column definitions, and temporal
+information. The configurable reader abstracts away these naming differences,
+allowing your translation pipeline to handle ReEDS, PLEXOS, and other models
+with nothing more than configuration changes.</p>
+</section>
+</section>
+<section id="examples-of-file-structures">
+<h2>Examples of File Structures<a class="headerlink" href="#examples-of-file-structures" title="Link to this heading">¶</a></h2>
+<section id="reeds-hourly-time-series">
+<h3>ReEDS Hourly Time Series<a class="headerlink" href="#reeds-hourly-time-series" title="Link to this heading">¶</a></h3>
+<p>ReEDS (Regional Energy Deployment System) structures its hourly time series
+output in HDF5 with the following layout:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>reeds_hourly_data.h5
+├── hourly_demand/
+│   ├── data (8760 x 134)          # Hourly generation, 134 regions
+│   ├── columns (134,)             # Region/zone IDs
+│   ├── timestamps (8760,)         # ISO 8601 UTC timestamps
+│   └── year (8760,)               # Solve year for each hour
+├── hourly_curtailment/
+│   ├── data (8760 x 134)          # Curtailment by region
+│   ├── columns (134,)
+│   ├── timestamps (8760,)
+│   └── year (8760,)
+└── metadata/
+    ├── scenario_name               # Scenario identifier
+    ├── regions (134,)              # Full region names
+    └── base_year                   # Reference year
+</pre></div>
+</div>
+<p>ReEDS organizes multiple datasets representing different output types like
+generation, demand, and curtailment. All output types share the same column
+definitions (the same 134 regions), simplifying the configuration process.
+Datetime information is stored as ISO 8601 strings with UTC timezone. Year
+metadata is stored alongside the time series to support multi-year simulations
+where different records correspond to different solve years. Region names appear
+both as column indices in the data array and as full descriptive names in a
+separate dataset, allowing the reader to create self-documenting DataFrames.</p>
+<p><strong>Configuration for ReEDS Generation Data</strong>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">reader_kwargs</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;data_key&quot;</span><span class="p">:</span> <span class="s2">&quot;hourly_demand/data&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;columns_key&quot;</span><span class="p">:</span> <span class="s2">&quot;hourly_demand/columns&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;datetime_key&quot;</span><span class="p">:</span> <span class="s2">&quot;hourly_demand/timestamps&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;additional_keys&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;hourly_demand/year&quot;</span><span class="p">],</span>
+    <span class="s2">&quot;strip_timezone&quot;</span><span class="p">:</span> <span class="kc">True</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="plexos-interval-output">
+<h3>PLEXOS Interval Output<a class="headerlink" href="#plexos-interval-output" title="Link to this heading">¶</a></h3>
+<p>PLEXOS (energy market and operations model) stores interval-based results with
+this structure:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>plexos_results.h5
+├── Solution/
+│   ├── Generator Output (8760 x 500)    # Generation by unit
+│   ├── Generator Output_names (500,)    # Generator names
+│   ├── Generator Output_regions (500,)  # Region identifiers
+│   ├── Price (8760 x 50)                # LMP by bus
+│   ├── Price_names (50,)                # Bus names
+│   ├── Period (8760,)                   # Period identifiers
+│   └── Interval (8760,)                 # Interval timestamps
+└── Information/
+    ├── run_id
+    ├── description
+    └── model_version
+</pre></div>
+</div>
+<p>PLEXOS uses a hierarchical structure separating results into a Solution group
+and metadata into an Information group. Unlike ReEDS where all metrics share the
+same spatial definitions, PLEXOS Generator Output has 500 generators while Price
+data has only 50 buses, requiring separate column definitions for each metric.
+The temporal dimension uses mixed identifiers: Period represents sequential
+periods in the optimization (day, week, etc.) while Interval contains the actual
+timestamps. Generator output operates at the unit level for maximum detail
+rather than aggregating to regions. Model metadata like run identifier and
+version is stored separately in the Information group rather than alongside the
+time series.</p>
+<p><strong>Configuration for PLEXOS Generation Output</strong>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">reader_kwargs</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;data_key&quot;</span><span class="p">:</span> <span class="s2">&quot;Solution/Generator Output&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;columns_key&quot;</span><span class="p">:</span> <span class="s2">&quot;Solution/Generator Output_names&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;datetime_key&quot;</span><span class="p">:</span> <span class="s2">&quot;Solution/Interval&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;additional_keys&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;Solution/Generator Output_regions&quot;</span><span class="p">,</span> <span class="s2">&quot;Solution/Period&quot;</span><span class="p">],</span>
+    <span class="s2">&quot;strip_timezone&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="s2">&quot;datetime_column_name&quot;</span><span class="p">:</span> <span class="s2">&quot;interval&quot;</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="generic-energy-model-time-series">
+<h3>Generic Energy Model Time Series<a class="headerlink" href="#generic-energy-model-time-series" title="Link to this heading">¶</a></h3>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>file.h5
+├── data (8760 x 50)        # Hourly data, 50 regions
+├── columns (50,)           # Region names
+├── index_datetime (8760,)  # Timestamps
+└── index_year (8760,)      # Solve year for each hour
+</pre></div>
+</div>
+<p><strong>Configuration</strong>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">reader_kwargs</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;data_key&quot;</span><span class="p">:</span> <span class="s2">&quot;data&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;columns_key&quot;</span><span class="p">:</span> <span class="s2">&quot;columns&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;datetime_key&quot;</span><span class="p">:</span> <span class="s2">&quot;index_datetime&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;additional_keys&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;index_year&quot;</span><span class="p">]</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="scientific-measurements">
+<h3>Scientific Measurements<a class="headerlink" href="#scientific-measurements" title="Link to this heading">¶</a></h3>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>measurements.h5
+├── temperature (1000,)     # 1D time series
+├── pressure (1000,)        # 1D time series
+├── timestamps (1000,)      # When measured
+├── sensor_id (1000,)       # Which sensor
+└── location (1000,)        # Where measured
+</pre></div>
+</div>
+<p><strong>Configuration</strong>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">reader_kwargs</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;data_key&quot;</span><span class="p">:</span> <span class="s2">&quot;temperature&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;datetime_key&quot;</span><span class="p">:</span> <span class="s2">&quot;timestamps&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;additional_keys&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;pressure&quot;</span><span class="p">,</span> <span class="s2">&quot;sensor_id&quot;</span><span class="p">,</span> <span class="s2">&quot;location&quot;</span><span class="p">]</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="simple-tabular-data">
+<h3>Simple Tabular Data<a class="headerlink" href="#simple-tabular-data" title="Link to this heading">¶</a></h3>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>simple.h5
+└── values (100 x 3)        # Just a 2D array
+</pre></div>
+</div>
+<p><strong>Configuration</strong>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># No configuration needed - uses default</span>
+<span class="n">reader_kwargs</span> <span class="o">=</span> <span class="p">{}</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="summary">
+<h2>Summary<a class="headerlink" href="#summary" title="Link to this heading">¶</a></h2>
+<p>The HDF5 reader achieves flexibility through configuration rather than code. The
+library remains model-agnostic with no hardcoded knowledge of specific power
+system models (ReEDS, PLEXOS, SWITCH, Sienna, etc.) or any other data format.
+Users control everything through configuration parameters. The approach works
+seamlessly with JSON configuration files and is self-documenting. A single code
+path handles all formats and power system models, making the system
+maintainable. New power system models, formats, or file structures need only new
+configuration, never code changes.</p>
+<section id="practical-workflow">
+<h3>Practical Workflow<a class="headerlink" href="#practical-workflow" title="Link to this heading">¶</a></h3>
+<p>Using the configurable HDF5 reader starts with understanding your specific power
+system file. Begin by exploring the HDF5 structure with standard tools like
+<code class="docutils literal notranslate"><span class="pre">h5py</span></code> or the command-line <code class="docutils literal notranslate"><span class="pre">h5dump</span></code> utility. Map out where the main data array
+lives, which dataset contains column names, and where datetime information is
+stored. Some files organize everything in flat groups while others use
+hierarchical structures.</p>
+<p>With the file structure mapped, write your configuration by creating
+<code class="docutils literal notranslate"><span class="pre">reader_kwargs</span></code> that tells r2x-core where to find each piece of information.
+Point <code class="docutils literal notranslate"><span class="pre">data_key</span></code> to your data array, <code class="docutils literal notranslate"><span class="pre">columns_key</span></code> to column names,
+<code class="docutils literal notranslate"><span class="pre">datetime_key</span></code> to timestamps, and <code class="docutils literal notranslate"><span class="pre">additional_keys</span></code> to any metadata you want to
+include. This configuration is just a Python dictionary and can be stored in
+JSON for easy version control.</p>
+<p>Test your configuration by reading a small sample of your file. Verify that the
+resulting DataFrame has the expected columns, correct datetime parsing, and all
+required metadata. Iterate on the configuration if needed. Once working, store
+the configuration alongside your translation code. The configuration becomes
+documentation of your power system model’s file structure, making it trivial for
+colleagues to understand and reproduce your exact translation pipeline.
+Configuration changes stay in version control, creating an audit trail of how
+your data processing evolved.</p>
+</section>
+</section>
+</section>
+
+        </article>
+      </div>
+      <footer>
+        
+        <div class="related-pages">
+          <a class="next-page" href="rules-system.html">
+              <div class="page-info">
+                <div class="context">
+                  <span>Next</span>
+                </div>
+                <div class="title">Rule System Architecture</div>
+              </div>
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+            </a>
+          <a class="prev-page" href="unit-system.html">
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+              <div class="page-info">
+                <div class="context">
+                  <span>Previous</span>
+                </div>
+                
+                <div class="title">Unit System Design and Architecture</div>
+                
+              </div>
+            </a>
+        </div>
+        <div class="bottom-of-page">
+          <div class="left-details">
+            <div class="copyright">
+                Copyright &#169; 2024, Alliance for Sustainable Energy LLC, All rights reserved.
+            </div>
+            Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
+            
+            <a href="https://github.com/pradyunsg/furo">Furo</a>
+            
+          </div>
+          <div class="right-details">
+            <div class="icons">
+              <a class="muted-link " href="https://github.com/NREL/r2x-core" aria-label="GitHub">
+                <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16">
+                    <path fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"></path>
+                </svg>
+            </a>
+              
+            </div>
+          </div>
+        </div>
+        
+      </footer>
+    </div>
+    <aside class="toc-drawer">
+      
+      
+      <div class="toc-sticky toc-scroll">
+        <div class="toc-title-container">
+          <span class="toc-title">
+            On this page
+          </span>
+        </div>
+        <div class="toc-tree-container">
+          <div class="toc-tree">
+            <ul>
+<li><a class="reference internal" href="#">HDF5 Reader System</a><ul>
+<li><a class="reference internal" href="#overview">Overview</a></li>
+<li><a class="reference internal" href="#design-philosophy">Design Philosophy</a></li>
+<li><a class="reference internal" href="#how-the-reader-works">How the Reader Works</a><ul>
+<li><a class="reference internal" href="#default-behavior">Default Behavior</a></li>
+<li><a class="reference internal" href="#specifying-the-data-location">Specifying the Data Location</a></li>
+<li><a class="reference internal" href="#adding-column-names">Adding Column Names</a></li>
+<li><a class="reference internal" href="#parsing-datetime-fields">Parsing Datetime Fields</a></li>
+<li><a class="reference internal" href="#including-additional-metadata">Including Additional Metadata</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#configuration-parameters">Configuration Parameters</a></li>
+<li><a class="reference internal" href="#automatic-behaviors">Automatic Behaviors</a></li>
+<li><a class="reference internal" href="#architecture-decisions">Architecture Decisions</a><ul>
+<li><a class="reference internal" href="#configuration-over-custom-functions">Configuration Over Custom Functions</a></li>
+<li><a class="reference internal" href="#single-generic-reader-over-multiple-reader-classes">Single Generic Reader Over Multiple Reader Classes</a></li>
+<li><a class="reference internal" href="#single-dispatch-for-file-types">Single Dispatch for File Types</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#trade-offs">Trade-offs</a></li>
+<li><a class="reference internal" href="#future-considerations">Future Considerations</a></li>
+<li><a class="reference internal" href="#power-system-data-in-hdf5">Power System Data in HDF5</a><ul>
+<li><a class="reference internal" href="#common-power-system-data-characteristics">Common Power System Data Characteristics</a></li>
+<li><a class="reference internal" href="#typical-power-system-hdf5-layout">Typical Power System HDF5 Layout</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#examples-of-file-structures">Examples of File Structures</a><ul>
+<li><a class="reference internal" href="#reeds-hourly-time-series">ReEDS Hourly Time Series</a></li>
+<li><a class="reference internal" href="#plexos-interval-output">PLEXOS Interval Output</a></li>
+<li><a class="reference internal" href="#generic-energy-model-time-series">Generic Energy Model Time Series</a></li>
+<li><a class="reference internal" href="#scientific-measurements">Scientific Measurements</a></li>
+<li><a class="reference internal" href="#simple-tabular-data">Simple Tabular Data</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#summary">Summary</a><ul>
+<li><a class="reference internal" href="#practical-workflow">Practical Workflow</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+          </div>
+        </div>
+      </div>
+      
+      
+    </aside>
+  </div>
+</div><script src="../_static/documentation_options.js?v=9dc614e0"></script>
+    <script src="../_static/doctools.js?v=9a2dae69"></script>
+    <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/scripts/furo.js?v=46bd48cc"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=3a0c56fd"></script>
+    <script src="../_static/custom.js?v=40245e7d"></script>
+    </body>
+</html>

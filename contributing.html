@@ -1,0 +1,737 @@
+<!doctype html>
+<html class="no-js" lang="en" data-content_root="./">
+  <head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="index" title="Index" href="genindex.html"><link rel="search" title="Search" href="search.html"><link rel="prev" title="Results" href="references/results.html">
+
+    <!-- Generated with Sphinx 7.4.7 and Furo 2025.12.19 -->
+        <title>Contributing - r2x-core</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=d111a655" />
+    <link rel="stylesheet" type="text/css" href="_static/styles/furo.css?v=7bdb33bb" />
+    <link rel="stylesheet" type="text/css" href="_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="_static/autodoc_pydantic.css" />
+    <link rel="stylesheet" type="text/css" href="_static/sphinx-reports.e44b1595f1e09d5e109d001839ba3f42.css?v=0b41afa8" />
+    <link rel="stylesheet" type="text/css" href="_static/styles/furo-extensions.css?v=8dab3a3b" />
+    <link rel="stylesheet" type="text/css" href="_static/custom.css?v=48ff25d5" />
+    
+    
+
+
+<style>
+  body {
+    --color-code-background: #f2f2f2;
+  --color-code-foreground: #1e1e1e;
+  
+  }
+  @media not print {
+    body[data-theme="dark"] {
+      --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+    }
+    @media (prefers-color-scheme: dark) {
+      body:not([data-theme="light"]) {
+        --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+      }
+    }
+  }
+</style></head>
+  <body>
+    
+    <script>
+      document.body.dataset.theme = localStorage.getItem("theme") || "auto";
+    </script>
+    
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <symbol id="svg-toc" viewBox="0 0 24 24">
+    <title>Contents</title>
+    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024">
+      <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504-486H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0 632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 0 0 0 13.8z"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+    <title>Menu</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-menu">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+    <title>Expand</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-chevron-right">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </symbol>
+  <symbol id="svg-sun" viewBox="0 0 24 24">
+    <title>Light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="feather-sun">
+      <circle cx="12" cy="12" r="5"></circle>
+      <line x1="12" y1="1" x2="12" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="23"></line>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+      <line x1="1" y1="12" x2="3" y2="12"></line>
+      <line x1="21" y1="12" x2="23" y2="12"></line>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon" viewBox="0 0 24 24">
+    <title>Dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-moon">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  </symbol>
+  <symbol id="svg-sun-with-moon" viewBox="0 0 24 24">
+    <title>Auto light/dark, in light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path style="opacity: 50%" d="M 5.411 14.504 C 5.471 14.504 5.532 14.504 5.591 14.504 C 3.639 16.319 4.383 19.569 6.931 20.352 C 7.693 20.586 8.512 20.551 9.25 20.252 C 8.023 23.207 4.056 23.725 2.11 21.184 C 0.166 18.642 1.702 14.949 4.874 14.536 C 5.051 14.512 5.231 14.5 5.411 14.5 L 5.411 14.504 Z"/>
+      <line x1="14.5" y1="3.25" x2="14.5" y2="1.25"/>
+      <line x1="14.5" y1="15.85" x2="14.5" y2="17.85"/>
+      <line x1="10.044" y1="5.094" x2="8.63" y2="3.68"/>
+      <line x1="19" y1="14.05" x2="20.414" y2="15.464"/>
+      <line x1="8.2" y1="9.55" x2="6.2" y2="9.55"/>
+      <line x1="20.8" y1="9.55" x2="22.8" y2="9.55"/>
+      <line x1="10.044" y1="14.006" x2="8.63" y2="15.42"/>
+      <line x1="19" y1="5.05" x2="20.414" y2="3.636"/>
+      <circle cx="14.5" cy="9.55" r="3.6"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon-with-sun" viewBox="0 0 24 24">
+    <title>Auto light/dark, in dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path d="M 8.282 7.007 C 8.385 7.007 8.494 7.007 8.595 7.007 C 5.18 10.184 6.481 15.869 10.942 17.24 C 12.275 17.648 13.706 17.589 15 17.066 C 12.851 22.236 5.91 23.143 2.505 18.696 C -0.897 14.249 1.791 7.786 7.342 7.063 C 7.652 7.021 7.965 7 8.282 7 L 8.282 7.007 Z"/>
+      <line style="opacity: 50%" x1="18" y1="3.705" x2="18" y2="2.5"/>
+      <line style="opacity: 50%" x1="18" y1="11.295" x2="18" y2="12.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="4.816" x2="14.464" y2="3.964"/>
+      <line style="opacity: 50%" x1="20.711" y1="10.212" x2="21.563" y2="11.063"/>
+      <line style="opacity: 50%" x1="14.205" y1="7.5" x2="13.001" y2="7.5"/>
+      <line style="opacity: 50%" x1="21.795" y1="7.5" x2="23" y2="7.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="10.184" x2="14.464" y2="11.036"/>
+      <line style="opacity: 50%" x1="20.711" y1="4.789" x2="21.563" y2="3.937"/>
+      <circle style="opacity: 50%" cx="18" cy="7.5" r="2.169"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-pencil" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-pencil-code">
+      <path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" />
+      <path d="M13.5 6.5l4 4" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+  <symbol id="svg-eye" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-eye-code">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+      <path
+        d="M11.11 17.958c-3.209 -.307 -5.91 -2.293 -8.11 -5.958c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6c-.21 .352 -.427 .688 -.647 1.008" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+</svg>
+
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation" aria-label="Toggle site navigation sidebar">
+<input type="checkbox" class="sidebar-toggle" name="__toc" id="__toc" aria-label="Toggle table of contents sidebar">
+<label class="overlay sidebar-overlay" for="__navigation"></label>
+<label class="overlay toc-overlay" for="__toc"></label>
+
+<a class="skip-to-content muted-link" href="#furo-main-content">Skip to content</a>
+
+<div class="announcement">
+  <aside class="announcement-content">
+     
+        <strong>🎉 R2X Core v1.0.0 is now available!</strong>
+        This is our first Long-Term Support (LTS) release.
+        <a href="https://github.com/NREL/r2x-core/releases/tag/v0.1.0" target="_blank">View release notes</a>
+     
+  </aside>
+</div>
+
+<div class="page">
+  <header class="mobile-header">
+    <div class="header-left">
+      <label class="nav-overlay-icon" for="__navigation">
+        <span class="icon"><svg><use href="#svg-menu"></use></svg></span>
+      </label>
+    </div>
+    <div class="header-center">
+      <a href="index.html"><div class="brand">r2x-core</div></a>
+    </div>
+    <div class="header-right">
+      <div class="theme-toggle-container theme-toggle-header">
+        <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+          <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+          <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+          <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+          <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+        </button>
+      </div>
+      <label class="toc-overlay-icon toc-header-icon" for="__toc">
+        <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+      </label>
+    </div>
+  </header>
+  <aside class="sidebar-drawer">
+    <div class="sidebar-container">
+      
+      <div class="sidebar-sticky"><a class="sidebar-brand" href="index.html">
+  
+  <span class="sidebar-brand-text">r2x-core</span>
+  
+</a><form class="sidebar-search-container" method="get" action="search.html" role="search">
+  <input class="sidebar-search" placeholder="Search" name="q" aria-label="Search">
+  <input type="hidden" name="check_keywords" value="yes">
+  <input type="hidden" name="area" value="default">
+</form>
+<div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
+  <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="install.html">Installation</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="tutorials/index.html">Tutorials</a><input aria-label="Toggle navigation of Tutorials" class="toctree-checkbox" id="toctree-checkbox-1" name="toctree-checkbox-1" role="switch" type="checkbox"/><label for="toctree-checkbox-1"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="tutorials/getting-started.html">Getting Started with R2X Core</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tutorials/working-with-units.html">Create Power System Components with Units</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tutorials/plugin-system.html">Plugin System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tutorials/plugin-context.html">Plugin Context</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tutorials/plugin-discovery.html">Plugin Discovery</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tutorials/plugin-utilities.html">Plugin Developer Utilities</a></li>
+</ul>
+</li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="how-tos/index.html">How-To Guides</a><input aria-label="Toggle navigation of How-To Guides" class="toctree-checkbox" id="toctree-checkbox-2" name="toctree-checkbox-2" role="switch" type="checkbox"/><label for="toctree-checkbox-2"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="how-tos/configure-data-settings.html">Configuring Data Settings</a></li>
+<li class="toctree-l2"><a class="reference internal" href="how-tos/configure-data-files.html">Working with DataFiles</a></li>
+<li class="toctree-l2"><a class="reference internal" href="how-tos/read-data-files.html">Read Data Files</a></li>
+<li class="toctree-l2"><a class="reference internal" href="how-tos/read-hdf5-files.html">Reading HDF5 Data Files</a></li>
+<li class="toctree-l2"><a class="reference internal" href="how-tos/manage-datastores.html">Managing Datastores</a></li>
+<li class="toctree-l2"><a class="reference internal" href="how-tos/process-file-data.html">Processing File Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="how-tos/convert-units.html">Work with Units</a></li>
+<li class="toctree-l2"><a class="reference internal" href="how-tos/manage-systems.html">Managing Systems</a></li>
+<li class="toctree-l2"><a class="reference internal" href="how-tos/attach-timeseries.html">Attaching Time Series</a></li>
+<li class="toctree-l2"><a class="reference internal" href="how-tos/build-parsers.html">Parser Basics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="how-tos/build-exporters.html">Exporter Basics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="how-tos/create-function-plugins.html">Create Function-Based Transform Plugins</a></li>
+<li class="toctree-l2"><a class="reference internal" href="how-tos/structure-plugin-directories.html">Plugin Directory Structure</a></li>
+<li class="toctree-l2"><a class="reference internal" href="how-tos/register-plugins.html">Create and Register Plugins</a></li>
+<li class="toctree-l2"><a class="reference internal" href="how-tos/run-plugins.html">Using Plugins</a></li>
+<li class="toctree-l2"><a class="reference internal" href="how-tos/define-rule-mappings.html">Working with Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="how-tos/create-rules.html">Create Translation Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="how-tos/apply-rules.html">Apply Translation Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="how-tos/create-rule-filters.html">Rule Filters</a></li>
+<li class="toctree-l2"><a class="reference internal" href="how-tos/manage-versions.html">Managing Versions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="how-tos/upgrade-data-files.html">Upgrade Data Between Versions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="how-tos/upgrade-systems.html">Upgrade Systems Between Versions</a></li>
+</ul>
+</li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="explanations/index.html">Explanations</a><input aria-label="Toggle navigation of Explanations" class="toctree-checkbox" id="toctree-checkbox-3" name="toctree-checkbox-3" role="switch" type="checkbox"/><label for="toctree-checkbox-3"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="explanations/plugin-system.html">Plugin System Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="explanations/unit-system.html">Unit System Design and Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="explanations/h5-readers.html">HDF5 Reader System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="explanations/rules-system.html">Rule System Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="explanations/data-management.html">Data Management: Design Philosophy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="explanations/versioning.html">Versioning and Upgrades: Design Philosophy</a></li>
+</ul>
+</li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="references/index.html">Reference</a><input aria-label="Toggle navigation of Reference" class="toctree-checkbox" id="toctree-checkbox-4" name="toctree-checkbox-4" role="switch" type="checkbox"/><label for="toctree-checkbox-4"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="references/api.html">API Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="references/system.html">System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="references/units.html">Units Module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="references/parser.html">Parser Framework</a></li>
+<li class="toctree-l2"><a class="reference internal" href="references/exporter.html">Exporter Framework</a></li>
+<li class="toctree-l2"><a class="reference internal" href="references/plugins.html">Plugin System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="references/versioning.html">Versioning Strategies</a></li>
+<li class="toctree-l2"><a class="reference internal" href="references/upgrader.html">Upgrade System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="references/processors.html">Data Processors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="references/utils.html">Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="references/exceptions.html">Exceptions Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="references/file-formats.html">File Formats</a></li>
+<li class="toctree-l2"><a class="reference internal" href="references/file-types.html">File Types API Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="references/models.html">Data Models</a></li>
+<li class="toctree-l2"><a class="reference internal" href="references/results.html">Results</a></li>
+</ul>
+</li>
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Contributing</a></li>
+</ul>
+
+</div>
+</div>
+
+      </div>
+      
+    </div>
+  </aside>
+  <div class="main">
+    <div class="content">
+      <div class="article-container">
+        <a href="#" class="back-to-top muted-link">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"></path>
+          </svg>
+          <span>Back to top</span>
+        </a>
+        <div class="content-icon-container">
+          <div class="view-this-page">
+  <a class="muted-link" href="https://github.com/NREL/r2x-core/blob/main/docs/source/contributing.md?plain=true" title="View this page">
+    <svg><use href="#svg-eye"></use></svg>
+    <span class="visually-hidden">View this page</span>
+  </a>
+</div><div class="edit-this-page">
+  <a class="muted-link" href="https://github.com/NREL/r2x-core/edit/main/docs/source/contributing.md" rel="edit" title="Edit this page">
+    <svg><use href="#svg-pencil"></use></svg>
+    <span class="visually-hidden">Edit this page</span>
+  </a>
+</div><div class="theme-toggle-container theme-toggle-content">
+            <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+              <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+              <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+              <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+              <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+            </button>
+          </div>
+          <label class="toc-overlay-icon toc-content-icon" for="__toc">
+            <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+          </label>
+        </div>
+        <article role="main" id="furo-main-content">
+          <section id="contributing">
+<h1>Contributing<a class="headerlink" href="#contributing" title="Link to this heading">¶</a></h1>
+<p>We welcome contributions to R2X Core! This guide will help you get started with contributing to the project.</p>
+<section id="development-setup">
+<h2>Development Setup<a class="headerlink" href="#development-setup" title="Link to this heading">¶</a></h2>
+<section id="how-to-set-up-a-development-environment">
+<h3>How to set up a development environment<a class="headerlink" href="#how-to-set-up-a-development-environment" title="Link to this heading">¶</a></h3>
+<p>Set up a development environment for contributing to R2X Core:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp"># </span>Clone<span class="w"> </span>the<span class="w"> </span>repository
+<span class="go">git clone https://github.com/NREL/r2x-core.git</span>
+<span class="go">cd r2x-core</span>
+
+<span class="gp"># </span>Install<span class="w"> </span>with<span class="w"> </span>development<span class="w"> </span>dependencies
+<span class="go">uv sync --dev</span>
+
+<span class="gp"># </span>Install<span class="w"> </span>prek<span class="w"> </span>hooks
+<span class="go">uv run prek install</span>
+</pre></div>
+</div>
+</section>
+<section id="how-to-run-tests">
+<h3>How to run tests<a class="headerlink" href="#how-to-run-tests" title="Link to this heading">¶</a></h3>
+<p>Execute the test suite:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp"># </span>Run<span class="w"> </span>all<span class="w"> </span>tests
+<span class="go">uv run pytest</span>
+
+<span class="gp"># </span>Run<span class="w"> </span>tests<span class="w"> </span>with<span class="w"> </span>coverage
+<span class="go">uv run pytest --cov --cov-report=xml</span>
+
+<span class="gp"># </span>Run<span class="w"> </span>tests<span class="w"> </span>with<span class="w"> </span>verbose<span class="w"> </span>output
+<span class="go">uv run pytest -vvl</span>
+</pre></div>
+</div>
+</section>
+<section id="how-to-run-code-quality-checks">
+<h3>How to run code quality checks<a class="headerlink" href="#how-to-run-code-quality-checks" title="Link to this heading">¶</a></h3>
+<p>Ensure code quality and consistency:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp"># </span>Run<span class="w"> </span>prek<span class="w"> </span>checks<span class="w"> </span>on<span class="w"> </span>all<span class="w"> </span>files
+<span class="go">uv run prek run --all-files</span>
+
+<span class="gp"># </span>Run<span class="w"> </span><span class="nb">type</span><span class="w"> </span>checking
+<span class="go">uv run mypy --config-file=pyproject.toml src/</span>
+
+<span class="gp"># </span>Run<span class="w"> </span>linting<span class="w"> </span>and<span class="w"> </span>formatting
+<span class="go">uv run ruff check src/</span>
+<span class="go">uv run ruff format src/</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="documentation">
+<h2>Documentation<a class="headerlink" href="#documentation" title="Link to this heading">¶</a></h2>
+<section id="how-to-build-documentation-locally">
+<h3>How to build documentation locally<a class="headerlink" href="#how-to-build-documentation-locally" title="Link to this heading">¶</a></h3>
+<p>Build and preview the documentation:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp"># </span>Navigate<span class="w"> </span>to<span class="w"> </span>docs<span class="w"> </span>directory
+<span class="go">cd docs</span>
+
+<span class="gp"># </span>Build<span class="w"> </span>HTML<span class="w"> </span>documentation
+<span class="go">make html</span>
+
+<span class="gp"># </span>Serve<span class="w"> </span>documentation<span class="w"> </span>locally<span class="w"> </span><span class="k">for</span><span class="w"> </span>live<span class="w"> </span>editing
+<span class="go">make livehtml</span>
+</pre></div>
+</div>
+</section>
+<section id="how-to-add-new-documentation">
+<h3>How to add new documentation<a class="headerlink" href="#how-to-add-new-documentation" title="Link to this heading">¶</a></h3>
+<p>Add new content to the documentation:</p>
+<ol class="arabic">
+<li><p>Create or edit markdown files in <code class="docutils literal notranslate"><span class="pre">docs/source/</span></code></p></li>
+<li><p>Update <code class="docutils literal notranslate"><span class="pre">docs/source/index.md</span></code> if adding new sections</p></li>
+<li><p>Build and preview locally:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="go">make html</span>
+</pre></div>
+</div>
+</li>
+<li><p>Check that links and references work correctly</p></li>
+</ol>
+</section>
+</section>
+<section id="contributing-guidelines">
+<h2>Contributing Guidelines<a class="headerlink" href="#contributing-guidelines" title="Link to this heading">¶</a></h2>
+<section id="how-to-contribute-to-r2x-core">
+<h3>How to contribute to R2X Core<a class="headerlink" href="#how-to-contribute-to-r2x-core" title="Link to this heading">¶</a></h3>
+<p>Follow these steps to contribute:</p>
+<ol class="arabic">
+<li><p><strong>Fork the repository</strong> on GitHub</p></li>
+<li><p><strong>Create a feature branch</strong>:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="go">git switch -c feature/my-new-feature</span>
+</pre></div>
+</div>
+</li>
+<li><p><strong>Make your changes</strong> following the coding standards</p></li>
+<li><p><strong>Run tests and checks</strong>:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="go">uv run pytest</span>
+<span class="go">uv run prek run --all-files</span>
+</pre></div>
+</div>
+</li>
+<li><p><strong>Commit your changes</strong> using conventional commit format:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="go">git commit -m &quot;feat: add new file reader for XYZ format&quot;</span>
+</pre></div>
+</div>
+</li>
+<li><p><strong>Push to your fork</strong> and create a pull request</p></li>
+</ol>
+</section>
+<section id="how-to-report-issues">
+<h3>How to report issues<a class="headerlink" href="#how-to-report-issues" title="Link to this heading">¶</a></h3>
+<p>Report bugs or request features:</p>
+<ol class="arabic simple">
+<li><p>Check existing issues on GitHub</p></li>
+<li><p>Create a new issue with:</p>
+<ul class="simple">
+<li><p>Clear description of the problem/feature</p></li>
+<li><p>Steps to reproduce (for bugs)</p></li>
+<li><p>Expected vs actual behavior</p></li>
+<li><p>Environment details (Python version, OS, etc.)</p></li>
+</ul>
+</li>
+</ol>
+</section>
+<section id="how-to-write-documentation">
+<h3>How to write documentation<a class="headerlink" href="#how-to-write-documentation" title="Link to this heading">¶</a></h3>
+<p>Follow documentation standards:</p>
+<ol class="arabic simple">
+<li><p>Use MyST Markdown format</p></li>
+<li><p>Follow Diataxis principles:</p>
+<ul class="simple">
+<li><p><strong>How-tos</strong>: Goal-oriented guides</p></li>
+<li><p><strong>Tutorials</strong>: Learning-oriented lessons</p></li>
+<li><p><strong>Reference</strong>: Information-oriented details</p></li>
+<li><p><strong>Explanation</strong>: Understanding-oriented discussion</p></li>
+</ul>
+</li>
+<li><p>Include code examples where appropriate</p></li>
+<li><p>Test documentation builds locally before submitting</p></li>
+</ol>
+</section>
+</section>
+<section id="git-conventions">
+<h2>Git Conventions<a class="headerlink" href="#git-conventions" title="Link to this heading">¶</a></h2>
+<section id="branch-naming">
+<h3>Branch Naming<a class="headerlink" href="#branch-naming" title="Link to this heading">¶</a></h3>
+<p>Use descriptive branch names following this pattern:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="o">&lt;</span><span class="nb">type</span><span class="o">&gt;/&lt;</span><span class="n">scope</span><span class="o">&gt;</span>
+</pre></div>
+</div>
+<p><strong>Types:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">feature/</span></code> - New features</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">fix/</span></code> - Bug fixes</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">docs/</span></code> - Documentation changes</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">chore/</span></code> - Maintenance tasks</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">refactor/</span></code> - Code improvements</p></li>
+</ul>
+<p><strong>Examples:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">feature/plexos-parser</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">fix/data-validation</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">docs/api-reference</span></code></p></li>
+</ul>
+</section>
+<section id="commit-message-format">
+<h3>Commit Message Format<a class="headerlink" href="#commit-message-format" title="Link to this heading">¶</a></h3>
+<p>Follow the <a class="reference external" href="https://karma-runner.github.io/6.4/dev/git-commit-msg.html">Angular/Karma</a> convention:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="o">&lt;</span><span class="nb">type</span><span class="o">&gt;</span><span class="p">[</span><span class="n">optional</span> <span class="n">scope</span><span class="p">]:</span> <span class="o">&lt;</span><span class="n">description</span><span class="o">&gt;</span>
+
+<span class="p">[</span><span class="n">optional</span> <span class="n">body</span><span class="p">]</span>
+
+<span class="p">[</span><span class="n">optional</span> <span class="n">footer</span><span class="p">(</span><span class="n">s</span><span class="p">)]</span>
+</pre></div>
+</div>
+<p><strong>Types:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">feat</span></code>: New features</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">fix</span></code>: Bug fixes</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">docs</span></code>: Documentation changes</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">style</span></code>: Code style changes (formatting, missing semicolons, etc.)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">refactor</span></code>: Code changes that neither fix bugs nor add features</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">test</span></code>: Adding or modifying tests</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">chore</span></code>: Changes to build process or auxiliary tools</p></li>
+</ul>
+<p><strong>Examples:</strong></p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">feat</span><span class="p">(</span><span class="n">parser</span><span class="p">):</span> <span class="n">add</span> <span class="n">support</span> <span class="k">for</span> <span class="n">PLEXOS</span> <span class="n">XML</span> <span class="n">files</span>
+<span class="n">fix</span><span class="p">(</span><span class="n">validation</span><span class="p">):</span> <span class="n">handle</span> <span class="n">missing</span> <span class="n">data</span> <span class="n">columns</span>
+<span class="n">docs</span><span class="p">:</span> <span class="n">update</span> <span class="n">API</span> <span class="n">reference</span> <span class="k">for</span> <span class="n">DataStore</span>
+</pre></div>
+</div>
+</section>
+<section id="pull-request-guidelines">
+<h3>Pull Request Guidelines<a class="headerlink" href="#pull-request-guidelines" title="Link to this heading">¶</a></h3>
+<ol class="arabic simple">
+<li><p><strong>Create from feature branch</strong>: Always branch from <code class="docutils literal notranslate"><span class="pre">main</span></code></p></li>
+<li><p><strong>Keep changes focused</strong>: One feature or fix per PR</p></li>
+<li><p><strong>Include tests</strong>: All new code must have corresponding tests</p></li>
+<li><p><strong>Update documentation</strong>: Include relevant documentation updates</p></li>
+<li><p><strong>Clean commit history</strong>: Squash commits if necessary</p></li>
+</ol>
+</section>
+<section id="git-workflow">
+<h3>Git Workflow<a class="headerlink" href="#git-workflow" title="Link to this heading">¶</a></h3>
+<p>We use a <strong>trunk-based development</strong> approach:</p>
+<ol class="arabic">
+<li><p><strong>Create feature branch</strong> from <code class="docutils literal notranslate"><span class="pre">main</span></code>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>switch<span class="w"> </span>-c<span class="w"> </span>feature/your-feature-name
+</pre></div>
+</div>
+</li>
+<li><p><strong>Make changes</strong> and commit regularly with clear messages</p></li>
+<li><p><strong>Keep branch updated</strong> with main:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>fetch<span class="w"> </span>origin
+git<span class="w"> </span>rebase<span class="w"> </span>origin/main
+</pre></div>
+</div>
+</li>
+<li><p><strong>Push and create PR</strong> when ready:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>push<span class="w"> </span>origin<span class="w"> </span>feature/your-feature-name
+</pre></div>
+</div>
+</li>
+<li><p><strong>Delete branch</strong> after merge:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>branch<span class="w"> </span>-d<span class="w"> </span>feature/your-feature-name
+</pre></div>
+</div>
+</li>
+</ol>
+</section>
+</section>
+<section id="development-practices">
+<h2>Development Practices<a class="headerlink" href="#development-practices" title="Link to this heading">¶</a></h2>
+<section id="code-quality-tools">
+<h3>Code Quality Tools<a class="headerlink" href="#code-quality-tools" title="Link to this heading">¶</a></h3>
+<p>We use <a class="reference external" href="https://docs.astral.sh/ruff/">Ruff</a> for linting and formatting:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Check for issues</span>
+uv<span class="w"> </span>run<span class="w"> </span>ruff<span class="w"> </span>check
+
+<span class="c1"># Auto-fix issues</span>
+uv<span class="w"> </span>run<span class="w"> </span>ruff<span class="w"> </span>check<span class="w"> </span>--fix
+
+<span class="c1"># Format code</span>
+uv<span class="w"> </span>run<span class="w"> </span>ruff<span class="w"> </span>format
+</pre></div>
+</div>
+</section>
+<section id="prek-hooks">
+<h3>Prek Hooks<a class="headerlink" href="#prek-hooks" title="Link to this heading">¶</a></h3>
+<p>Install prek hooks to automatically run checks:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>prek<span class="w"> </span>install
+</pre></div>
+</div>
+<p>This will run linting and formatting before each commit.</p>
+</section>
+<section id="type-checking">
+<h3>Type Checking<a class="headerlink" href="#type-checking" title="Link to this heading">¶</a></h3>
+<p>Use mypy for static type checking:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>mypy<span class="w"> </span>src/
+</pre></div>
+</div>
+</section>
+<section id="testing-standards">
+<h3>Testing Standards<a class="headerlink" href="#testing-standards" title="Link to this heading">¶</a></h3>
+<ul class="simple">
+<li><p><strong>Unit tests</strong>: Test individual functions and classes</p></li>
+<li><p><strong>Integration tests</strong>: Test component interactions</p></li>
+<li><p><strong>Coverage</strong>: Maintain minimum 80% code coverage</p></li>
+<li><p><strong>Clear test names</strong>: Use descriptive test function names</p></li>
+<li><p><strong>Isolated tests</strong>: Each test should be independent</p></li>
+</ul>
+</section>
+<section id="documentation-standards">
+<h3>Documentation Standards<a class="headerlink" href="#documentation-standards" title="Link to this heading">¶</a></h3>
+<p>We follow the <a class="reference external" href="https://diataxis.fr/">Diataxis</a> framework:</p>
+<ul class="simple">
+<li><p><strong>How-to guides</strong>: Problem-oriented practical steps</p></li>
+<li><p><strong>Tutorials</strong>: Learning-oriented lessons</p></li>
+<li><p><strong>Reference</strong>: Information-oriented technical descriptions</p></li>
+<li><p><strong>Explanation</strong>: Understanding-oriented discussions</p></li>
+</ul>
+</section>
+<section id="useful-python-references">
+<h3>Useful Python References<a class="headerlink" href="#useful-python-references" title="Link to this heading">¶</a></h3>
+<ul class="simple">
+<li><p><a class="reference external" href="https://peps.python.org/">Python Enhancement Proposals (PEPs)</a></p></li>
+<li><p><a class="reference external" href="https://mypy.readthedocs.io/en/stable/cheat_sheet_py3.html">Type Hints Cheat Sheet</a></p></li>
+<li><p><a class="reference external" href="https://docs.python-guide.org/writing/tests/">Testing Best Practices</a></p></li>
+</ul>
+</section>
+</section>
+<section id="code-standards">
+<h2>Code Standards<a class="headerlink" href="#code-standards" title="Link to this heading">¶</a></h2>
+<section id="coding-conventions">
+<h3>Coding Conventions<a class="headerlink" href="#coding-conventions" title="Link to this heading">¶</a></h3>
+<p>We follow Python best practices:</p>
+<ul class="simple">
+<li><p>PEP 8 style guide (enforced by Ruff)</p></li>
+<li><p>Type hints for all function signatures</p></li>
+<li><p>Docstrings for all public functions and classes</p></li>
+<li><p>Clear, descriptive variable and function names</p></li>
+</ul>
+</section>
+<section id="testing-requirements">
+<h3>Testing Requirements<a class="headerlink" href="#testing-requirements" title="Link to this heading">¶</a></h3>
+<ul class="simple">
+<li><p>All new features must include tests</p></li>
+<li><p>Maintain minimum 80% code coverage</p></li>
+<li><p>Tests should be clear and maintainable</p></li>
+<li><p>Use pytest for all testing</p></li>
+</ul>
+</section>
+</section>
+</section>
+
+        </article>
+      </div>
+      <footer>
+        
+        <div class="related-pages">
+          
+          <a class="prev-page" href="references/results.html">
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+              <div class="page-info">
+                <div class="context">
+                  <span>Previous</span>
+                </div>
+                
+                <div class="title">Results</div>
+                
+              </div>
+            </a>
+        </div>
+        <div class="bottom-of-page">
+          <div class="left-details">
+            <div class="copyright">
+                Copyright &#169; 2024, Alliance for Sustainable Energy LLC, All rights reserved.
+            </div>
+            Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
+            
+            <a href="https://github.com/pradyunsg/furo">Furo</a>
+            
+          </div>
+          <div class="right-details">
+            <div class="icons">
+              <a class="muted-link " href="https://github.com/NREL/r2x-core" aria-label="GitHub">
+                <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16">
+                    <path fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"></path>
+                </svg>
+            </a>
+              
+            </div>
+          </div>
+        </div>
+        
+      </footer>
+    </div>
+    <aside class="toc-drawer">
+      
+      
+      <div class="toc-sticky toc-scroll">
+        <div class="toc-title-container">
+          <span class="toc-title">
+            On this page
+          </span>
+        </div>
+        <div class="toc-tree-container">
+          <div class="toc-tree">
+            <ul>
+<li><a class="reference internal" href="#">Contributing</a><ul>
+<li><a class="reference internal" href="#development-setup">Development Setup</a><ul>
+<li><a class="reference internal" href="#how-to-set-up-a-development-environment">How to set up a development environment</a></li>
+<li><a class="reference internal" href="#how-to-run-tests">How to run tests</a></li>
+<li><a class="reference internal" href="#how-to-run-code-quality-checks">How to run code quality checks</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#documentation">Documentation</a><ul>
+<li><a class="reference internal" href="#how-to-build-documentation-locally">How to build documentation locally</a></li>
+<li><a class="reference internal" href="#how-to-add-new-documentation">How to add new documentation</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#contributing-guidelines">Contributing Guidelines</a><ul>
+<li><a class="reference internal" href="#how-to-contribute-to-r2x-core">How to contribute to R2X Core</a></li>
+<li><a class="reference internal" href="#how-to-report-issues">How to report issues</a></li>
+<li><a class="reference internal" href="#how-to-write-documentation">How to write documentation</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#git-conventions">Git Conventions</a><ul>
+<li><a class="reference internal" href="#branch-naming">Branch Naming</a></li>
+<li><a class="reference internal" href="#commit-message-format">Commit Message Format</a></li>
+<li><a class="reference internal" href="#pull-request-guidelines">Pull Request Guidelines</a></li>
+<li><a class="reference internal" href="#git-workflow">Git Workflow</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#development-practices">Development Practices</a><ul>
+<li><a class="reference internal" href="#code-quality-tools">Code Quality Tools</a></li>
+<li><a class="reference internal" href="#prek-hooks">Prek Hooks</a></li>
+<li><a class="reference internal" href="#type-checking">Type Checking</a></li>
+<li><a class="reference internal" href="#testing-standards">Testing Standards</a></li>
+<li><a class="reference internal" href="#documentation-standards">Documentation Standards</a></li>
+<li><a class="reference internal" href="#useful-python-references">Useful Python References</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#code-standards">Code Standards</a><ul>
+<li><a class="reference internal" href="#coding-conventions">Coding Conventions</a></li>
+<li><a class="reference internal" href="#testing-requirements">Testing Requirements</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+          </div>
+        </div>
+      </div>
+      
+      
+    </aside>
+  </div>
+</div><script src="_static/documentation_options.js?v=9dc614e0"></script>
+    <script src="_static/doctools.js?v=9a2dae69"></script>
+    <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/scripts/furo.js?v=46bd48cc"></script>
+    <script src="_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="_static/copybutton.js?v=3a0c56fd"></script>
+    <script src="_static/custom.js?v=40245e7d"></script>
+    </body>
+</html>

@@ -1,0 +1,768 @@
+<!doctype html>
+<html class="no-js" lang="en" data-content_root="../">
+  <head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="HDF5 Reader System" href="h5-readers.html"><link rel="prev" title="Plugin System Architecture" href="plugin-system.html">
+
+    <!-- Generated with Sphinx 7.4.7 and Furo 2025.12.19 -->
+        <title>Unit System Design and Architecture - r2x-core</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d111a655" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/autodoc_pydantic.css" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-reports.e44b1595f1e09d5e109d001839ba3f42.css?v=0b41afa8" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=48ff25d5" />
+    
+    
+
+
+<style>
+  body {
+    --color-code-background: #f2f2f2;
+  --color-code-foreground: #1e1e1e;
+  
+  }
+  @media not print {
+    body[data-theme="dark"] {
+      --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+    }
+    @media (prefers-color-scheme: dark) {
+      body:not([data-theme="light"]) {
+        --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+      }
+    }
+  }
+</style></head>
+  <body>
+    
+    <script>
+      document.body.dataset.theme = localStorage.getItem("theme") || "auto";
+    </script>
+    
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <symbol id="svg-toc" viewBox="0 0 24 24">
+    <title>Contents</title>
+    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024">
+      <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504-486H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0 632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 0 0 0 13.8z"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+    <title>Menu</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-menu">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+    <title>Expand</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-chevron-right">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </symbol>
+  <symbol id="svg-sun" viewBox="0 0 24 24">
+    <title>Light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="feather-sun">
+      <circle cx="12" cy="12" r="5"></circle>
+      <line x1="12" y1="1" x2="12" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="23"></line>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+      <line x1="1" y1="12" x2="3" y2="12"></line>
+      <line x1="21" y1="12" x2="23" y2="12"></line>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon" viewBox="0 0 24 24">
+    <title>Dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-moon">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  </symbol>
+  <symbol id="svg-sun-with-moon" viewBox="0 0 24 24">
+    <title>Auto light/dark, in light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path style="opacity: 50%" d="M 5.411 14.504 C 5.471 14.504 5.532 14.504 5.591 14.504 C 3.639 16.319 4.383 19.569 6.931 20.352 C 7.693 20.586 8.512 20.551 9.25 20.252 C 8.023 23.207 4.056 23.725 2.11 21.184 C 0.166 18.642 1.702 14.949 4.874 14.536 C 5.051 14.512 5.231 14.5 5.411 14.5 L 5.411 14.504 Z"/>
+      <line x1="14.5" y1="3.25" x2="14.5" y2="1.25"/>
+      <line x1="14.5" y1="15.85" x2="14.5" y2="17.85"/>
+      <line x1="10.044" y1="5.094" x2="8.63" y2="3.68"/>
+      <line x1="19" y1="14.05" x2="20.414" y2="15.464"/>
+      <line x1="8.2" y1="9.55" x2="6.2" y2="9.55"/>
+      <line x1="20.8" y1="9.55" x2="22.8" y2="9.55"/>
+      <line x1="10.044" y1="14.006" x2="8.63" y2="15.42"/>
+      <line x1="19" y1="5.05" x2="20.414" y2="3.636"/>
+      <circle cx="14.5" cy="9.55" r="3.6"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon-with-sun" viewBox="0 0 24 24">
+    <title>Auto light/dark, in dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path d="M 8.282 7.007 C 8.385 7.007 8.494 7.007 8.595 7.007 C 5.18 10.184 6.481 15.869 10.942 17.24 C 12.275 17.648 13.706 17.589 15 17.066 C 12.851 22.236 5.91 23.143 2.505 18.696 C -0.897 14.249 1.791 7.786 7.342 7.063 C 7.652 7.021 7.965 7 8.282 7 L 8.282 7.007 Z"/>
+      <line style="opacity: 50%" x1="18" y1="3.705" x2="18" y2="2.5"/>
+      <line style="opacity: 50%" x1="18" y1="11.295" x2="18" y2="12.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="4.816" x2="14.464" y2="3.964"/>
+      <line style="opacity: 50%" x1="20.711" y1="10.212" x2="21.563" y2="11.063"/>
+      <line style="opacity: 50%" x1="14.205" y1="7.5" x2="13.001" y2="7.5"/>
+      <line style="opacity: 50%" x1="21.795" y1="7.5" x2="23" y2="7.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="10.184" x2="14.464" y2="11.036"/>
+      <line style="opacity: 50%" x1="20.711" y1="4.789" x2="21.563" y2="3.937"/>
+      <circle style="opacity: 50%" cx="18" cy="7.5" r="2.169"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-pencil" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-pencil-code">
+      <path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" />
+      <path d="M13.5 6.5l4 4" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+  <symbol id="svg-eye" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-eye-code">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+      <path
+        d="M11.11 17.958c-3.209 -.307 -5.91 -2.293 -8.11 -5.958c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6c-.21 .352 -.427 .688 -.647 1.008" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+</svg>
+
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation" aria-label="Toggle site navigation sidebar">
+<input type="checkbox" class="sidebar-toggle" name="__toc" id="__toc" aria-label="Toggle table of contents sidebar">
+<label class="overlay sidebar-overlay" for="__navigation"></label>
+<label class="overlay toc-overlay" for="__toc"></label>
+
+<a class="skip-to-content muted-link" href="#furo-main-content">Skip to content</a>
+
+<div class="announcement">
+  <aside class="announcement-content">
+     
+        <strong>🎉 R2X Core v1.0.0 is now available!</strong>
+        This is our first Long-Term Support (LTS) release.
+        <a href="https://github.com/NREL/r2x-core/releases/tag/v0.1.0" target="_blank">View release notes</a>
+     
+  </aside>
+</div>
+
+<div class="page">
+  <header class="mobile-header">
+    <div class="header-left">
+      <label class="nav-overlay-icon" for="__navigation">
+        <span class="icon"><svg><use href="#svg-menu"></use></svg></span>
+      </label>
+    </div>
+    <div class="header-center">
+      <a href="../index.html"><div class="brand">r2x-core</div></a>
+    </div>
+    <div class="header-right">
+      <div class="theme-toggle-container theme-toggle-header">
+        <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+          <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+          <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+          <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+          <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+        </button>
+      </div>
+      <label class="toc-overlay-icon toc-header-icon" for="__toc">
+        <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+      </label>
+    </div>
+  </header>
+  <aside class="sidebar-drawer">
+    <div class="sidebar-container">
+      
+      <div class="sidebar-sticky"><a class="sidebar-brand" href="../index.html">
+  
+  <span class="sidebar-brand-text">r2x-core</span>
+  
+</a><form class="sidebar-search-container" method="get" action="../search.html" role="search">
+  <input class="sidebar-search" placeholder="Search" name="q" aria-label="Search">
+  <input type="hidden" name="check_keywords" value="yes">
+  <input type="hidden" name="area" value="default">
+</form>
+<div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
+  <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../install.html">Installation</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../tutorials/index.html">Tutorials</a><input aria-label="Toggle navigation of Tutorials" class="toctree-checkbox" id="toctree-checkbox-1" name="toctree-checkbox-1" role="switch" type="checkbox"/><label for="toctree-checkbox-1"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/getting-started.html">Getting Started with R2X Core</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/working-with-units.html">Create Power System Components with Units</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/plugin-system.html">Plugin System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/plugin-context.html">Plugin Context</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/plugin-discovery.html">Plugin Discovery</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/plugin-utilities.html">Plugin Developer Utilities</a></li>
+</ul>
+</li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../how-tos/index.html">How-To Guides</a><input aria-label="Toggle navigation of How-To Guides" class="toctree-checkbox" id="toctree-checkbox-2" name="toctree-checkbox-2" role="switch" type="checkbox"/><label for="toctree-checkbox-2"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/configure-data-settings.html">Configuring Data Settings</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/configure-data-files.html">Working with DataFiles</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/read-data-files.html">Read Data Files</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/read-hdf5-files.html">Reading HDF5 Data Files</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/manage-datastores.html">Managing Datastores</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/process-file-data.html">Processing File Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/convert-units.html">Work with Units</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/manage-systems.html">Managing Systems</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/attach-timeseries.html">Attaching Time Series</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/build-parsers.html">Parser Basics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/build-exporters.html">Exporter Basics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/create-function-plugins.html">Create Function-Based Transform Plugins</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/structure-plugin-directories.html">Plugin Directory Structure</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/register-plugins.html">Create and Register Plugins</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/run-plugins.html">Using Plugins</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/define-rule-mappings.html">Working with Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/create-rules.html">Create Translation Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/apply-rules.html">Apply Translation Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/create-rule-filters.html">Rule Filters</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/manage-versions.html">Managing Versions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/upgrade-data-files.html">Upgrade Data Between Versions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-tos/upgrade-systems.html">Upgrade Systems Between Versions</a></li>
+</ul>
+</li>
+<li class="toctree-l1 current has-children"><a class="reference internal" href="index.html">Explanations</a><input aria-label="Toggle navigation of Explanations" checked="" class="toctree-checkbox" id="toctree-checkbox-3" name="toctree-checkbox-3" role="switch" type="checkbox"/><label for="toctree-checkbox-3"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="plugin-system.html">Plugin System Architecture</a></li>
+<li class="toctree-l2 current current-page"><a class="current reference internal" href="#">Unit System Design and Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="h5-readers.html">HDF5 Reader System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="rules-system.html">Rule System Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="data-management.html">Data Management: Design Philosophy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="versioning.html">Versioning and Upgrades: Design Philosophy</a></li>
+</ul>
+</li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../references/index.html">Reference</a><input aria-label="Toggle navigation of Reference" class="toctree-checkbox" id="toctree-checkbox-4" name="toctree-checkbox-4" role="switch" type="checkbox"/><label for="toctree-checkbox-4"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../references/api.html">API Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/system.html">System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/units.html">Units Module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/parser.html">Parser Framework</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/exporter.html">Exporter Framework</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/plugins.html">Plugin System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/versioning.html">Versioning Strategies</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/upgrader.html">Upgrade System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/processors.html">Data Processors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/utils.html">Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/exceptions.html">Exceptions Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/file-formats.html">File Formats</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/file-types.html">File Types API Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/models.html">Data Models</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/results.html">Results</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../contributing.html">Contributing</a></li>
+</ul>
+
+</div>
+</div>
+
+      </div>
+      
+    </div>
+  </aside>
+  <div class="main">
+    <div class="content">
+      <div class="article-container">
+        <a href="#" class="back-to-top muted-link">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"></path>
+          </svg>
+          <span>Back to top</span>
+        </a>
+        <div class="content-icon-container">
+          <div class="view-this-page">
+  <a class="muted-link" href="https://github.com/NREL/r2x-core/blob/main/docs/source/explanations/unit-system.md?plain=true" title="View this page">
+    <svg><use href="#svg-eye"></use></svg>
+    <span class="visually-hidden">View this page</span>
+  </a>
+</div><div class="edit-this-page">
+  <a class="muted-link" href="https://github.com/NREL/r2x-core/edit/main/docs/source/explanations/unit-system.md" rel="edit" title="Edit this page">
+    <svg><use href="#svg-pencil"></use></svg>
+    <span class="visually-hidden">Edit this page</span>
+  </a>
+</div><div class="theme-toggle-container theme-toggle-content">
+            <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+              <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+              <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+              <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+              <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+            </button>
+          </div>
+          <label class="toc-overlay-icon toc-content-icon" for="__toc">
+            <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+          </label>
+        </div>
+        <article role="main" id="furo-main-content">
+          <section id="unit-system-design-and-architecture">
+<h1>Unit System Design and Architecture<a class="headerlink" href="#unit-system-design-and-architecture" title="Link to this heading">¶</a></h1>
+<p>This document explains the design philosophy and implementation of the unit
+handling system in R2X Core, providing insight into how it works and why certain
+architectural decisions were made.</p>
+<section id="purpose-and-motivation">
+<h2>Purpose and Motivation<a class="headerlink" href="#purpose-and-motivation" title="Link to this heading">¶</a></h2>
+<p>Power system analysis fundamentally relies on per-unit normalization to enable
+meaningful comparisons across equipment with vastly different ratings. A 500 MVA
+generator and a 10 MVA generator cannot be directly compared using absolute
+power values, but expressing both as fractions of their respective rated
+capacities provides immediate insight into their operating states. The R2X Core
+unit system addresses the challenge of managing these normalizations while
+maintaining flexibility for different analysis contexts.</p>
+<p>Traditional power system software often hard-codes per-unit conversions or
+requires manual calculation by users. This approach introduces several problems.
+Data imported from external sources arrives in natural units that must be
+converted before use. Components moving between systems with different base
+values require recalculation. Display and reporting tools must handle multiple
+unit representations. The R2X Core unit system solves these challenges through
+automatic conversion, flexible display modes, and type-safe field annotations.</p>
+</section>
+<section id="core-design-principles">
+<h2>Core Design Principles<a class="headerlink" href="#core-design-principles" title="Link to this heading">¶</a></h2>
+<p>The unit system architecture follows several guiding principles that shape its
+implementation and usage patterns.</p>
+<section id="separation-of-storage-and-display">
+<h3>Separation of Storage and Display<a class="headerlink" href="#separation-of-storage-and-display" title="Link to this heading">¶</a></h3>
+<p>The system maintains a strict separation between how values are stored
+internally and how they are displayed to users. All per-unit quantities are
+stored internally as floating point numbers normalized to their designated base
+values. This internal representation never changes regardless of how the user
+chooses to view the data. Display modes are transient settings that affect only
+the string representation of values, not their underlying storage. This
+separation ensures that calculations always work with consistent values while
+allowing flexible reporting.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">r2x_core</span><span class="w"> </span><span class="kn">import</span> <span class="n">set_unit_system</span><span class="p">,</span> <span class="n">UnitSystem</span>
+
+<span class="c1"># Create a generator with a 100 MW base</span>
+<span class="n">gen</span> <span class="o">=</span> <span class="n">Generator</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;Gen1&quot;</span><span class="p">,</span> <span class="n">p_max</span><span class="o">=</span><span class="mf">0.5</span><span class="p">)</span>  <span class="c1"># 0.5 pu = 50 MW</span>
+
+<span class="c1"># Internal storage is always 0.5 (device-base pu)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">gen</span><span class="o">.</span><span class="n">p_max</span><span class="p">)</span>  <span class="c1"># Output: 0.5</span>
+
+<span class="c1"># Change display mode - underlying value unchanged</span>
+<span class="n">set_unit_system</span><span class="p">(</span><span class="n">UnitSystem</span><span class="o">.</span><span class="n">NATURAL_UNITS</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">gen</span><span class="p">)</span>  <span class="c1"># Display shows: 50.0 MW</span>
+
+<span class="n">set_unit_system</span><span class="p">(</span><span class="n">UnitSystem</span><span class="o">.</span><span class="n">DEVICE_BASE</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">gen</span><span class="p">)</span>  <span class="c1"># Display shows: 0.5 pu</span>
+
+<span class="c1"># Value accessed programmatically is always the same</span>
+<span class="k">assert</span> <span class="n">gen</span><span class="o">.</span><span class="n">p_max</span> <span class="o">==</span> <span class="mf">0.5</span>  <span class="c1"># Always true, regardless of display mode</span>
+</pre></div>
+</div>
+<div class="admonition important">
+<p class="admonition-title">Important</p>
+<p>Internal storage is always in device-base per-unit. Display modes (device-base, natural units, system-base) affect only the string representation when printing or generating reports. Calculations always operate on the consistent internal representation.</p>
+</div>
+</section>
+<section id="type-safety-through-annotations">
+<h3>Type Safety Through Annotations<a class="headerlink" href="#type-safety-through-annotations" title="Link to this heading">¶</a></h3>
+<p>Field annotations using Python’s typing system provide compile-time safety and
+runtime validation. When a field is annotated as
+<code class="docutils literal notranslate"><span class="pre">Annotated[float,</span> <span class="pre">Unit(&quot;pu&quot;,</span> <span class="pre">base=&quot;base_power&quot;)]</span></code>, the type system declares both
+the storage type (float) and the semantic meaning (per-unit referenced to
+base_power). Pydantic’s validator system hooks into these annotations to
+automatically convert input values to the correct internal representation.
+Invalid inputs are caught during construction rather than producing silent
+errors during calculation.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Annotated</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">r2x_core</span><span class="w"> </span><span class="kn">import</span> <span class="n">HasUnits</span><span class="p">,</span> <span class="n">Unit</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pydantic</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseModel</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Generator</span><span class="p">(</span><span class="n">HasUnits</span><span class="p">,</span> <span class="n">BaseModel</span><span class="p">):</span>
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">base_power</span><span class="p">:</span> <span class="nb">float</span>  <span class="c1"># In MW</span>
+    <span class="c1"># Power output as per-unit (normalized to base_power)</span>
+    <span class="n">p_max</span><span class="p">:</span> <span class="n">Annotated</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="n">Unit</span><span class="p">(</span><span class="s2">&quot;pu&quot;</span><span class="p">,</span> <span class="n">base</span><span class="o">=</span><span class="s2">&quot;base_power&quot;</span><span class="p">)]</span>
+    <span class="c1"># Voltage rating in absolute units</span>
+    <span class="n">voltage_kv</span><span class="p">:</span> <span class="n">Annotated</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="n">Unit</span><span class="p">(</span><span class="s2">&quot;kV&quot;</span><span class="p">)]</span>
+
+<span class="c1"># Type-safe inputs - automatic conversion</span>
+<span class="n">gen1</span> <span class="o">=</span> <span class="n">Generator</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Gen1&quot;</span><span class="p">,</span>
+    <span class="n">base_power</span><span class="o">=</span><span class="mf">100.0</span><span class="p">,</span>
+    <span class="n">p_max</span><span class="o">=</span><span class="mf">0.8</span><span class="p">,</span>  <span class="c1"># 0.8 pu</span>
+    <span class="n">voltage_kv</span><span class="o">=</span><span class="mf">13.8</span>
+<span class="p">)</span>
+
+<span class="c1"># Natural unit input - automatic conversion</span>
+<span class="n">gen2</span> <span class="o">=</span> <span class="n">Generator</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Gen2&quot;</span><span class="p">,</span>
+    <span class="n">base_power</span><span class="o">=</span><span class="mf">50.0</span><span class="p">,</span>
+    <span class="n">p_max</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;value&quot;</span><span class="p">:</span> <span class="mf">40.0</span><span class="p">,</span> <span class="s2">&quot;unit&quot;</span><span class="p">:</span> <span class="s2">&quot;MW&quot;</span><span class="p">},</span>  <span class="c1"># Converts to 0.8 pu (40/50)</span>
+    <span class="n">voltage_kv</span><span class="o">=</span><span class="mf">13.8</span>
+<span class="p">)</span>
+
+<span class="c1"># Both generators have same internal representation</span>
+<span class="k">assert</span> <span class="n">gen1</span><span class="o">.</span><span class="n">p_max</span> <span class="o">==</span> <span class="n">gen2</span><span class="o">.</span><span class="n">p_max</span> <span class="o">==</span> <span class="mf">0.8</span>  <span class="c1"># True</span>
+</pre></div>
+</div>
+</section>
+<section id="composability-and-inheritance">
+<h3>Composability and Inheritance<a class="headerlink" href="#composability-and-inheritance" title="Link to this heading">¶</a></h3>
+<p>Components can inherit from either <code class="docutils literal notranslate"><span class="pre">HasUnits</span></code> or <code class="docutils literal notranslate"><span class="pre">HasPerUnit</span></code> depending on
+whether they need system-base tracking. The <code class="docutils literal notranslate"><span class="pre">HasUnits</span></code> mixin provides unit field
+support without any dependency on system base values, making it suitable for
+components with fixed units or quantities that do not participate in system-wide
+normalization. The <code class="docutils literal notranslate"><span class="pre">HasPerUnit</span></code> class extends <code class="docutils literal notranslate"><span class="pre">HasUnits</span></code> to add system-base
+tracking through a private <code class="docutils literal notranslate"><span class="pre">_system_base</span></code> attribute. This hierarchical design
+allows components to opt into exactly the features they need.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Annotated</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">r2x_core</span><span class="w"> </span><span class="kn">import</span> <span class="n">HasUnits</span><span class="p">,</span> <span class="n">HasPerUnit</span><span class="p">,</span> <span class="n">Unit</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pydantic</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseModel</span>
+
+<span class="c1"># Standalone component without system integration</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">Transformer</span><span class="p">(</span><span class="n">HasUnits</span><span class="p">,</span> <span class="n">BaseModel</span><span class="p">):</span>
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">impedance</span><span class="p">:</span> <span class="n">Annotated</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="n">Unit</span><span class="p">(</span><span class="s2">&quot;ohm&quot;</span><span class="p">)]</span>  <span class="c1"># Fixed unit, no per-unit</span>
+    <span class="n">x_r_ratio</span><span class="p">:</span> <span class="nb">float</span>  <span class="c1"># Dimensionless quantity</span>
+
+<span class="c1"># Transformers don&#39;t need system base</span>
+<span class="n">transformer</span> <span class="o">=</span> <span class="n">Transformer</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;TX1&quot;</span><span class="p">,</span>
+    <span class="n">impedance</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span>
+    <span class="n">x_r_ratio</span><span class="o">=</span><span class="mf">2.0</span>
+<span class="p">)</span>
+
+<span class="c1"># System-integrated component</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">Generator</span><span class="p">(</span><span class="n">HasPerUnit</span><span class="p">,</span> <span class="n">BaseModel</span><span class="p">):</span>
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">base_power</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="n">p_max</span><span class="p">:</span> <span class="n">Annotated</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="n">Unit</span><span class="p">(</span><span class="s2">&quot;pu&quot;</span><span class="p">,</span> <span class="n">base</span><span class="o">=</span><span class="s2">&quot;base_power&quot;</span><span class="p">)]</span>
+    <span class="c1"># Can access system base when added to a system</span>
+
+<span class="c1"># Generators can use system-base display when added to a System</span>
+<span class="n">gen</span> <span class="o">=</span> <span class="n">Generator</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;Gen1&quot;</span><span class="p">,</span> <span class="n">base_power</span><span class="o">=</span><span class="mf">100.0</span><span class="p">,</span> <span class="n">p_max</span><span class="o">=</span><span class="mf">0.8</span><span class="p">)</span>
+<span class="c1"># gen._system_base is set when added to a System</span>
+</pre></div>
+</div>
+<div class="admonition tip">
+<p class="admonition-title">Tip</p>
+<p>Use <code class="docutils literal notranslate"><span class="pre">HasUnits</span></code> for standalone components that don’t need system integration. Use <code class="docutils literal notranslate"><span class="pre">HasPerUnit</span></code> when components will be added to a <code class="docutils literal notranslate"><span class="pre">System</span></code> and need system-base display capabilities.</p>
+</div>
+</section>
+</section>
+<section id="architecture-overview">
+<h2>Architecture Overview<a class="headerlink" href="#architecture-overview" title="Link to this heading">¶</a></h2>
+<p>The unit system consists of four main components that work together to provide
+seamless unit handling.</p>
+<section id="unit-specifications-unitspec">
+<h3>Unit Specifications (UnitSpec)<a class="headerlink" href="#unit-specifications-unitspec" title="Link to this heading">¶</a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">UnitSpec</span></code> class serves as metadata attached to field annotations. Each
+specification contains two key pieces of information: the physical unit of the
+quantity (such as “MVA” or “kV”) and an optional reference to a base field for
+per-unit calculations. When a field has no base reference, it stores absolute
+quantities in the specified unit. When a base reference is provided, the field
+stores per-unit values calculated relative to that base.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Annotated</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">r2x_core</span><span class="w"> </span><span class="kn">import</span> <span class="n">Unit</span>
+
+<span class="c1"># Specification without base - stores absolute quantity</span>
+<span class="n">voltage</span><span class="p">:</span> <span class="n">Annotated</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="n">Unit</span><span class="p">(</span><span class="s2">&quot;kV&quot;</span><span class="p">)]</span>
+
+<span class="c1"># Specification with base - stores per-unit value</span>
+<span class="c1"># Stored as: input_value / base_mva</span>
+<span class="n">power_mva</span><span class="p">:</span> <span class="n">Annotated</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="n">Unit</span><span class="p">(</span><span class="s2">&quot;MVA&quot;</span><span class="p">,</span> <span class="n">base</span><span class="o">=</span><span class="s2">&quot;base_mva&quot;</span><span class="p">)]</span>
+
+<span class="c1"># Usage in a component</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">r2x_core</span><span class="w"> </span><span class="kn">import</span> <span class="n">HasUnits</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pydantic</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseModel</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Bus</span><span class="p">(</span><span class="n">HasUnits</span><span class="p">,</span> <span class="n">BaseModel</span><span class="p">):</span>
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">base_mva</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">100.0</span>
+
+    <span class="c1"># Absolute voltage</span>
+    <span class="n">voltage_kv</span><span class="p">:</span> <span class="n">Annotated</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="n">Unit</span><span class="p">(</span><span class="s2">&quot;kV&quot;</span><span class="p">)]</span>
+
+    <span class="c1"># Per-unit power</span>
+    <span class="n">p_mva</span><span class="p">:</span> <span class="n">Annotated</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="n">Unit</span><span class="p">(</span><span class="s2">&quot;MVA&quot;</span><span class="p">,</span> <span class="n">base</span><span class="o">=</span><span class="s2">&quot;base_mva&quot;</span><span class="p">)]</span>
+
+<span class="c1"># Natural unit input auto-conversion</span>
+<span class="n">bus</span> <span class="o">=</span> <span class="n">Bus</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Bus1&quot;</span><span class="p">,</span>
+    <span class="n">voltage_kv</span><span class="o">=</span><span class="mf">138.0</span><span class="p">,</span>
+    <span class="n">p_mva</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;value&quot;</span><span class="p">:</span> <span class="mf">50.0</span><span class="p">,</span> <span class="s2">&quot;unit&quot;</span><span class="p">:</span> <span class="s2">&quot;MVA&quot;</span><span class="p">}</span>  <span class="c1"># 50/100 = 0.5 pu internally</span>
+<span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="n">bus</span><span class="o">.</span><span class="n">p_mva</span><span class="p">)</span>  <span class="c1"># Output: 0.5 (stored as per-unit)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">bus</span><span class="o">.</span><span class="n">voltage_kv</span><span class="p">)</span>  <span class="c1"># Output: 138.0 (stored as absolute)</span>
+</pre></div>
+</div>
+<p>The specification integrates with Pydantic’s validation system through the
+<code class="docutils literal notranslate"><span class="pre">__get_pydantic_core_schema__</span></code> method. This integration allows natural unit
+inputs in dictionary form to be automatically converted during model
+construction. A user can provide <code class="docutils literal notranslate"><span class="pre">{&quot;value&quot;:</span> <span class="pre">150.0,</span> <span class="pre">&quot;unit&quot;:</span> <span class="pre">&quot;MVA&quot;}</span></code> and the
+validator converts this to per-unit by dividing by the appropriate base value.
+The validator also handles type coercion from integers to floats and validates
+that required base values are available.</p>
+</section>
+<section id="unit-aware-mixins-hasunits-and-hasperunit">
+<h3>Unit-Aware Mixins (HasUnits and HasPerUnit)<a class="headerlink" href="#unit-aware-mixins-hasunits-and-hasperunit" title="Link to this heading">¶</a></h3>
+<p>The mixin classes provide the foundation for components to declare and manage
+unit-aware fields. The <code class="docutils literal notranslate"><span class="pre">HasUnits</span></code> mixin implements the <code class="docutils literal notranslate"><span class="pre">__init_subclass__</span></code> hook
+to enforce that any class using units must also inherit from Pydantic’s
+<code class="docutils literal notranslate"><span class="pre">BaseModel</span></code>. This ensures that the validation machinery is available. The mixin
+also provides the <code class="docutils literal notranslate"><span class="pre">_get_unit_specs_map</span></code> method which introspects a class’s field
+annotations to build a mapping from field names to their <code class="docutils literal notranslate"><span class="pre">UnitSpec</span></code> metadata.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">HasPerUnit</span></code> class extends this foundation with system-base tracking. It
+adds a private <code class="docutils literal notranslate"><span class="pre">_system_base</span></code> attribute that stores the system base power when a
+component is added to a system. The <code class="docutils literal notranslate"><span class="pre">_get_system_base</span></code> method provides access to
+this value for conversion calculations. When display mode is set to system-base,
+the formatting system uses this stored value to convert device-base per-unit to
+system-base per-unit.</p>
+</section>
+<section id="utility-functions-and-conversions">
+<h3>Utility Functions and Conversions<a class="headerlink" href="#utility-functions-and-conversions" title="Link to this heading">¶</a></h3>
+<p>The utility module provides pure functions for unit conversion and formatting.
+The <code class="docutils literal notranslate"><span class="pre">_convert_to_internal</span></code> function takes an input value (either float or dict
+with value and unit), a unit specification, and base values, then returns the
+per-unit representation. This function handles the mathematical conversion
+including dimensional analysis through the Pint library when unit strings differ
+from base units.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">_format_for_display</span></code> function performs the inverse operation. Given an
+internal per-unit value, it consults the current display mode and converts to
+the appropriate representation. In device-base mode, it returns the per-unit
+value unchanged. In natural units mode, it multiplies by the base value and
+appends the base unit string. In system-base mode, it converts from device base
+to system base and appends the system-base indicator. This separation of
+conversion logic from component code maintains clean abstractions.</p>
+</section>
+<section id="global-display-state">
+<h3>Global Display State<a class="headerlink" href="#global-display-state" title="Link to this heading">¶</a></h3>
+<p>The unit system maintains a global display mode that affects all components
+simultaneously. This global state is managed through the <code class="docutils literal notranslate"><span class="pre">UnitSystem</span></code>
+enumeration which defines three modes: <code class="docutils literal notranslate"><span class="pre">DEVICE_BASE</span></code>, <code class="docutils literal notranslate"><span class="pre">NATURAL_UNITS</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">SYSTEM_BASE</span></code>. The <code class="docutils literal notranslate"><span class="pre">set_unit_system</span></code> function updates this global state, while
+the <code class="docutils literal notranslate"><span class="pre">get_unit_system</span></code> function retrieves it. A context manager <code class="docutils literal notranslate"><span class="pre">unit_system</span></code>
+allows temporary mode changes that automatically revert when the context exits.</p>
+<p>This global state design enables consistent reporting across an entire system.
+When generating a report, a user can set the display mode once and all
+components will render in that mode. The alternative of passing display mode to
+every formatting call would be cumbersome and error-prone. The global state is
+thread-local to support concurrent use in multi-threaded applications.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">unit_system</span></code> context manager provides a convenient way to temporarily change display mode for a specific code block, automatically reverting to the previous mode when the context exits.</p>
+</div>
+</section>
+</section>
+<section id="integration-with-system-class">
+<h2>Integration with System Class<a class="headerlink" href="#integration-with-system-class" title="Link to this heading">¶</a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">System</span></code> class plays a crucial role in the unit system by managing the
+relationship between components and the system base power. When the system is
+initialized, it stores the system base power and defines a custom Pint unit
+called “system_base” with that magnitude. This allows components to perform
+conversions using the Pint library’s dimension analysis.</p>
+<p>When components are added to a system through <code class="docutils literal notranslate"><span class="pre">add_components</span></code>, the system
+checks if they inherit from <code class="docutils literal notranslate"><span class="pre">HasPerUnit</span></code>. For components that do, it sets their
+<code class="docutils literal notranslate"><span class="pre">_system_base</span></code> attribute to the system’s base power value. The system also
+validates that components are not added to multiple systems with different base
+values, raising an error if such a conflict is detected. This validation
+prevents inconsistent state where a component’s per-unit values would be
+ambiguous.</p>
+<p>During deserialization from JSON, the system must restore this relationship. The
+<code class="docutils literal notranslate"><span class="pre">from_json</span></code> class method reconstructs the system and its components, then
+iterates over all <code class="docutils literal notranslate"><span class="pre">HasPerUnit</span></code> components to set their <code class="docutils literal notranslate"><span class="pre">_system_base</span></code>
+attributes. This ensures that system-base display mode works correctly after
+reloading a saved system.</p>
+</section>
+<section id="pint-integration-for-unit-conversion">
+<h2>Pint Integration for Unit Conversion<a class="headerlink" href="#pint-integration-for-unit-conversion" title="Link to this heading">¶</a></h2>
+<p>The R2X Core unit system leverages the Pint library for dimensional analysis and
+unit conversion. Pint provides a registry of known units and the mathematical
+relationships between them. When a user provides input in natural units that
+differ from the base unit (such as kW when the base is MVA), the conversion
+system uses Pint to perform the transformation.</p>
+<p>The integration creates a shared <code class="docutils literal notranslate"><span class="pre">UnitRegistry</span></code> instance that all conversions
+use. The system base power is registered as a custom unit within this registry,
+allowing expressions like <code class="docutils literal notranslate"><span class="pre">device_pu.to('system_base')</span></code> to work correctly.
+Pint’s dimensional analysis ensures that unit mismatches are caught. Attempting
+to convert a power quantity to a voltage unit will raise an exception rather
+than silently producing incorrect results.</p>
+<p>This integration provides robustness and extensibility. New units can be added
+to support different domains without modifying core conversion logic. The
+dimensional type system prevents common errors such as adding voltages to powers
+or multiplying incompatible quantities.</p>
+</section>
+<section id="performance-considerations">
+<h2>Performance Considerations<a class="headerlink" href="#performance-considerations" title="Link to this heading">¶</a></h2>
+<p>The unit system is designed with performance in mind for large-scale power
+system models. Internal storage in per-unit form means that most calculations
+work with simple floating point operations without unit tracking overhead.
+Conversion happens only at component construction and during display formatting.
+The validation system caches unit specifications during class definition rather
+than computing them for each instance.</p>
+<p>Display formatting is lazy and occurs only when string representations are
+requested. Accessing field values programmatically returns raw floats without
+formatting overhead. This design ensures that computational loops operating on
+component data do not pay any unit conversion penalty. Only user-facing
+operations such as printing or report generation incur the formatting cost.</p>
+<div class="admonition hint">
+<p class="admonition-title">Hint</p>
+<p>For performance-critical code, access component field values directly (e.g., <code class="docutils literal notranslate"><span class="pre">gen.output</span></code>) to get raw floats. Unit conversion overhead only occurs when converting string representations for display or logging.</p>
+</div>
+</section>
+<section id="design-trade-offs-and-alternatives">
+<h2>Design Trade-offs and Alternatives<a class="headerlink" href="#design-trade-offs-and-alternatives" title="Link to this heading">¶</a></h2>
+<p>The global display state design represents a trade-off between convenience and
+thread safety. An alternative design could pass display mode explicitly to every
+formatting operation, which would be more functional but significantly more
+verbose. The current design accepts the need for thread-local state in exchange
+for cleaner usage patterns.</p>
+<p>The choice to store all per-unit values in device-base internally could have
+been made differently. An alternative would be to convert everything to
+system-base at the point of system addition. This would simplify system-base
+display but would require recalculating values if components are moved between
+systems or if the system base changes. The current design maintains component
+autonomy at the cost of requiring both device and system base values for
+system-base display.</p>
+<p>The integration with Pydantic’s validation system through
+<code class="docutils literal notranslate"><span class="pre">__get_pydantic_core_schema__</span></code> tightly couples the unit system to Pydantic. An
+alternative design using custom descriptors or metaclasses could provide more
+independence but would lose the automatic validation, serialization, and type
+introspection that Pydantic provides. The trade-off favors integration for
+better developer experience.</p>
+</section>
+<section id="extension-points-and-future-directions">
+<h2>Extension Points and Future Directions<a class="headerlink" href="#extension-points-and-future-directions" title="Link to this heading">¶</a></h2>
+<p>The unit system architecture provides several extension points for future
+enhancement. Additional display modes could be added by extending the
+<code class="docutils literal notranslate"><span class="pre">UnitSystem</span></code> enumeration and implementing corresponding formatting logic.
+Support for complex units (such as impedance in ohms per mile) could be added
+through enhanced unit specifications. Per-component display mode overrides could
+allow mixing modes within a single report.</p>
+<p>The system could be extended to track uncertainty or ranges alongside values,
+enabling interval arithmetic for sensitivity analysis. Support for symbolic
+units in equations could facilitate automatic unit checking in complex
+calculations. Integration with optimization solvers could leverage unit
+information to improve numerical conditioning through automatic scaling.</p>
+</section>
+<section id="conclusion">
+<h2>Conclusion<a class="headerlink" href="#conclusion" title="Link to this heading">¶</a></h2>
+<p>The R2X Core unit system provides a robust foundation for handling the diverse
+unit requirements of power system analysis. By separating internal storage from
+external display, leveraging type annotations for safety, and integrating
+carefully with both Pydantic validation and the System class lifecycle, it
+achieves both flexibility and reliability. The architectural decisions reflect
+the practical needs of power system modeling while maintaining clean
+abstractions that support future extension.</p>
+</section>
+</section>
+
+        </article>
+      </div>
+      <footer>
+        
+        <div class="related-pages">
+          <a class="next-page" href="h5-readers.html">
+              <div class="page-info">
+                <div class="context">
+                  <span>Next</span>
+                </div>
+                <div class="title">HDF5 Reader System</div>
+              </div>
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+            </a>
+          <a class="prev-page" href="plugin-system.html">
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+              <div class="page-info">
+                <div class="context">
+                  <span>Previous</span>
+                </div>
+                
+                <div class="title">Plugin System Architecture</div>
+                
+              </div>
+            </a>
+        </div>
+        <div class="bottom-of-page">
+          <div class="left-details">
+            <div class="copyright">
+                Copyright &#169; 2024, Alliance for Sustainable Energy LLC, All rights reserved.
+            </div>
+            Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
+            
+            <a href="https://github.com/pradyunsg/furo">Furo</a>
+            
+          </div>
+          <div class="right-details">
+            <div class="icons">
+              <a class="muted-link " href="https://github.com/NREL/r2x-core" aria-label="GitHub">
+                <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16">
+                    <path fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"></path>
+                </svg>
+            </a>
+              
+            </div>
+          </div>
+        </div>
+        
+      </footer>
+    </div>
+    <aside class="toc-drawer">
+      
+      
+      <div class="toc-sticky toc-scroll">
+        <div class="toc-title-container">
+          <span class="toc-title">
+            On this page
+          </span>
+        </div>
+        <div class="toc-tree-container">
+          <div class="toc-tree">
+            <ul>
+<li><a class="reference internal" href="#">Unit System Design and Architecture</a><ul>
+<li><a class="reference internal" href="#purpose-and-motivation">Purpose and Motivation</a></li>
+<li><a class="reference internal" href="#core-design-principles">Core Design Principles</a><ul>
+<li><a class="reference internal" href="#separation-of-storage-and-display">Separation of Storage and Display</a></li>
+<li><a class="reference internal" href="#type-safety-through-annotations">Type Safety Through Annotations</a></li>
+<li><a class="reference internal" href="#composability-and-inheritance">Composability and Inheritance</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#architecture-overview">Architecture Overview</a><ul>
+<li><a class="reference internal" href="#unit-specifications-unitspec">Unit Specifications (UnitSpec)</a></li>
+<li><a class="reference internal" href="#unit-aware-mixins-hasunits-and-hasperunit">Unit-Aware Mixins (HasUnits and HasPerUnit)</a></li>
+<li><a class="reference internal" href="#utility-functions-and-conversions">Utility Functions and Conversions</a></li>
+<li><a class="reference internal" href="#global-display-state">Global Display State</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#integration-with-system-class">Integration with System Class</a></li>
+<li><a class="reference internal" href="#pint-integration-for-unit-conversion">Pint Integration for Unit Conversion</a></li>
+<li><a class="reference internal" href="#performance-considerations">Performance Considerations</a></li>
+<li><a class="reference internal" href="#design-trade-offs-and-alternatives">Design Trade-offs and Alternatives</a></li>
+<li><a class="reference internal" href="#extension-points-and-future-directions">Extension Points and Future Directions</a></li>
+<li><a class="reference internal" href="#conclusion">Conclusion</a></li>
+</ul>
+</li>
+</ul>
+
+          </div>
+        </div>
+      </div>
+      
+      
+    </aside>
+  </div>
+</div><script src="../_static/documentation_options.js?v=9dc614e0"></script>
+    <script src="../_static/doctools.js?v=9a2dae69"></script>
+    <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/scripts/furo.js?v=46bd48cc"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=3a0c56fd"></script>
+    <script src="../_static/custom.js?v=40245e7d"></script>
+    </body>
+</html>

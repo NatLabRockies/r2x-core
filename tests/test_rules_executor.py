@@ -1,6 +1,7 @@
 """Tests for the translation rule executor helpers."""
 
 import types
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -147,35 +148,42 @@ def test_attach_component_non_supplemental_success(source_system):
 class DummyConfig(PluginConfig):
     pass
 
+
 def test_resolve_source_class_multiple_types(monkeypatch):
     class DummyRule:
-        def get_source_types(self): return ["A", "B"]
+        def get_source_types(self):
+            return ["A", "B"]
+
     ctx = PluginContext(config=DummyConfig())
     monkeypatch.setattr(
         "r2x_core.rules_executor._resolve_component_type",
         lambda t, context: types.SimpleNamespace(
             is_err=lambda: False,
             ok=lambda: object,
-            map_err=lambda f: types.SimpleNamespace(is_err=lambda: False, ok=lambda: object)
+            map_err=lambda f: types.SimpleNamespace(is_err=lambda: False, ok=lambda: object),
         ),
     )
-    result = _resolve_source_class(DummyRule(), context=ctx)
+    result = _resolve_source_class(cast(Rule, DummyRule()), context=ctx)
     assert not result.is_err()
 
 
 def test_convert_component_with_class_regenerate_uuid():
     class DummyComponent:
         label = "foo"
-    def dummy_create(target_class, kwargs): return DummyComponent()
+
+    def dummy_create(target_class, kwargs):
+        return DummyComponent()
+
     import r2x_core.rules_executor as re
+
     orig_create = re._create_target_component
-    re._create_target_component = dummy_create
+    re._create_target_component = cast(Any, dummy_create)
     try:
         result = _convert_component_with_class(
-            rule=None,
+            rule=cast(Rule, None),
             source_component=types.SimpleNamespace(label="foo"),
             target_class=DummyComponent,
-            context=None,
+            context=cast(PluginContext, None),
             regenerate_uuid=True,
         )
         assert result.is_ok()
@@ -186,48 +194,98 @@ def test_convert_component_with_class_regenerate_uuid():
 def test_convert_component_target_type_fail(monkeypatch):
     class DummyRule:
         pass
+
     def fail_resolve(target_type, context):
         class DummyResult:
-            def map_err(self, f): return self
-            def and_then(self, f): return self
-            def is_err(self): return True
-            def ok(self): return None
+            def map_err(self, f):
+                return self
+
+            def and_then(self, f):
+                return self
+
+            def is_err(self):
+                return True
+
+            def ok(self):
+                return None
+
         return DummyResult()
+
     monkeypatch.setattr("r2x_core.rules_executor._resolve_component_type", fail_resolve)
-    result = _convert_component(DummyRule(), object(), "badtype", None, False)
+    result = _convert_component(
+        cast(Rule, DummyRule()), object(), "badtype", cast(PluginContext, None), False
+    )
     assert result.is_err()
 
 
 def test_apply_single_rule_no_components(monkeypatch):
     class DummyRule:
-        def get_target_types(self): return ["A"]
-        def get_source_types(self): return ["B"]
+        def get_target_types(self):
+            return ["A"]
+
+        def get_source_types(self):
+            return ["B"]
+
         system = "target"
         filter = None
-    ctx = PluginContext(config=DummyConfig(), target_system=object())
-    monkeypatch.setattr("r2x_core.rules_executor._resolve_source_class", lambda rule, context: types.SimpleNamespace(is_err=lambda: False, ok=lambda: object))
-    monkeypatch.setattr("r2x_core.rules_executor._resolve_component_type", lambda t, context: types.SimpleNamespace(is_err=lambda: False, ok=lambda: object, map_err=lambda f: types.SimpleNamespace(is_err=lambda: False, ok=lambda: object)))
-    monkeypatch.setattr("r2x_core.rules_executor._iter_system_components", lambda sys, class_type, filter_func=None: iter([]))
-    monkeypatch.setattr("r2x_core.rules_executor._build_target_fields", lambda src, rule, context: types.SimpleNamespace(is_err=lambda: False, ok=lambda: {"uuid": str(uuid4())}, map_err=lambda f: types.SimpleNamespace(is_err=lambda: False, ok=lambda: {"uuid": str(uuid4())})))
-    monkeypatch.setattr("r2x_core.rules_executor._create_target_component", lambda target_class, kwargs: object())
-    monkeypatch.setattr("r2x_core.rules_executor._attach_component", lambda component, src_component, context: types.SimpleNamespace(is_err=lambda: False, ok=lambda: None))
-    result = apply_single_rule(DummyRule(), context=ctx)
+
+    ctx = PluginContext(config=DummyConfig(), target_system=cast(System, object()))
+    monkeypatch.setattr(
+        "r2x_core.rules_executor._resolve_source_class",
+        lambda rule, context: types.SimpleNamespace(is_err=lambda: False, ok=lambda: object),
+    )
+    monkeypatch.setattr(
+        "r2x_core.rules_executor._resolve_component_type",
+        lambda t, context: types.SimpleNamespace(
+            is_err=lambda: False,
+            ok=lambda: object,
+            map_err=lambda f: types.SimpleNamespace(is_err=lambda: False, ok=lambda: object),
+        ),
+    )
+    monkeypatch.setattr(
+        "r2x_core.rules_executor._iter_system_components", lambda sys, class_type, filter_func=None: iter([])
+    )
+    monkeypatch.setattr(
+        "r2x_core.rules_executor._build_target_fields",
+        lambda src, rule, context: types.SimpleNamespace(
+            is_err=lambda: False,
+            ok=lambda: {"uuid": str(uuid4())},
+            map_err=lambda f: types.SimpleNamespace(is_err=lambda: False, ok=lambda: {"uuid": str(uuid4())}),
+        ),
+    )
+    monkeypatch.setattr(
+        "r2x_core.rules_executor._create_target_component", lambda target_class, kwargs: object()
+    )
+    monkeypatch.setattr(
+        "r2x_core.rules_executor._attach_component",
+        lambda component, src_component, context: types.SimpleNamespace(
+            is_err=lambda: False, ok=lambda: None
+        ),
+    )
+    result = apply_single_rule(cast(Rule, DummyRule()), context=ctx)
     assert result.is_ok()
 
 
 def test_attach_component_get_component_by_uuid_exception():
     class DummyComponent:
         uuid = "123"
+
     class DummySystem:
-        def get_component_by_uuid(self, uuid): raise Exception("fail")
-        def add_supplemental_attribute(self, target, component): pass
+        def get_component_by_uuid(self, uuid):
+            raise Exception("fail")
+
+        def add_supplemental_attribute(self, target, component):
+            pass
+
     class DummyContext:
         target_system = DummySystem()
+
     import r2x_core.rules_executor as re
+
     orig_is_supp = re._is_supplemental_attribute
-    re._is_supplemental_attribute = lambda c: True
+    re._is_supplemental_attribute = cast(Any, lambda c: True)
     try:
-        result = _attach_component(DummyComponent(), DummyComponent(), DummyContext())
+        result = _attach_component(DummyComponent(), DummyComponent(), cast(PluginContext, DummyContext()))
         assert result.is_err()
         assert "Cannot attach supplemental attribute" in str(result.err())
     finally:
@@ -237,4 +295,5 @@ def test_attach_component_get_component_by_uuid_exception():
 def test_is_supplemental_attribute_false():
     class NotSA:
         pass
-    assert not _is_supplemental_attribute(NotSA())
+
+    assert not _is_supplemental_attribute(cast(Any, NotSA()))

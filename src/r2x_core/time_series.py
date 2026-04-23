@@ -155,7 +155,8 @@ def _transfer_associations(
         target_uuids = set(uuid_to_type.keys())
         ts_type_idx = columns.index("time_series_type")
         filtered_rows = [
-            row for row in src_rows
+            row
+            for row in src_rows
             if row[columns.index("owner_uuid")] in target_uuids
             and row[ts_type_idx] != "DeterministicSingleTimeSeries"
         ]

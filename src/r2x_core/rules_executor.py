@@ -127,7 +127,9 @@ def apply_single_rule(rule: Rule, *, context: PluginContext) -> Result[RuleAppli
 
     found_component = False
 
-    for src_component in _iter_system_components(read_system, class_type=source_class, filter_func=filter_func):
+    for src_component in _iter_system_components(
+        read_system, class_type=source_class, filter_func=filter_func
+    ):
         found_component = True
         for target_class in resolved_targets:
             fields_result = _build_target_fields(src_component, rule=rule, context=context).map_err(
@@ -137,7 +139,7 @@ def apply_single_rule(rule: Rule, *, context: PluginContext) -> Result[RuleAppli
             if fields_result.is_err():
                 return fields_result.map(lambda _: RuleApplicationStats(converted=0, skipped=0))
 
-            kwargs = fields_result.ok()
+            kwargs = cast(dict[str, Any], fields_result.ok())
             if should_regenerate_uuid and "uuid" in kwargs:
                 kwargs = dict(kwargs)
                 kwargs["uuid"] = str(uuid4())
@@ -241,8 +243,11 @@ def _resolve_source_class(rule: Rule, *, context: PluginContext) -> Result[type[
     if len(source_types) > 1:
         logger.warning("Rule '{}' defines multiple source types; only '{}' will be used", rule, source_type)
 
-    return _resolve_component_type(source_type, context=context).map_err(
-        lambda e: ValueError(f"Failed to resolve source type '{source_type}': {e}")
+    return cast(
+        "Result[type[Component], ValueError]",
+        _resolve_component_type(source_type, context=context).map_err(
+            lambda e: ValueError(f"Failed to resolve source type '{source_type}': {e}")
+        ),
     )
 
 

@@ -6,7 +6,7 @@ description: |
   r2x-core plugins/rules/datastore/unit-system/versioning, translator
   discovery, model conversion pipelines, schema migrations, or function
   transforms built on infrasys System/Component models.
-license: MIT
+license: BSD-3-Clause
 metadata:
   author: r2x-core team
   version: "0.2.0"

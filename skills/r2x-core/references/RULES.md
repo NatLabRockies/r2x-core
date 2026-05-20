@@ -100,16 +100,19 @@ selected = RuleFilter(
 )
 ```
 
-Common filter ideas from docs/source:
+Supported filter fields and operators in current source:
 
-- equality/inequality: `eq`, `neq`
-- membership: `in`, `not_in`
-- numeric comparison: `gt`, `geq`, `lt`, `leq`
-- string checks: starts/contains style operations when source supports them
-- missing-field policy: `on_missing="include" | "exclude"` when available
+- leaf filters: `field`, `op`, `values`, optional `prefixes`, `casefold`, and
+  `on_missing`
+- composition: nested `any_of` or nested `all_of`, but not both on the same
+  filter
+- operators: `eq`, `neq`, `in`, `not_in`, `geq`, `startswith`,
+  `not_startswith`, `endswith`
+- missing-field policy: `on_missing="include" | "exclude"`
 
-Verify exact supported ops in `r2x_core.rules` / `r2x_core.utils._rules` before
-adding a new op to a package.
+Use `RuleFilter.matches(component)` when you need to evaluate one component in
+ad hoc diagnostics. Verify `r2x_core.rules.RuleFilter` before adding a new op
+to a package.
 
 ## Field mapping and getters
 

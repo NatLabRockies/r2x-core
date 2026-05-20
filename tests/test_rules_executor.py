@@ -7,6 +7,7 @@ from uuid import uuid4
 import pytest
 from fixtures.context import FIXTURE_MODEL_MODULES
 from fixtures.source_system import BusComponent, BusGeographicInfo
+from rust_ok import Err, Ok
 
 from r2x_core import (
     PluginConfig,
@@ -21,6 +22,7 @@ from r2x_core.rules_executor import (
     _convert_component,
     _convert_component_with_class,
     _is_supplemental_attribute,
+    _resolve_component_class,
     _resolve_source_class,
 )
 
@@ -157,14 +159,23 @@ def test_resolve_source_class_multiple_types(monkeypatch):
     ctx = PluginContext(config=DummyConfig())
     monkeypatch.setattr(
         "r2x_core.rules_executor._resolve_component_type",
-        lambda t, context: types.SimpleNamespace(
-            is_err=lambda: False,
-            ok=lambda: object,
-            map_err=lambda f: types.SimpleNamespace(is_err=lambda: False, ok=lambda: object),
-        ),
+        lambda t, context: Ok(BusComponent),
     )
     result = _resolve_source_class(cast(Rule, DummyRule()), context=ctx)
     assert not result.is_err()
+
+
+def test_resolve_component_class_rejects_non_component_type(monkeypatch):
+    ctx = PluginContext(config=DummyConfig())
+    monkeypatch.setattr(
+        "r2x_core.rules_executor._resolve_component_type",
+        lambda t, context: Ok(str),
+    )
+
+    result = _resolve_component_class("NotAComponent", context=ctx, label="source")
+
+    assert result.is_err()
+    assert "is not a Component subclass" in str(result.err())
 
 
 def test_convert_component_with_class_regenerate_uuid():
@@ -195,23 +206,10 @@ def test_convert_component_target_type_fail(monkeypatch):
     class DummyRule:
         pass
 
-    def fail_resolve(target_type, context):
-        class DummyResult:
-            def map_err(self, f):
-                return self
-
-            def and_then(self, f):
-                return self
-
-            def is_err(self):
-                return True
-
-            def ok(self):
-                return None
-
-        return DummyResult()
-
-    monkeypatch.setattr("r2x_core.rules_executor._resolve_component_type", fail_resolve)
+    monkeypatch.setattr(
+        "r2x_core.rules_executor._resolve_component_type",
+        lambda target_type, context: Err(TypeError("badtype not found")),
+    )
     result = _convert_component(
         cast(Rule, DummyRule()), object(), "badtype", cast(PluginContext, None), False
     )
@@ -236,11 +234,7 @@ def test_apply_single_rule_no_components(monkeypatch):
     )
     monkeypatch.setattr(
         "r2x_core.rules_executor._resolve_component_type",
-        lambda t, context: types.SimpleNamespace(
-            is_err=lambda: False,
-            ok=lambda: object,
-            map_err=lambda f: types.SimpleNamespace(is_err=lambda: False, ok=lambda: object),
-        ),
+        lambda t, context: Ok(BusComponent),
     )
     monkeypatch.setattr(
         "r2x_core.rules_executor._iter_system_components", lambda sys, class_type, filter_func=None: iter([])

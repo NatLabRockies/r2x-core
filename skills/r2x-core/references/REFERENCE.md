@@ -1,5 +1,26 @@
 # r2x-core Reference
 
+## Contracts (authoritative signatures)
+
+- `Plugin.run(*, ctx: PluginContext | None = None) -> PluginContext`
+- `apply_rules_to_context(context: PluginContext) -> TranslationResult`
+- `apply_single_rule(rule: Rule, *, context: PluginContext) -> Result[RuleApplicationStats, ValueError]`
+- `DataStore.add_data(data_files: Sequence[DataFile], *, overwrite: bool = False) -> None`
+- `DataStore.read_data(name: str, *, placeholders: dict[str, Any] | None = None) -> Any`
+- `VersionReader.read_version(folder_path: Path) -> str | None` (protocol)
+- `run_upgrade_step(data, *, step: UpgradeStep, upgrader_context=None) -> Result[Any, str]`
+
+## Wrong patterns (do not use)
+
+- `RuleFilter(lambda ...)`
+- `apply_rules_to_context(context, rules)`
+- `apply_single_rule(context, rule)`
+- Treating `plugin.run()` as `Result` (`is_err(result)`, `result.ok()`)
+- `DataFile(reader_config=..., processing=..., file_info=...)`
+- `VersionReader(strategy=...)`
+- `UpgradeStep(from_version=..., to_version=...)`
+- `run_upgrade_step(step, payload)`
+
 ## When to use
 
 Use this skill for concrete r2x-core operations that touch its public
@@ -15,6 +36,7 @@ keep infrasys-internal modeling questions in the `infrasys` skill.
 
 ## Additional reference documents
 
+- [QUICKREF.md](./QUICKREF.md), one-page call signatures and gotchas.
 - [PLUGINS.md](./PLUGINS.md), plugin lifecycle, hook capabilities, exposure,
   registration, and `PluginContext`.
 - [RULES.md](./RULES.md), `Rule`, `RuleFilter`, and rule executor semantics.
@@ -23,14 +45,11 @@ keep infrasys-internal modeling questions in the `infrasys` skill.
 - [UNITS.md](./UNITS.md), per-unit system and display modes.
 - [VERSIONING_UPGRADES.md](./VERSIONING_UPGRADES.md), upgrade steps and
   version strategies.
+- [UTILITIES.md](./UTILITIES.md), common extraction, creation, export, getter,
+  and time-series helpers.
 - [DISCOVERY.md](./DISCOVERY.md), how to find authoritative sources.
-- [EXAMPLES.md](./EXAMPLES.md), should-trigger and near-miss prompts.
-- [tools/check_api_symbols.py](./tools/check_api_symbols.py), public symbol
-  drift checker.
-- [tools/inspect_plugins.py](./tools/inspect_plugins.py), entry-point plugin
-  enumeration.
-- [tools/check_data_store.py](./tools/check_data_store.py), DataStore layout
-  validator.
+- [../evals/TRIGGER_PROMPTS.md](../evals/TRIGGER_PROMPTS.md), should-trigger
+  and near-miss prompts.
 
 ## Mental model
 
@@ -95,7 +114,7 @@ class ReEDSConfig(PluginConfig):
 
 class ReEDSTranslator(Plugin[ReEDSConfig]):
     def on_prepare(self):
-        # load inputs into self.context as needed
+        # load inputs into self.ctx as needed
         return Ok(None)
 
     def on_build(self):
@@ -115,44 +134,50 @@ plugin = ReEDSTranslator.from_context(context)
 result = plugin.run()
 ```
 
-`plugin.run()` returns a `Result`. Check it with `is_ok` / `is_err` rather
-than truthiness.
+`plugin.run()` returns `PluginContext` and raises `PluginError` on the first
+failing hook.
 
-### 3. Expose for entry-point discovery
+### 3. Expose function transforms for entry-point discovery
+
+`@expose_plugin` marks plain function transforms, not class plugins.
 
 ```python
-from r2x_core import expose_plugin
+from rust_ok import Ok, Result
+from r2x_core import PluginConfig, System, expose_plugin
+
+class TransformConfig(PluginConfig):
+    scale: float = 1.0
 
 @expose_plugin
-class ReEDSTranslator(Plugin[ReEDSConfig]):
-    ...
+def scale_system(system: System, config: TransformConfig) -> Result[System, str]:
+    return Ok(system)
 ```
 
-Plus in `pyproject.toml`:
+Typical function-transform entry point:
 
 ```toml
-[project.entry-points.r2x_plugin]
-reeds_translator = "my_pkg.plugins:ReEDSTranslator"
+[project.entry-points."r2x.transforms"]
+scale_system = "my_pkg.transforms:scale_system"
 ```
 
-Per repo convention: use `PluginConfig` and `@expose_plugin` directly. Do
-**not** add compatibility `try/except` fallbacks around the import.
+Class plugin entry-point group names have drifted in docs. Verify current
+source/discovery before editing `pyproject.toml`.
 
 ### 4. Configure a `DataStore`
 
 ```python
-from r2x_core import DataStore, DataFile, ReaderConfig, TabularProcessing
+from r2x_core import DataStore, DataFile
 
 store = DataStore(path="/data/reeds")
-store.add_data(
-    DataFile(name="generators", fpath="gen.csv"),
-    DataFile(name="loads", fpath="load.parquet"),
-)
+store.add_data([
+    DataFile(name="generators", relative_fpath="gen.csv"),
+    DataFile(name="loads", relative_fpath="load.parquet"),
+])
 df = store.read_data("generators")
 ```
 
-For HDF5 layouts, configure via `H5Format` and the H5 readers; see
-[DATA_STORE.md](./DATA_STORE.md).
+For HDF5 files, extension detection yields `H5Format`; configure layout with
+`ReaderConfig(kwargs=...)`; see [DATA_STORE.md](./DATA_STORE.md).
 
 ### 5. Declare and run rules
 
@@ -168,64 +193,69 @@ rules = [
         field_map={"name": "name", "capacity": "p_max_mw"},
     ),
 ]
-result = apply_rules_to_context(context, rules)
+context = context.evolve(
+    source_system=source_system,
+    target_system=target_system,
+    rules=tuple(rules),
+)
+result = apply_rules_to_context(context)
 ```
 
-For a single rule pass, use `apply_single_rule(context, rule)`.
+For a single rule pass, use `apply_single_rule(rule, context=context)`.
 
 ## API contracts (high-signal behavior)
 
 - `Plugin.run()` orchestrates implemented hooks in order; missing hooks are
-  skipped. The first `Err` short-circuits the chain.
-- `Plugin.get_implemented_hooks()` returns the list of hook names actually
+  skipped. The first hook `Err` is surfaced as a raised `PluginError`.
+- `Plugin.get_implemented_hooks()` returns the set of hook names actually
   overridden on the subclass; use it for capability reporting.
 - `Plugin.get_config_type()` returns the resolved `PluginConfig` subclass.
-- `PluginContext` carries the config and the in-progress `System`. Use it as
-  the single shared-state object passed between hooks and rule executors.
-- `apply_rules_to_context(context, rules)` returns a `TranslationResult`
+- `PluginContext` carries config, store, systems, rules, and metadata. It uses
+  `__slots__`; do not attach arbitrary attributes.
+- `apply_rules_to_context(context)` returns a `TranslationResult`
   aggregating per-rule `RuleResult` records.
-- `RuleFilter` composes with `&`, `|`, `~` to build composite predicates over
-  source records.
+- `RuleFilter` composes with nested `any_of` / `all_of` declarative clauses.
 - `DataStore.read_data(name)` returns the materialized payload using the
   reader chosen for the registered `DataFile`.
 - `DataStore.list_data()` returns the names of registered files; use this
   for inventory.
-- HDF5 access goes through `r2x_core.h5_readers`; use `H5Format` to declare
-  layout intent rather than reading raw datasets in plugin code.
+- HDF5 access goes through r2x-core readers; use `ReaderConfig(kwargs=...)` to
+  declare layout intent rather than reading raw datasets in plugin code.
 - `set_unit_system(UnitSystem.X)` is process-wide. Plugins should set it at
   the boundary they own and not toggle it mid-translation.
-- `run_upgrade_step(step, payload)` applies a single `UpgradeStep` and
-  returns a `Result`; chain steps deterministically using a
-  `VersionStrategy`.
+- `run_upgrade_step(payload, step=step)` applies a single `UpgradeStep` and
+  returns a `Result`; chain steps deterministically with explicit ordering.
 
 ## Failure playbook
 
 - `PluginError` raised on registration:
-  - Confirm `@expose_plugin` decoration and entry-point string in
-    `pyproject.toml`.
-  - Run `tools/inspect_plugins.py` to confirm visibility in the active env.
+  - Confirm entry-point group/name and import target in `pyproject.toml`.
+  - Inspect `importlib.metadata.entry_points(group="r2x_plugin")` in the
+    active environment to confirm visibility.
 - `ValidationError` from `PluginConfig`:
   - Inspect the Pydantic error tree; do not catch and reformat. Fix the
     config schema or input.
 - Hook returns `Err` and translation halts:
-  - Surface the contained error type; do not unwrap blindly. Use
-    `is_err(result)` and pattern-match.
+  - `Plugin.run()` raises `PluginError`; catch it at the boundary where you
+    want to map framework errors.
 - Rule silently skips components:
   - Inspect `RuleFilter` composition (precedence) and rule `version`.
   - Confirm `source_type` actually exists in the source records.
 - DataStore raises on `read_data`:
-  - Verify `DataFile.fpath` resolves under `DataStore.path`.
+  - Verify `DataFile` paths resolve under `store.folder`.
   - Confirm the file extension maps to a known `FileFormat`; otherwise
     declare `ReaderConfig` explicitly.
-  - Run `tools/check_data_store.py` to enumerate registered files and
-    formats.
+  - Use `store.list_data()` and inspect each `DataFile` mapping before
+    debugging reader internals.
 - Unit conversions disagree across plugins:
   - Confirm `set_unit_system(...)` is called once at process boundary, not
     per-plugin.
   - Confirm components mix in `HasPerUnit` consistently.
 - Upgrade chain fails mid-step:
-  - Verify `VersionReader` reports the expected source version.
-  - Confirm each `UpgradeStep` is idempotent and gated on `from_version`.
+  - Verify your `VersionReader.read_version(...)` implementation reports the
+    expected source version.
+  - Confirm each `UpgradeStep` is idempotent and constrained with
+    `min_version` / `max_version` where needed.
 
 ## Serialization and deserialization
 

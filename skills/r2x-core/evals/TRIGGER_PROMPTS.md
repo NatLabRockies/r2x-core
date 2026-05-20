@@ -13,7 +13,7 @@ Use these prompts to validate when this skill should activate.
 4. "Define a `Rule` mapping `SourceGenerator -> Generator` with a
    `RuleFilter` that excludes retired units, then wire it into the executor."
 5. "Configure a `DataStore` that reads `gen.csv`, `load.parquet`, and
-   `regions.h5` with the right `ReaderConfig` and `H5Format` per file."
+   `regions.h5` with the right `ReaderConfig` layout kwargs per file."
 6. "Convert a model that exposes natural-unit values into the per-unit
    system using `HasPerUnit`, with `UnitSystem.SYSTEM_BASE` for display."
 7. "Build an `UpgradeStep` chain to migrate datasets from v1 to v2 using
@@ -37,13 +37,13 @@ Use these prompts to validate when this skill should activate.
      `DATA_STORE.md`.
 2. "Plugin entry point is not discovered after install."
    - Trigger this skill, then use `PLUGINS.md` (registration / exposure
-     section) and `tools/inspect_plugins.py`.
+     section) and inspect `importlib.metadata.entry_points(group="r2x_plugin")`.
 3. "Rule mapping silently skips a component class."
    - Trigger this skill, then use `RULES.md` (filter and dependency
      sections) and `REFERENCE.md` (executor contract).
 4. "HDF5 reader returns the wrong shape for a time-indexed dataset."
-   - Trigger this skill, then use `DATA_STORE.md` (HDF5 + `H5Format`
-     section). Round-trip with `tools/check_data_store.py`.
+   - Trigger this skill, then use `DATA_STORE.md` (HDF5 `ReaderConfig`
+     layout kwargs section). Validate with `DataStore.list_data()` and targeted `read_data(...)` checks.
 5. "Per-unit conversion mismatches between two plugins."
    - Trigger this skill, then use `UNITS.md` and confirm both plugins use
      the same `set_unit_system(...)` configuration.

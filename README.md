@@ -1,36 +1,35 @@
 ### r2x-core
 
-> Extensible framework for power system model translation
+> Extensible framework for building power system model translators
 >
-> [![image](https://img.shields.io/pypi/v/r2x.svg)](https://pypi.python.org/pypi/r2x-core)
-> [![image](https://img.shields.io/pypi/l/r2x.svg)](https://pypi.python.org/pypi/r2x-core)
-> [![image](https://img.shields.io/pypi/pyversions/r2x.svg)](https://pypi.python.org/pypi/r2x-core)
-> [![CI](https://github.com/NREL/r2x/actions/workflows/CI.yaml/badge.svg)](https://github.com/NREL/r2x/actions/workflows/ci.yaml)
-> [![codecov](https://codecov.io/gh/NREL/r2x-core/branch/main/graph/badge.svg)](https://codecov.io/gh/NREL/r2x-core)
+> [![image](https://img.shields.io/pypi/v/r2x-core.svg)](https://pypi.python.org/pypi/r2x-core)
+> [![image](https://img.shields.io/pypi/l/r2x-core.svg)](https://pypi.python.org/pypi/r2x-core)
+> [![image](https://img.shields.io/pypi/pyversions/r2x-core.svg)](https://pypi.python.org/pypi/r2x-core)
+> [![CI](https://github.com/NatLabRockies/r2x-core/actions/workflows/ci.yaml/badge.svg)](https://github.com/NatLabRockies/r2x-core/actions/workflows/ci.yaml)
+> [![codecov](https://codecov.io/gh/NatLabRockies/r2x-core/branch/main/graph/badge.svg)](https://codecov.io/gh/NatLabRockies/r2x-core)
 > [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-> [![Documentation](https://github.com/NREL/r2x-core/actions/workflows/docs.yaml/badge.svg?branch=main)](https://nrel.github.io/r2x-core/)
-> [![Docstring Coverage](https://nrel.github.io/r2x-core/_static/docstr_coverage_badge.svg)](https://nrel.github.io/r2x-core/)
+> [![Documentation](https://github.com/NatLabRockies/r2x-core/actions/workflows/docs.yaml/badge.svg?branch=main)](https://natlabrockies.github.io/r2x-core/)
 
-R2X Core is a model-agnostic framework for building power system model translators. It provides the core infrastructure, data models, plugin architecture, and APIs that enable translation between different power system modeling platforms.
+R2X Core provides the shared infrastructure for translating between power-system
+model formats. It gives translator authors a typed plugin lifecycle, a
+configuration-driven data loading layer, declarative rule mapping, unit-aware
+models, and versioned upgrade helpers.
 
-## About R2X Core
+Use it when you are building or extending translators for models such as ReEDS,
+PLEXOS, SWITCH, Sienna, or other infrasys-backed power-system workflows.
 
-R2X Core serves as the foundation for building translators between power system models like ReEDS, PLEXOS, SWITCH, Sienna, and more. It provides a plugin-based architecture where you can register parsers, exporters, and transformations to create custom translation workflows.
+<p align="center">
+  <a href="#install">Install</a> ·
+  <a href="#quickstart">Quickstart</a> ·
+  <a href="#core-concepts">Core concepts</a> ·
+  <a href="#documentation">Documentation</a> ·
+  <a href="#development">Development</a> ·
+  <a href="#roadmap">Roadmap</a> ·
+  <a href="#contributing">Contributing</a> ·
+  <a href="#license">License</a>
+</p>
 
-## Features
-
-- Capability-based plugin architecture - Plugins implement only the hooks they need (validate, prepare, build, transform, translate, export, cleanup)
-- Declarative rule system - Define model translations through configuration, not code
-- Rule filters for selective translation - Composable filters to control which components rules process
-- Standardized component models - Power system components via [infrasys](https://github.com/NREL/infrasys)
-- Multiple file format support - Native support for CSV, HDF5, Parquet, JSON, and XML
-- Configurable HDF5 reader - Flexible configuration-driven approach for any HDF5 structure
-- Type-safe configuration - Pydantic-based `PluginConfig` with automatic validation
-- Per-unit system - Automatic unit handling with device-base, natural units, and system-base display modes
-- Flexible data store - Automatic format detection, intelligent caching, and component tracking
-- Entry point discovery - External packages can register plugins via setuptools/pyproject.toml entry points
-
-## Installation
+## Install
 
 ```console
 pip install r2x-core
@@ -42,167 +41,154 @@ Or with [uv](https://docs.astral.sh/uv/):
 uv add r2x-core
 ```
 
-**Python version support:** 3.11, 3.12, 3.13
+R2X Core supports Python 3.11, 3.12, and 3.13.
 
-## Quick Start
+## Quickstart
 
-### Using the DataStore
+### Load model input files
 
-The `DataStore` provides a high-level interface for managing and loading data files:
+`DataStore` manages named `DataFile` definitions and reads them through the
+configured `DataReader` pipeline.
 
 ```python
-from r2x_core import DataStore, DataFile
+from r2x_core import DataFile, DataStore, TabularProcessing
 
-# Create a DataStore pointing to your data directory
 store = DataStore(path="/path/to/data")
+store.add_data([
+    DataFile(
+        name="generators",
+        relative_fpath="gen.csv",
+        proc_spec=TabularProcessing(
+            column_mapping={"capacity_mw": "p_max_mw"},
+            filter_by={"status": "active"},
+        ),
+    ),
+    DataFile(name="loads", relative_fpath="load.parquet"),
+])
 
-# Add files to the store
-data_file = DataFile(name="generators", fpath="gen.csv")
-store.add_data(data_file)
-
-# Or add multiple files at once
-files = [
-    DataFile(name="generators", fpath="gen.csv"),
-    DataFile(name="loads", fpath="load.csv"),
-    DataFile(name="buses", fpath="buses.h5")
-]
-store.add_data(*files)
-
-# Read data from the store
-gen_data = store.read_data("generators")
-
-# List all available data files
-available_files = store.list_data()
-
-# Remove a data file
-store.remove_data("generators")
+generators = store.read_data("generators")
+available = store.list_data()
 ```
 
-### Building a Model Translator with Plugins
+Use `relative_fpath` for files under the store root, `fpath` for explicit paths,
+and `ReaderConfig(kwargs=...)` when the default reader needs format-specific
+options such as HDF5 dataset keys.
 
-Create a plugin to translate power system models:
+### Build a class-based translator plugin
+
+Class plugins implement only the lifecycle hooks they need. Hooks return
+`Ok(...)` or `Err(...)`; `Plugin.run()` returns the final `PluginContext` and
+raises `PluginError` on the first hook failure.
 
 ```python
-from r2x_core import Plugin, PluginConfig, PluginContext, Rule, System, DataStore
 from rust_ok import Ok
 
-# Define type-safe configuration
+from r2x_core import Plugin, PluginConfig, PluginContext, System
+
+
 class MyModelConfig(PluginConfig):
     input_folder: str
     model_year: int
     scenario: str = "base"
 
-# Implement your translator plugin
-class MyModelTranslator(Plugin[MyModelConfig]):
-    def on_prepare(self):
-        # Load data and setup resources
-        return Ok(None)
 
+class MyModelTranslator(Plugin[MyModelConfig]):
     def on_build(self):
-        # Create system from input data
         system = System(name=f"{self.config.scenario}_{self.config.model_year}")
         return Ok(system)
 
-    def on_translate(self):
-        # Define translation rules
-        rules = [
-            Rule(
-                name="translate_generators",
-                source_type="SourceGenerator",
-                target_type="Generator",
-                version=1,
-                field_map={
-                    "name": "name",
-                    "capacity": "p_max_mw",
-                    "location": "zone",
-                }
-            ),
-        ]
-        # Apply rules to create target system
-        return Ok(self.system)
 
-# Execute the translation
 config = MyModelConfig(input_folder="/path/to/data", model_year=2030)
 context = PluginContext(config=config)
 plugin = MyModelTranslator.from_context(context)
 result = plugin.run()
-print(f"Translated system: {result.system.name}")
+
+print(result.system.name)
 ```
 
-### Plugin Registration and Discovery
+### Create a function transform
 
-Register plugins via `pyproject.toml` entry points for automatic discovery:
-
-```toml
-[project.entry-points.r2x_plugin]
-my_model_translator = "my_package.plugins:MyModelTranslator"
-my_model_builder = "my_package.plugins:MyModelBuilder"
-```
-
-The plugin system automatically discovers and introspects plugins to extract their capabilities:
+For focused `System -> System` transformations, expose a plain function and
+register it through the `r2x.transforms` entry-point group.
 
 ```python
-from r2x_core import Plugin
+from rust_ok import Ok, Result
 
-# Get plugin metadata programmatically
-config_type = MyModelTranslator.get_config_type()
-print(f"Config type: {config_type.__name__}")
+from r2x_core import PluginConfig, System, expose_plugin
 
-# Discover which hooks are implemented
-hooks = MyModelTranslator.get_implemented_hooks()
-print(f"Implemented hooks: {hooks}")
-# Output: ['on_prepare', 'on_build', 'on_translate']
 
-# Introspect config fields
-import inspect
-fields = config_type.model_fields
-for field_name, field_info in fields.items():
-    print(f"  {field_name}: {field_info.annotation}")
+class ScaleConfig(PluginConfig):
+    scale: float = 1.0
+
+
+@expose_plugin
+def scale_system(system: System, config: ScaleConfig) -> Result[System, str]:
+    return Ok(system)
 ```
 
-Plugins are discovered, instantiated, and executed through a shared registry that handles dependency injection and lifecycle management.
+```toml
+[project.entry-points."r2x.transforms"]
+scale_system = "my_package.transforms:scale_system"
+```
+
+## Core concepts
+
+| Concept                    | What it does                                                          |
+| -------------------------- | --------------------------------------------------------------------- |
+| `Plugin` / `PluginContext` | Coordinates translator lifecycle hooks and shared pipeline state.     |
+| `PluginConfig`             | Provides typed Pydantic configuration for translators and transforms. |
+| `DataFile` / `DataStore`   | Declares, reads, and processes model input files.                     |
+| `Rule` / `RuleFilter`      | Maps source components to target components with declarative filters. |
+| `HasUnits` / `Unit`        | Adds unit-aware field validation and display formatting.              |
+| `UpgradeStep`              | Applies versioned data or schema upgrade steps.                       |
+
+R2X Core builds on [infrasys](https://github.com/NatLabRockies/infrasys) for
+`System` and `Component` primitives.
 
 ## Documentation
 
-Comprehensive documentation is available at [nrel.github.io/r2x-core](https://nrel.github.io/r2x-core/):
+Full documentation is available at
+[natlabrockies.github.io/r2x-core](https://natlabrockies.github.io/r2x-core/),
+including tutorials, how-to guides, and the API reference.
 
-- **[Getting Started Tutorial](https://nrel.github.io/r2x-core/tutorials/getting-started/)** - Step-by-step guide to building your first translator
-- **[Installation Guide](https://nrel.github.io/r2x-core/install/)** - Detailed installation instructions and options
-- **[How-To Guides](https://nrel.github.io/r2x-core/how-tos/)** - Task-oriented guides for common workflows:
-  - [Read Data Files](https://nrel.github.io/r2x-core/how-tos/read-data-files/)
-  - [Configure Data Files](https://nrel.github.io/r2x-core/how-tos/configure-data-files/)
-  - [Define Rule Mappings](https://nrel.github.io/r2x-core/how-tos/define-rule-mappings/)
-  - [Apply Rules](https://nrel.github.io/r2x-core/how-tos/apply-rules/)
-  - [Register Plugins](https://nrel.github.io/r2x-core/how-tos/register-plugins/)
-  - [Manage DataStores](https://nrel.github.io/r2x-core/how-tos/manage-datastores/)
-  - [Manage Systems](https://nrel.github.io/r2x-core/how-tos/manage-systems/)
-  - [Convert Units](https://nrel.github.io/r2x-core/how-tos/convert-units/)
-- **[Explanations](https://nrel.github.io/r2x-core/explanations/)** - Deep dives into key concepts:
-  - [Plugin System Architecture](https://nrel.github.io/r2x-core/explanations/plugin-system/)
-  - [Rule System Architecture](https://nrel.github.io/r2x-core/explanations/rules-system/)
-  - [Unit System Design](https://nrel.github.io/r2x-core/explanations/unit-system/)
-  - [HDF5 Reader System](https://nrel.github.io/r2x-core/explanations/h5-readers/)
-  - [Data Management](https://nrel.github.io/r2x-core/explanations/data-management/)
-- **[Tutorials](https://nrel.github.io/r2x-core/tutorials/)** - In-depth walkthroughs:
-  - [Plugin System](https://nrel.github.io/r2x-core/tutorials/plugin-system/)
-  - [Plugin Context](https://nrel.github.io/r2x-core/tutorials/plugin-context/)
-  - [Plugin Discovery](https://nrel.github.io/r2x-core/tutorials/plugin-discovery/)
-  - [Working with Units](https://nrel.github.io/r2x-core/tutorials/working-with-units/)
-- **[API Reference](https://nrel.github.io/r2x-core/references/)** - Complete API documentation
+## Development
+
+This repository uses [uv](https://docs.astral.sh/uv/) and `just` for local
+automation.
+
+```console
+just sync
+just hooks
+just test
+just docs
+```
+
+Common tasks:
+
+| Command       | Purpose                                   |
+| ------------- | ----------------------------------------- |
+| `just sync`   | Install all dependency groups.            |
+| `just format` | Format Python code with Ruff.             |
+| `just lint`   | Run Ruff checks.                          |
+| `just type`   | Run `ty` type checks.                     |
+| `just test`   | Run pytest.                               |
+| `just docs`   | Build Sphinx docs.                        |
+| `just verify` | Run hooks, docstring coverage, and tests. |
 
 ## Roadmap
 
-Curious about what we're working on? Check out the roadmap:
-
-- [Active issues](https://github.com/NREL/r2x-core/issues?q=is%3Aopen+is%3Aissue+label%3A%22Working+on+it+%F0%9F%92%AA%22+sort%3Aupdated-asc) - Issues that we are actively working on
-- [Prioritized backlog](https://github.com/NREL/r2x-core/issues?q=is%3Aopen+is%3Aissue+label%3ABacklog) - Issues we'll be working on next
-- [Nice-to-have](https://github.com/NREL/r2x-core/labels/Optional) - Features or fixes anyone can start working on (please let us know before you do)
-- [Ideas](https://github.com/NREL/r2x-core/issues?q=is%3Aopen+is%3Aissue+label%3AIdea) - Future work or ideas for R2X Core
+- [Active issues](https://github.com/NatLabRockies/r2x-core/issues?q=is%3Aopen+is%3Aissue+label%3A%22Working+on+it+%F0%9F%92%AA%22+sort%3Aupdated-asc)
+- [Prioritized backlog](https://github.com/NatLabRockies/r2x-core/issues?q=is%3Aopen+is%3Aissue+label%3ABacklog)
+- [Nice-to-have](https://github.com/NatLabRockies/r2x-core/labels/Optional)
+- [Ideas](https://github.com/NatLabRockies/r2x-core/issues?q=is%3Aopen+is%3Aissue+label%3AIdea)
 
 ## Contributing
 
-We welcome contributions! Please see our [Contributing Guide](https://nrel.github.io/r2x-core/contributing/) for guidelines on how to contribute to R2X Core.
+We welcome contributions. See the
+[contributing guide](https://natlabrockies.github.io/r2x-core/contributing/) for
+local setup, development workflow, and review expectations.
 
 ## License
 
-R2X Core is released under the BSD 3-Clause License. See [LICENSE.txt](LICENSE.txt) for details.
+R2X Core is released under the BSD 3-Clause License. See
+[LICENSE.txt](LICENSE.txt) for details.

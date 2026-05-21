@@ -113,12 +113,12 @@ def apply_single_rule(rule: Rule, *, context: PluginContext) -> Result[RuleAppli
 
     resolved_targets: list[type] = []
     for target_type in target_types:
-        target_class_result = _resolve_component_type(target_type, context=context).map_err(
-            lambda e, tt=target_type: ValueError(f"Failed to resolve target type '{tt}': {e}")
+        target_class_result = _resolve_component_class(
+            target_type, context=context, label="target", allow_supplemental=True
         )
         if target_class_result.is_err():
             return target_class_result.map(lambda _: RuleApplicationStats(converted=0, skipped=0))
-        resolved_targets.append(cast(type, target_class_result.ok()))
+        resolved_targets.append(target_class_result.ok())
 
     filter_func: Callable[[Any], bool] | None = None
     if rule.filter is not None:
@@ -127,7 +127,9 @@ def apply_single_rule(rule: Rule, *, context: PluginContext) -> Result[RuleAppli
 
     found_component = False
 
-    for src_component in _iter_system_components(read_system, class_type=source_class, filter_func=filter_func):
+    for src_component in _iter_system_components(
+        read_system, class_type=source_class, filter_func=filter_func
+    ):
         found_component = True
         for target_class in resolved_targets:
             fields_result = _build_target_fields(src_component, rule=rule, context=context).map_err(
@@ -137,7 +139,7 @@ def apply_single_rule(rule: Rule, *, context: PluginContext) -> Result[RuleAppli
             if fields_result.is_err():
                 return fields_result.map(lambda _: RuleApplicationStats(converted=0, skipped=0))
 
-            kwargs = fields_result.ok()
+            kwargs = cast(dict[str, Any], fields_result.ok())
             if should_regenerate_uuid and "uuid" in kwargs:
                 kwargs = dict(kwargs)
                 kwargs["uuid"] = str(uuid4())
@@ -216,14 +218,38 @@ def _convert_component(
     Resolves the target class on every call. Prefer _convert_component_with_class
     when converting many components with the same rule to avoid repeated resolution.
     """
-    target_class_result = _resolve_component_type(target_type, context=context).map_err(
-        lambda e: ValueError(f"Failed to resolve target type '{target_type}': {e}")
+    target_class_result = _resolve_component_class(
+        target_type, context=context, label="target", allow_supplemental=True
     )
     return target_class_result.and_then(
         lambda target_class: _convert_component_with_class(
             rule, source_component, target_class, context, regenerate_uuid
         )
     )
+
+
+def _resolve_component_class(
+    type_name: str, *, context: PluginContext, label: str, allow_supplemental: bool = False
+) -> Result[type, ValueError]:
+    """Resolve a named type and verify it is an infrasys component-compatible class."""
+    class_result = _resolve_component_type(type_name, context=context).map_err(
+        lambda e: ValueError(f"Failed to resolve {label} type '{type_name}': {e}")
+    )
+    if class_result.is_err():
+        return class_result.map(lambda _: Component)
+
+    resolved_class = class_result.ok()
+    is_component = isinstance(resolved_class, type) and issubclass(resolved_class, Component)
+    is_supplemental = (
+        allow_supplemental
+        and isinstance(resolved_class, type)
+        and issubclass(resolved_class, SupplementalAttribute)
+    )
+    if not (is_component or is_supplemental):
+        expected = "Component or SupplementalAttribute" if allow_supplemental else "Component"
+        return Err(ValueError(f"Resolved {label} type '{type_name}' is not a {expected} subclass"))
+
+    return Ok(resolved_class)
 
 
 def _resolve_source_class(rule: Rule, *, context: PluginContext) -> Result[type[Component], ValueError]:
@@ -241,8 +267,8 @@ def _resolve_source_class(rule: Rule, *, context: PluginContext) -> Result[type[
     if len(source_types) > 1:
         logger.warning("Rule '{}' defines multiple source types; only '{}' will be used", rule, source_type)
 
-    return _resolve_component_type(source_type, context=context).map_err(
-        lambda e: ValueError(f"Failed to resolve source type '{source_type}': {e}")
+    return _resolve_component_class(source_type, context=context, label="source").map(
+        lambda resolved_class: cast(type[Component], resolved_class)
     )
 
 

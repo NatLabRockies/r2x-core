@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.5.0](https://github.com/NatLabRockies/r2x-core/compare/v0.4.2...v0.5.0) (2026-05-21)
+
+
+### Features
+
+* add skills for better model construction with agentic interaction ([#89](https://github.com/NatLabRockies/r2x-core/issues/89)) ([5b35966](https://github.com/NatLabRockies/r2x-core/commit/5b35966246139e8487d705bfd96a4b455be1996c))
+* optimize translation process with single pass and caching ([#86](https://github.com/NatLabRockies/r2x-core/issues/86)) ([dae7cb3](https://github.com/NatLabRockies/r2x-core/commit/dae7cb3c45b277498f9c0f4ff58a414d649629f5))
+
+
+### Documentation
+
+* **readme:** refresh project overview ([#92](https://github.com/NatLabRockies/r2x-core/issues/92)) ([9a23a3b](https://github.com/NatLabRockies/r2x-core/commit/9a23a3b5867a66552c8d353ab346f624d1d8f4ec))
+
+
+### Build
+
+* **deps:** bump actions/download-artifact from 7 to 8 ([#85](https://github.com/NatLabRockies/r2x-core/issues/85)) ([61afb93](https://github.com/NatLabRockies/r2x-core/commit/61afb935083f26557326c1b7eb47d27c7eb830bb))
+* **deps:** bump actions/labeler from 6.0.1 to 6.1.0 ([#91](https://github.com/NatLabRockies/r2x-core/issues/91)) ([6a62ac1](https://github.com/NatLabRockies/r2x-core/commit/6a62ac18bc427ff20c45f6c48bc7d015439f404b))
+* **deps:** bump actions/upload-artifact from 6 to 7 ([#84](https://github.com/NatLabRockies/r2x-core/issues/84)) ([9c8f8d1](https://github.com/NatLabRockies/r2x-core/commit/9c8f8d1e088bd3e6077d9255ca2f884b53b0dd74))
+* **deps:** bump codecov/codecov-action from 5 to 6 ([#88](https://github.com/NatLabRockies/r2x-core/issues/88)) ([ab92dff](https://github.com/NatLabRockies/r2x-core/commit/ab92dff102c006bb1b5bd2c31eb29caee9aa57c3))
+* **deps:** bump googleapis/release-please-action from 4 to 5 ([#90](https://github.com/NatLabRockies/r2x-core/issues/90)) ([2a91809](https://github.com/NatLabRockies/r2x-core/commit/2a91809160e6057e806c728f7eb08535ab5a7bd7))
+
 ## [0.4.2](https://github.com/NatLabRockies/r2x-core/compare/v0.4.1...v0.4.2) (2026-02-11)
 
 

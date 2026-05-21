@@ -1,7 +1,7 @@
 project = "r2x-core"
 copyright = "2024, Alliance for Sustainable Energy LLC, All rights reserved."
 author = "R2X authors"
-release = "0.4.2"  # x-release-please-version
+release = "0.5.0"  # x-release-please-version
 extensions = [
     "myst_parser",
     "sphinx.ext.githubpages",

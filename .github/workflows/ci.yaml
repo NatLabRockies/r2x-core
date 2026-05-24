@@ -81,7 +81,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        python: ${{ fromJSON(needs.matrix.outputs.python-versions) }}
+        python: ${{ fromJSON(needs.matrix.outputs['python-versions']) }}
     defaults:
       run:
         shell: bash

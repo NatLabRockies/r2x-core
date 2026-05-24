@@ -48,4 +48,4 @@ jobs:
           enable-cache: false
 
       - name: Run actionlint
-        run: uvx --from actionlint-py actionlint .github/workflows
+        run: bash -c 'uvx --from actionlint-py actionlint .github/workflows/*.yaml'

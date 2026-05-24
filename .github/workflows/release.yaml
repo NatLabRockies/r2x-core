@@ -37,6 +37,9 @@ jobs:
     name: Build
     needs: release-please
     if: needs.release-please.outputs.release_created
+    permissions:
+      contents: read   # required for checkout
+      actions: read     # required for upload-artifact
     runs-on: ubuntu-latest
     steps:
       - name: Checkout release commit
@@ -75,6 +78,7 @@ jobs:
       name: testpypi
       url: https://test.pypi.org/p/r2x-core
     permissions:
+      contents: read   # required for download-artifact
       id-token: write  # required by pypa/gh-action-pypi-publish for trusted publishing
     steps:
       - name: Download all the dists
@@ -98,6 +102,7 @@ jobs:
       name: pypi
       url: https://pypi.org/p/r2x-core
     permissions:
+      contents: read   # required for download-artifact
       id-token: write  # required by pypa/gh-action-pypi-publish for trusted publishing
     steps:
       - name: Download all the dists

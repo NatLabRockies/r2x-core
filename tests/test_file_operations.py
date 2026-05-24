@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
-from r2x_core.utils.file_operations import backup_folder, get_r2x_cache_path, resolve_glob_pattern
+from r2x_core.utils.files import backup_folder, get_r2x_cache_path, resolve_glob_pattern
 
 
 def test_backup_folder(tmp_path, caplog):

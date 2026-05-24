@@ -15,12 +15,12 @@ from .result import RuleApplicationStats, RuleResult, TranslationResult
 from .rules import Rule
 from .time_series import transfer_time_series_metadata
 from .utils import (
-    _build_target_fields,
-    _create_target_component,
-    _evaluate_rule_filter,
-    _iter_system_components,
-    _resolve_component_type,
-    _sort_rules_by_dependencies,
+    build_target_fields,
+    create_target_component,
+    evaluate_rule_filter,
+    iter_components,
+    resolve_component_type,
+    sort_rules_by_dependencies,
 )
 
 
@@ -45,7 +45,7 @@ def apply_rules_to_context(context: PluginContext) -> TranslationResult:
     if not context.rules:
         raise ValueError(f"{type(context).__name__} has no rules. Use context.list_rules().")
 
-    sorted_rules = _sort_rules_by_dependencies(context.list_rules()).unwrap_or_raise(exc_type=ValueError)
+    sorted_rules = sort_rules_by_dependencies(context.list_rules()).unwrap_or_raise(exc_type=ValueError)
 
     rule_results: list[RuleResult] = []
     total_converted = 0
@@ -125,16 +125,14 @@ def apply_single_rule(rule: Rule, *, context: PluginContext) -> Result[RuleAppli
     filter_func: Callable[[Any], bool] | None = None
     if rule.filter is not None:
         rule_filter = rule.filter
-        filter_func = lambda comp, rf=rule_filter: _evaluate_rule_filter(comp, rule_filter=rf)  # noqa: E731
+        filter_func = lambda comp, rf=rule_filter: evaluate_rule_filter(comp, rule_filter=rf)  # noqa: E731
 
     found_component = False
 
-    for src_component in _iter_system_components(
-        read_system, class_type=source_class, filter_func=filter_func
-    ):
+    for src_component in iter_components(read_system, class_type=source_class, filter_func=filter_func):
         found_component = True
         for target_class in resolved_targets:
-            fields_result = _build_target_fields(src_component, rule=rule, context=context).map_err(
+            fields_result = build_target_fields(src_component, rule=rule, context=context).map_err(
                 lambda e: ValueError(f"Failed to build fields for {src_component.label}: {e}")  # noqa: B023
             )
 
@@ -145,7 +143,7 @@ def apply_single_rule(rule: Rule, *, context: PluginContext) -> Result[RuleAppli
             if should_regenerate_uuid and "uuid" in kwargs:
                 kwargs = dict(kwargs)
                 kwargs["uuid"] = str(uuid4())
-            component = _create_target_component(target_class, kwargs=kwargs)
+            component = create_target_component(target_class, kwargs=kwargs)
 
             attach_result = _attach_component(component, src_component, context)
 
@@ -179,7 +177,7 @@ def _convert_component_with_class(
 
     Separated from type resolution so callers can resolve once and reuse.
     """
-    fields_result = _build_target_fields(source_component, rule=rule, context=context).map_err(
+    fields_result = build_target_fields(source_component, rule=rule, context=context).map_err(
         lambda e: ValueError(f"Failed to build fields for {source_component.label}: {e}")
     )
 
@@ -203,7 +201,7 @@ def _convert_component_with_class(
         if regenerate_uuid and "uuid" in kwargs:
             kwargs = dict(kwargs)
             kwargs["uuid"] = str(uuid4())
-        return Ok(_create_target_component(target_class, kwargs=kwargs))
+        return Ok(create_target_component(target_class, kwargs=kwargs))
 
     return fields_result.and_then(create_component)
 
@@ -234,7 +232,7 @@ def _resolve_component_class(
     type_name: str, *, context: PluginContext, label: str, allow_supplemental: bool = False
 ) -> Result[type, ValueError]:
     """Resolve a named type and verify it is an infrasys component-compatible class."""
-    class_result = _resolve_component_type(type_name, context=context).map_err(
+    class_result = resolve_component_type(type_name, context=context).map_err(
         lambda e: ValueError(f"Failed to resolve {label} type '{type_name}': {e}")
     )
     if class_result.is_err():

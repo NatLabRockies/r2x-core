@@ -13,7 +13,7 @@ from loguru import logger
 
 from . import units
 from .utils import filter_kwargs_by_signatures
-from .utils.file_operations import get_r2x_cache_path
+from .utils.files import get_r2x_cache_path
 
 
 class System(InfrasysSystem):

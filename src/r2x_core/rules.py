@@ -63,7 +63,7 @@ class RuleFilter(BaseModel):
                     raise ValueError("RuleFilter.prefixes entries must be strings")
                 object.__setattr__(self, "values", prefix_values)
 
-            # Precompute casefolded values once so _evaluate_rule_filter does not
+            # Precompute casefolded values once so evaluate_rule_filter does not
             # recompute them per component.
             normalized = [
                 str(val).casefold() if self.casefold and isinstance(val, str) else val
@@ -75,9 +75,9 @@ class RuleFilter(BaseModel):
 
     def matches(self, component: Any) -> bool:
         """Evaluate this filter against a component instance."""
-        from .utils import _evaluate_rule_filter
+        from .utils import evaluate_rule_filter
 
-        return _evaluate_rule_filter(component, rule_filter=self)
+        return evaluate_rule_filter(component, rule_filter=self)
 
 
 RuleGetter: TypeAlias = Callable[..., Result[Any, ValueError]]

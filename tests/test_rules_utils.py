@@ -12,17 +12,17 @@ from rust_ok import Err, Ok, Result
 
 from r2x_core import Rule
 from r2x_core.utils import (
-    _build_target_fields,
-    _create_target_component,
-    _make_attr_getter,
-    _resolve_component_type,
+    build_attr_getter,
     build_component_kwargs,
+    build_target_fields,
+    create_target_component,
+    resolve_component_type,
 )
 
 
 def test_resolve_component_type_success(context_example):
     """Component types configured on the context can be resolved."""
-    result = _resolve_component_type("BusComponent", context=context_example)
+    result = resolve_component_type("BusComponent", context=context_example)
 
     assert result.is_ok()
     assert result.unwrap() is BusComponent
@@ -30,7 +30,7 @@ def test_resolve_component_type_success(context_example):
 
 def test_resolve_component_type_missing_returns_error(context_example):
     """Unknown component types return an error result."""
-    result = _resolve_component_type("NotAComponent", context=context_example)
+    result = resolve_component_type("NotAComponent", context=context_example)
 
     assert result.is_err()
     assert "NotAComponent" in str(result.err())
@@ -45,7 +45,7 @@ def test_make_attr_getter_traverses_chain():
     class Outer:
         inner = Inner()
 
-    getter = _make_attr_getter(["inner", "value"])
+    getter = build_attr_getter(["inner", "value"])
     result = getter(Outer(), context=cast(Any, None))
 
     assert result.is_ok()
@@ -72,7 +72,7 @@ def test_build_target_fields_applies_defaults_and_getters(context_example):
         defaults={"demand_mw": 0.0},
     )
 
-    result = _build_target_fields(Source(), rule=rule, context=context_example)
+    result = build_target_fields(Source(), rule=rule, context=context_example)
 
     assert result.is_ok()
     fields = result.unwrap()
@@ -94,7 +94,7 @@ def test_build_target_fields_missing_attribute_without_default(context_example):
         field_map={"required": "missing_attr"},
     )
 
-    result = _build_target_fields(Source(), rule=rule, context=context_example)
+    result = build_target_fields(Source(), rule=rule, context=context_example)
     assert result.is_err()
     assert "missing_attr" in str(result.err())
 
@@ -117,7 +117,7 @@ def test_build_target_fields_getter_error_without_default(context_example):
         getters={"computed": faulty_getter},
     )
 
-    result = _build_target_fields(Source(), rule=rule, context=context_example)
+    result = build_target_fields(Source(), rule=rule, context=context_example)
     assert result.is_err()
     assert "failed" in str(result.err()).lower()
 
@@ -136,18 +136,18 @@ def test_build_target_fields_non_callable_getter_rejected(context_example):
         getters={"computed": "not_callable"},
     )
 
-    result = _build_target_fields(Source(), rule=rule, context=context_example)
+    result = build_target_fields(Source(), rule=rule, context=context_example)
     assert result.is_err()
     assert "not callable" in str(result.err())
 
 
 def test_create_target_component_instantiates_class():
-    """_create_target_component simply instantiates the provided class."""
+    """create_target_component simply instantiates the provided class."""
 
     class Dummy(NodeComponent):
         """Subclass to ensure kwargs are forwarded."""
 
-    dummy = _create_target_component(Dummy, kwargs={"name": "node_x"})
+    dummy = create_target_component(Dummy, kwargs={"name": "node_x"})
 
     assert isinstance(dummy, Dummy)
     assert dummy.name == "node_x"
@@ -204,7 +204,7 @@ def test_make_attr_getter_returns_none_when_chain_breaks():
     class Outer:
         inner = None
 
-    getter = _make_attr_getter(["inner", "value"])
+    getter = build_attr_getter(["inner", "value"])
     result = getter(Outer(), context=cast(Any, None))
 
     assert result.is_ok()
@@ -231,7 +231,7 @@ def test_build_target_fields_skips_multifield_mappings(context_example):
         getters={"coords": coords_getter},
     )
 
-    result = _build_target_fields(Source(), rule=rule, context=context_example)
+    result = build_target_fields(Source(), rule=rule, context=context_example)
 
     assert result.is_ok()
     kwargs = result.unwrap()
@@ -258,7 +258,7 @@ def test_build_target_fields_getter_error_uses_default(context_example):
         defaults={"computed": "fallback_value"},
     )
 
-    result = _build_target_fields(Source(), rule=rule, context=context_example)
+    result = build_target_fields(Source(), rule=rule, context=context_example)
 
     assert result.is_ok()
     kwargs = result.unwrap()
@@ -266,9 +266,9 @@ def test_build_target_fields_getter_error_uses_default(context_example):
 
 
 def test_evaluate_rule_filter_all_of():
-    """Test _evaluate_rule_filter with all_of composite filter."""
+    """Test evaluate_rule_filter with all_of composite filter."""
     from r2x_core import RuleFilter
-    from r2x_core.utils import _evaluate_rule_filter
+    from r2x_core.utils import evaluate_rule_filter
 
     class Component:
         kind = "gas"
@@ -281,19 +281,19 @@ def test_evaluate_rule_filter_all_of():
         ]
     )
 
-    assert _evaluate_rule_filter(Component(), rule_filter=filt)
+    assert evaluate_rule_filter(Component(), rule_filter=filt)
 
     class FailComponent:
         kind = "gas"
         capacity = 300
 
-    assert not _evaluate_rule_filter(FailComponent(), rule_filter=filt)
+    assert not evaluate_rule_filter(FailComponent(), rule_filter=filt)
 
 
 def test_evaluate_rule_filter_incomplete_raises():
-    """Test _evaluate_rule_filter raises on incomplete leaf filter."""
+    """Test evaluate_rule_filter raises on incomplete leaf filter."""
     from r2x_core import RuleFilter
-    from r2x_core.utils import _evaluate_rule_filter
+    from r2x_core.utils import evaluate_rule_filter
 
     class Component:
         kind = "gas"
@@ -309,17 +309,17 @@ def test_evaluate_rule_filter_incomplete_raises():
     object.__setattr__(filt, "on_missing", "exclude")
 
     with pytest.raises(ValueError, match="must have field, op, and values"):
-        _evaluate_rule_filter(Component(), rule_filter=filt)
+        evaluate_rule_filter(Component(), rule_filter=filt)
 
 
 def test_evaluate_rule_filter_geq_non_numeric():
-    """Test _evaluate_rule_filter geq returns False for non-numeric values."""
+    """Test evaluate_rule_filter geq returns False for non-numeric values."""
     from r2x_core import RuleFilter
-    from r2x_core.utils import _evaluate_rule_filter
+    from r2x_core.utils import evaluate_rule_filter
 
     class Component:
         capacity = "not_a_number"
 
     filt = RuleFilter(field="capacity", op="geq", values=[100])
 
-    assert not _evaluate_rule_filter(Component(), rule_filter=filt)
+    assert not evaluate_rule_filter(Component(), rule_filter=filt)

@@ -17,7 +17,7 @@ from pydantic import (
 
 from .file_types import EXTENSION_MAPPING, FileFormat
 from .utils import validate_file_extension, validate_glob_pattern
-from .utils.file_operations import resolve_path
+from .utils.files import resolve_path
 
 
 def _validate_optional_file_extension(path: Path | None, info: ValidationInfo) -> Path | None:

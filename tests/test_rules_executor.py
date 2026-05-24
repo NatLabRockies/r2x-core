@@ -158,7 +158,7 @@ def test_resolve_source_class_multiple_types(monkeypatch):
 
     ctx = PluginContext(config=DummyConfig())
     monkeypatch.setattr(
-        "r2x_core.rules_executor._resolve_component_type",
+        "r2x_core.rules_executor.resolve_component_type",
         lambda t, context: Ok(BusComponent),
     )
     result = _resolve_source_class(cast(Rule, DummyRule()), context=ctx)
@@ -168,7 +168,7 @@ def test_resolve_source_class_multiple_types(monkeypatch):
 def test_resolve_component_class_rejects_non_component_type(monkeypatch):
     ctx = PluginContext(config=DummyConfig())
     monkeypatch.setattr(
-        "r2x_core.rules_executor._resolve_component_type",
+        "r2x_core.rules_executor.resolve_component_type",
         lambda t, context: Ok(str),
     )
 
@@ -187,8 +187,8 @@ def test_convert_component_with_class_regenerate_uuid():
 
     import r2x_core.rules_executor as re
 
-    orig_create = re._create_target_component
-    re._create_target_component = cast(Any, dummy_create)
+    orig_create = re.create_target_component
+    re.create_target_component = cast(Any, dummy_create)
     try:
         result = _convert_component_with_class(
             rule=cast(Rule, None),
@@ -199,7 +199,7 @@ def test_convert_component_with_class_regenerate_uuid():
         )
         assert result.is_ok()
     finally:
-        re._create_target_component = orig_create
+        re.create_target_component = orig_create
 
 
 def test_convert_component_target_type_fail(monkeypatch):
@@ -207,7 +207,7 @@ def test_convert_component_target_type_fail(monkeypatch):
         pass
 
     monkeypatch.setattr(
-        "r2x_core.rules_executor._resolve_component_type",
+        "r2x_core.rules_executor.resolve_component_type",
         lambda target_type, context: Err(TypeError("badtype not found")),
     )
     result = _convert_component(
@@ -233,14 +233,14 @@ def test_apply_single_rule_no_components(monkeypatch):
         lambda rule, context: types.SimpleNamespace(is_err=lambda: False, ok=lambda: object),
     )
     monkeypatch.setattr(
-        "r2x_core.rules_executor._resolve_component_type",
+        "r2x_core.rules_executor.resolve_component_type",
         lambda t, context: Ok(BusComponent),
     )
     monkeypatch.setattr(
-        "r2x_core.rules_executor._iter_system_components", lambda sys, class_type, filter_func=None: iter([])
+        "r2x_core.rules_executor.iter_components", lambda sys, class_type, filter_func=None: iter([])
     )
     monkeypatch.setattr(
-        "r2x_core.rules_executor._build_target_fields",
+        "r2x_core.rules_executor.build_target_fields",
         lambda src, rule, context: types.SimpleNamespace(
             is_err=lambda: False,
             ok=lambda: {"uuid": str(uuid4())},
@@ -248,7 +248,7 @@ def test_apply_single_rule_no_components(monkeypatch):
         ),
     )
     monkeypatch.setattr(
-        "r2x_core.rules_executor._create_target_component", lambda target_class, kwargs: object()
+        "r2x_core.rules_executor.create_target_component", lambda target_class, kwargs: object()
     )
     monkeypatch.setattr(
         "r2x_core.rules_executor._attach_component",

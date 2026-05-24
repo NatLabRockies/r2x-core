@@ -13,7 +13,7 @@ from rust_ok import Err
 
 from r2x_core import DataStore, PluginConfig
 from r2x_core.exceptions import UpgradeError
-from r2x_core.utils._upgrade_coordinator import (
+from r2x_core.utils.upgrade import (
     UpgradeCoordinator,
     _is_missing_file_error,
     _resolve_upgrade_handler,

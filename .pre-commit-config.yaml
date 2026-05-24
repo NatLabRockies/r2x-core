@@ -86,13 +86,13 @@ repos:
       - id: zizmor
         args: ["--pedantic"]
         files: ^\.github/workflows/.*\.ya?ml$
-        stages: [pre-push]
+        stages: [pre-commit]
 
   - repo: https://github.com/rhysd/actionlint
     rev: v1.7.12
     hooks:
       - id: actionlint
-        stages: [pre-push]
+        stages: [pre-commit]
 
   - repo: local
     hooks:

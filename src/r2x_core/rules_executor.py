@@ -118,7 +118,9 @@ def apply_single_rule(rule: Rule, *, context: PluginContext) -> Result[RuleAppli
         )
         if target_class_result.is_err():
             return target_class_result.map(lambda _: RuleApplicationStats(converted=0, skipped=0))
-        resolved_targets.append(target_class_result.ok())
+        resolved_class = target_class_result.ok()
+        assert resolved_class is not None
+        resolved_targets.append(resolved_class)
 
     filter_func: Callable[[Any], bool] | None = None
     if rule.filter is not None:
@@ -249,6 +251,7 @@ def _resolve_component_class(
         expected = "Component or SupplementalAttribute" if allow_supplemental else "Component"
         return Err(ValueError(f"Resolved {label} type '{type_name}' is not a {expected} subclass"))
 
+    assert resolved_class is not None
     return Ok(resolved_class)
 
 

@@ -2,6 +2,7 @@
 
 import os
 import platform
+import shutil
 from pathlib import Path
 
 from loguru import logger
@@ -15,8 +16,6 @@ def backup_folder(folder_path: Path | str) -> Result[None, str]:
 
     if not folder_path.exists():
         return Err(error="Folder does not exist")
-
-    import shutil
 
     backup_folder = folder_path.with_name(f"{folder_path.name}_backup")
     if backup_folder.exists():

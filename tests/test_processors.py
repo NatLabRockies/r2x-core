@@ -52,7 +52,8 @@ def test_pl_apply_filters_single_value(sample_csv: Path):
     proc_spec = TabularProcessing(filter_by={"name": "Alice"})
     df_file = DataFile(name="test", fpath=sample_csv, proc_spec=proc_spec)
 
-    result = pl_apply_filters(lf, data_file=df_file, proc_spec=proc_spec).collect()
+    result, _ = pl_apply_filters(lf, data_file=df_file, proc_spec=proc_spec)
+    result = result.collect()
 
     assert len(result) == 1
     assert result["name"][0] == "Alice"
@@ -64,7 +65,8 @@ def test_pl_apply_filters_list_values(sample_csv: Path):
     proc_spec = TabularProcessing(filter_by={"name": ["Alice", "Bob"]})
     df_file = DataFile(name="test", fpath=sample_csv, proc_spec=proc_spec)
 
-    result = pl_apply_filters(lf, data_file=df_file, proc_spec=proc_spec).collect()
+    result, _ = pl_apply_filters(lf, data_file=df_file, proc_spec=proc_spec)
+    result = result.collect()
 
     assert len(result) == 2
     names = set(result["name"].to_list())
@@ -77,7 +79,8 @@ def test_pl_apply_filters_multiple_conditions(sample_csv: Path):
     proc_spec = TabularProcessing(filter_by={"retire_year": 2036, "age": 30})
     df_file = DataFile(name="test", fpath=sample_csv, proc_spec=proc_spec)
 
-    result = pl_apply_filters(lf, data_file=df_file, proc_spec=proc_spec).collect()
+    result, _ = pl_apply_filters(lf, data_file=df_file, proc_spec=proc_spec)
+    result = result.collect()
 
     assert len(result) == 1
     assert result["name"][0] == "Alice"
@@ -89,7 +92,8 @@ def test_pl_drop_columns_removes_existing(sample_csv: Path):
     proc_spec = TabularProcessing(drop_columns=["city", "score"])
     df_file = DataFile(name="test", fpath=sample_csv, proc_spec=proc_spec)
 
-    result = pl_drop_columns(lf, data_file=df_file, proc_spec=proc_spec).collect()
+    result, _ = pl_drop_columns(lf, data_file=df_file, proc_spec=proc_spec)
+    result = result.collect()
 
     assert "city" not in result.columns
     assert "score" not in result.columns
@@ -103,7 +107,8 @@ def test_pl_drop_columns_noop_on_missing(sample_csv: Path):
     proc_spec = TabularProcessing(drop_columns=["nonexistent"])
     df_file = DataFile(name="test", fpath=sample_csv, proc_spec=proc_spec)
 
-    result = pl_drop_columns(lf, data_file=df_file, proc_spec=proc_spec).collect()
+    result, _ = pl_drop_columns(lf, data_file=df_file, proc_spec=proc_spec)
+    result = result.collect()
 
     assert set(result.columns) == set(pl.scan_csv(sample_csv).collect().columns)
 
@@ -114,7 +119,8 @@ def test_pl_rename_columns_renames_existing(sample_csv: Path):
     proc_spec = TabularProcessing(column_mapping={"name": "person_name", "age": "person_age"})
     df_file = DataFile(name="test", fpath=sample_csv, proc_spec=proc_spec)
 
-    result = pl_rename_columns(lf, data_file=df_file, proc_spec=proc_spec).collect()
+    result, _ = pl_rename_columns(lf, data_file=df_file, proc_spec=proc_spec)
+    result = result.collect()
 
     assert "person_name" in result.columns
     assert "person_age" in result.columns
@@ -128,7 +134,8 @@ def test_pl_rename_columns_noop_on_missing(sample_csv: Path):
     proc_spec = TabularProcessing(column_mapping={"nonexistent": "new_name"})
     df_file = DataFile(name="test", fpath=sample_csv, proc_spec=proc_spec)
 
-    result = pl_rename_columns(lf, data_file=df_file, proc_spec=proc_spec).collect()
+    result, _ = pl_rename_columns(lf, data_file=df_file, proc_spec=proc_spec)
+    result = result.collect()
 
     assert set(result.columns) == set(pl.scan_csv(sample_csv).collect().columns)
 
@@ -139,7 +146,8 @@ def test_pl_cast_schema_casts_columns(sample_csv: Path):
     proc_spec = TabularProcessing(column_schema={"age": "int32", "retire_year": "int32"})
     df_file = DataFile(name="test", fpath=sample_csv, proc_spec=proc_spec)
 
-    result = pl_cast_schema(lf, data_file=df_file, proc_spec=proc_spec).collect()
+    result, _ = pl_cast_schema(lf, data_file=df_file, proc_spec=proc_spec)
+    result = result.collect()
 
     assert result.schema["age"] == pl.Int32
     assert result.schema["retire_year"] == pl.Int32
@@ -152,7 +160,7 @@ def test_pl_cast_schema_unsupported_type_raises(sample_csv: Path):
     df_file = DataFile(name="test", fpath=sample_csv, proc_spec=proc_spec)
 
     with pytest.raises(ValueError, match="Unsupported data type"):
-        pl_cast_schema(lf, data_file=df_file, proc_spec=proc_spec).collect()
+        pl_cast_schema(lf, data_file=df_file, proc_spec=proc_spec)
 
 
 def test_pl_pivot_on_unpivots_columns(sample_csv: Path):
@@ -260,7 +268,8 @@ def test_pl_select_columns_with_index(sample_csv: Path):
 
     from r2x_core.processors import pl_select_columns
 
-    result = pl_select_columns(lf, data_file=df_file, proc_spec=proc_spec).collect()
+    result, _ = pl_select_columns(lf, data_file=df_file, proc_spec=proc_spec)
+    result = result.collect()
 
     assert set(result.columns) == {"name", "age"}
 
@@ -273,7 +282,7 @@ def test_pl_select_columns_empty_selection(sample_csv: Path):
 
     from r2x_core.processors import pl_select_columns
 
-    result = pl_select_columns(lf, data_file=df_file, proc_spec=proc_spec)
+    result, _ = pl_select_columns(lf, data_file=df_file, proc_spec=proc_spec)
 
     # Should return unchanged - verify by collecting and checking
     assert result.collect().equals(lf.collect())
@@ -285,7 +294,7 @@ def test_pl_apply_filters_no_filters(sample_csv: Path):
     proc_spec = TabularProcessing(filter_by=None)
     df_file = DataFile(name="test", fpath=sample_csv, proc_spec=proc_spec)
 
-    result = pl_apply_filters(lf, data_file=df_file, proc_spec=proc_spec)
+    result, _ = pl_apply_filters(lf, data_file=df_file, proc_spec=proc_spec)
 
     # Should return unchanged - verify by collecting and checking
     assert result.collect().equals(lf.collect())
@@ -298,9 +307,11 @@ def test_pl_drop_columns_all_removed(sample_csv: Path):
     proc_spec = TabularProcessing(drop_columns=schema_names)
     df_file = DataFile(name="test", fpath=sample_csv, proc_spec=proc_spec)
 
-    result = pl_drop_columns(lf, data_file=df_file, proc_spec=proc_spec).collect()
+    result, new_names = pl_drop_columns(lf, data_file=df_file, proc_spec=proc_spec)
+    result = result.collect()
 
     assert len(result.columns) == 0
+    assert len(new_names) == 0
 
 
 def test_pl_cast_schema_invalid_column(sample_csv: Path):
@@ -309,7 +320,8 @@ def test_pl_cast_schema_invalid_column(sample_csv: Path):
     proc_spec = TabularProcessing(column_schema={"nonexistent": "int32"})
     df_file = DataFile(name="test", fpath=sample_csv, proc_spec=proc_spec)
 
-    result = pl_cast_schema(lf, data_file=df_file, proc_spec=proc_spec).collect()
+    result, _ = pl_cast_schema(lf, data_file=df_file, proc_spec=proc_spec)
+    result = result.collect()
 
     assert result is not None
 
@@ -456,7 +468,8 @@ def test_pl_apply_filters_datetime_single_year(sample_csv: Path):
     proc_spec = TabularProcessing(filter_by={"date": 2020})
     df_file = DataFile(name="test", fpath=csv_file, proc_spec=proc_spec)
 
-    result = pl_apply_filters(lf, data_file=df_file, proc_spec=proc_spec).collect()
+    result, _ = pl_apply_filters(lf, data_file=df_file, proc_spec=proc_spec)
+    result = result.collect()
 
     assert result is not None
 
@@ -469,7 +482,8 @@ def test_pl_apply_filters_datetime_multiple_years(sample_csv: Path):
     proc_spec = TabularProcessing(filter_by={"year": [2020, 2021]})
     df_file = DataFile(name="test", fpath=csv_file, proc_spec=proc_spec)
 
-    result = pl_apply_filters(lf, data_file=df_file, proc_spec=proc_spec).collect()
+    result, _ = pl_apply_filters(lf, data_file=df_file, proc_spec=proc_spec)
+    result = result.collect()
 
     assert result is not None
 
@@ -520,7 +534,8 @@ def test_pl_apply_filters_column_not_in_schema(sample_csv: Path):
     proc_spec = TabularProcessing(filter_by={"nonexistent_column": "value"})
     df_file = DataFile(name="test", fpath=sample_csv, proc_spec=proc_spec)
 
-    result = pl_apply_filters(lf, data_file=df_file, proc_spec=proc_spec).collect()
+    result, _ = pl_apply_filters(lf, data_file=df_file, proc_spec=proc_spec)
+    result = result.collect()
 
     assert result.equals(lf.collect())
 

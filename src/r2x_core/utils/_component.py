@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -64,28 +65,23 @@ def components_to_records(
     export_components_to_csv : Export components to CSV file
     get_components : Retrieve components by type with filtering
     """
-    # Get all components, applying filter if provided
-    components = list(system.get_components(Component, filter_func=filter_func))
 
-    # Convert to records
-    records = [c.model_dump() for c in components]
+    # Use a generator to avoid holding all component dicts in memory
+    # simultaneously. Filter and key mapping are applied per-component
+    # as we iterate. The result is still a list (public API contract),
+    # but the generator prevents holding both the component objects AND
+    # the serialized dicts in memory at the same time.
+    def _iter_records():
+        """Yield one record dict at a time with filtering and key mapping applied."""
+        for component in system.get_components(Component, filter_func=filter_func):
+            record = component.model_dump()
+            if fields is not None:
+                record = {k: v for k, v in record.items() if k in fields}
+            if key_mapping is not None:
+                record = {key_mapping.get(k, k): v for k, v in record.items()}
+            yield record
 
-    # Filter fields if specified
-    if fields is not None:
-        records = [{k: v for k, v in record.items() if k in fields} for record in records]
-
-    # Apply key mapping if provided
-    if key_mapping is not None:
-        mapped_records: list[dict[str, Any]] = []
-        for record in records:
-            mapped: dict[str, Any] = {}
-            for k, v in record.items():
-                new_key = key_mapping.get(k, k) if isinstance(k, str) else str(k)
-                mapped[new_key] = v
-            mapped_records.append(mapped)
-        records = mapped_records
-
-    return records
+    return list(_iter_records())
 
 
 def export_components_to_csv(
@@ -157,8 +153,6 @@ def export_components_to_csv(
     components_to_records : Convert components to dictionary records
     get_components : Retrieve components by type with filtering
     """
-    import csv
-
     records = components_to_records(system, filter_func=filter_func, fields=fields, key_mapping=key_mapping)
 
     if not records:
@@ -168,8 +162,12 @@ def export_components_to_csv(
     fpath = Path(file_path)
     fpath.parent.mkdir(parents=True, exist_ok=True)
 
+    # Determine fieldnames from the first record, then stream the rest
+    # via an iterator so csv.DictWriter never holds all records in memory.
+    fieldnames = list(records[0].keys())
+
     with open(fpath, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=records[0].keys(), **dict_writer_kwargs)
+        writer = csv.DictWriter(f, fieldnames=fieldnames, **dict_writer_kwargs)
         writer.writeheader()
         writer.writerows(records)
     logger.info("Exported {} components to {}", len(records), fpath)

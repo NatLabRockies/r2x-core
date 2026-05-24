@@ -6,11 +6,11 @@ loading data, caching.
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
+import orjson
 from loguru import logger
 from pydantic import ValidationError
 
@@ -419,8 +419,8 @@ class DataStore:
             for data_file in self._cache.values()
         ]
 
-        with open(fpath, "w", encoding="utf-8") as f:
-            json.dump(json_data, f, indent=2, ensure_ascii=False)
+        with open(fpath, "wb") as f:
+            f.write(orjson.dumps(json_data, option=orjson.OPT_INDENT_2))
 
         logger.info("Created JSON file at {}", fpath)
 
@@ -520,8 +520,8 @@ class DataStore:
     def _load_file_mapping(self, mapping_path: Path) -> None:
         """Load DataFile definitions from a file-mapping JSON."""
         logger.info("Loading file mapping from {}", mapping_path)
-        with open(mapping_path, encoding="utf-8") as f:
-            data_files_json = json.load(f)
+        with open(mapping_path, "rb") as f:
+            data_files_json = orjson.loads(f.read())
 
         if not isinstance(data_files_json, list):
             msg = f"JSON file `{mapping_path}` is not a JSON array."

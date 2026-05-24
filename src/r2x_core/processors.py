@@ -6,8 +6,8 @@ organized by data type (Polars LazyFrame for tabular, dict for JSON) with a
 registration system allowing custom transformations.
 
 Pipeline architecture:
-- Tabular: lowercase → drop_columns → rename → pivot → cast → filter → select
-- JSON: rename_keys → drop_columns → select_columns → filter → select_keys
+- Tabular: lowercase -> drop_columns -> rename -> pivot -> cast -> filter -> select
+- JSON: rename_keys -> drop_columns -> select_columns -> filter -> select_keys
 
 All placeholder substitution in filter_by specifications uses curly braces
 (e.g., {solve_year}) and requires a placeholders dictionary at processing time.
@@ -75,8 +75,13 @@ def substitute_placeholders(
     if isinstance(value, str) and "{" not in value:
         return Ok(value)
 
+    # Track whether any substitution actually changed a value.
+    # When nothing changed, return the original to allow identity checks.
+    changed = False
+
     def substitute_value(val: Any) -> Result[Any, ValueError]:
         """Recursively substitute placeholders in a value."""
+        nonlocal changed
         if isinstance(val, str):
             if "{" not in val:
                 return Ok(val)
@@ -100,6 +105,7 @@ def substitute_placeholders(
                             f"Available placeholders: {available}"
                         )
                     )
+                changed = True
                 return Ok(placeholders[var_name])
 
             if _PLACEHOLDER_PATTERN.search(val):
@@ -113,27 +119,44 @@ def substitute_placeholders(
 
         elif isinstance(val, list):
             new_list = []
+            local_changed = False
             for item in val:
                 res = substitute_value(item)
                 if res.is_err():
-                    return res  # propagate error
+                    return res
                 assert isinstance(res, Ok), "Result should be Ok after error check"
                 new_list.append(res.value)
+                if res.value is not item:
+                    local_changed = True
+            if not local_changed:
+                return Ok(val)  # preserve original
+            changed = True
             return Ok(new_list)
 
         elif isinstance(val, dict):
             new_dict = {}
+            local_changed = False
             for k, v in val.items():
                 res = substitute_value(v)
                 if res.is_err():
                     return res
                 assert isinstance(res, Ok), "Result should be Ok after error check"
                 new_dict[k] = res.value
+                if res.value is not v:
+                    local_changed = True
+            if not local_changed:
+                return Ok(val)  # preserve original
+            changed = True
             return Ok(new_dict)
 
         return Ok(val)
 
-    return substitute_value(value)
+    result = substitute_value(value)
+    if result.is_err():
+        return result
+    if not changed:
+        return Ok(value)
+    return result
 
 
 def process_tabular_data(
@@ -143,6 +166,11 @@ def process_tabular_data(
 
     Executes a pipeline of transformations (lowercase, drop, rename, pivot, cast,
     filter, select) on a Polars LazyFrame according to TabularProcessing configuration.
+
+    Column name resolution is done once on the input and passed through each step
+    to avoid repeated ``collect_schema()`` on intermediate lazy expressions. The
+    only step that triggers a fresh ``collect_schema()`` is ``pivot_on`` since
+    ``unpivot`` completely restructures the columns.
 
     Parameters
     ----------
@@ -164,23 +192,33 @@ def process_tabular_data(
     :func:`pl_drop_columns` : Remove specified columns.
     :func:`pl_rename_columns` : Apply column name mapping.
     """
-    pipeline = [
-        pl_lowercase,
-        pl_drop_columns,
-        pl_rename_columns,
-        pl_pivot_on,
-        pl_cast_schema,
-        pl_apply_filters,
-        pl_select_columns,
-    ]
+    # Resolve column names once; track predictable changes (lowercase, drop,
+    # rename, select) without fresh collect_schema() calls on intermediate
+    # lazy expressions. Only pl_pivot_on needs a real schema refresh because
+    # unpivot completely restructures columns.
+    schema_names = list(data_frame.collect_schema().names())
 
-    output_data = data_frame
-    for fp_function in pipeline:
-        output_data = fp_function(output_data, data_file=data_file, proc_spec=proc_spec)
+    for fp_function in _TABULAR_PIPELINE:
+        result = fp_function(data_frame, data_file=data_file, proc_spec=proc_spec, schema_names=schema_names)
+        if isinstance(result, tuple):
+            data_frame, schema_names = result
+        else:
+            data_frame = result
+            # Only re-collect schema when columns actually changed (pivot).
+            schema_names = list(data_frame.collect_schema().names())
 
-    return output_data
+    return data_frame
 
 
+# Pipeline steps that change columns ahead of time so we can infer the new
+# schema without collect_schema():
+#   pl_lowercase  -> columns become lowercased versions of themselves
+#   pl_drop_columns -> some columns removed
+#   pl_rename_columns -> some columns renamed
+#   pl_pivot_on ->  completely changes columns (needs collect_schema())
+#   pl_cast_schema -> columns unchanged
+#   pl_apply_filters -> columns unchanged
+#   pl_select_columns -> keeps a subset
 def process_json_data(json_data: JSONType, *, data_file: DataFile, proc_spec: JSONProcessing) -> JSONType:
     """Apply JSON data transformations sequentially.
 
@@ -223,125 +261,197 @@ def process_json_data(json_data: JSONType, *, data_file: DataFile, proc_spec: JS
 
 
 def pl_pivot_on(
-    data_frame: pl.LazyFrame, *, data_file: DataFile, proc_spec: TabularProcessing
+    data_frame: pl.LazyFrame,
+    *,
+    data_file: DataFile,
+    proc_spec: TabularProcessing,
+    schema_names: list[str] | None = None,
 ) -> pl.LazyFrame:
-    """Unpivot (melt) the DataFrame based on configuration."""
+    """Unpivot (melt) the DataFrame based on configuration.
+
+    Uses Polars lazy ``melt()`` instead of materializing and rebuilding the DataFrame,
+    avoiding an O(rows * columns) memory and compute blowup in the middle of the
+    lazy pipeline.
+
+    This step completely restructures columns so the caller must re-collect the
+    schema after this step (return type is ``pl.LazyFrame``, not a tuple).
+    """
+    _ = schema_names  # schema completely changes; caller re-collects
     if not proc_spec or not proc_spec.pivot_on:
         return data_frame
 
     value_name = proc_spec.pivot_on
-    collected = data_frame.collect()
-    all_columns = collected.columns
-
-    values = []
-    for col in all_columns:
-        values.extend(collected[col].to_list())
-
-    new_df = pl.DataFrame({value_name: values})
     logger.trace("Pivoting columns: {} for {}", value_name, data_file.name)
-    return new_df.lazy()
+    return data_frame.unpivot(value_name=value_name).select(value_name)
 
 
 def pl_lowercase(
-    data_frame: pl.LazyFrame, *, data_file: DataFile, proc_spec: TabularProcessing
-) -> pl.LazyFrame:
-    """Convert all string columns to lowercase."""
+    data_frame: pl.LazyFrame,
+    *,
+    data_file: DataFile,
+    proc_spec: TabularProcessing,
+    schema_names: list[str] | None = None,
+) -> tuple[pl.LazyFrame, list[str]]:
+    """Convert all string columns to lowercase.
+
+    Returns the transformed frame and an updated schema name list (lowercased).
+    """
+    if schema_names is None:
+        schema_names = list(data_frame.collect_schema().names())
     result = data_frame.with_columns(pl.col(pl.String).str.to_lowercase()).rename(
-        {column: column.lower() for column in data_frame.collect_schema().names()}
+        {column: column.lower() for column in schema_names}
     )
-    logger.trace("Lowercase columns: {} for {}", result.collect_schema().names(), data_file.name)
-    return result
+    new_names = [name.lower() for name in schema_names]
+    logger.trace("Lowercase columns: {len(schema_names)} -> {len(new_names)} cols for {data_file.name}")
+    return result, new_names
 
 
 def pl_drop_columns(
-    data_frame: pl.LazyFrame, *, data_file: DataFile, proc_spec: TabularProcessing
-) -> pl.LazyFrame:
-    """Drop specified columns if they exist."""
-    if not proc_spec or not proc_spec.drop_columns:
-        return data_frame
+    data_frame: pl.LazyFrame,
+    *,
+    data_file: DataFile,
+    proc_spec: TabularProcessing,
+    schema_names: list[str] | None = None,
+) -> tuple[pl.LazyFrame, list[str]]:
+    """Drop specified columns if they exist.
 
-    existing_cols = [col for col in proc_spec.drop_columns if col in data_frame.collect_schema().names()]
+    Returns the transformed frame and an updated schema name list.
+    """
+    if schema_names is None:
+        schema_names = list(data_frame.collect_schema().names())
+    if not proc_spec or not proc_spec.drop_columns:
+        return data_frame, schema_names
+
+    existing_cols = [col for col in proc_spec.drop_columns if col in schema_names]
     if existing_cols:
         logger.debug("Dropping columns {} from {}", existing_cols, data_file.name)
-        return data_frame.drop(existing_cols)
-    return data_frame
+        new_names = [n for n in schema_names if n not in existing_cols]
+        return data_frame.drop(existing_cols), new_names
+    return data_frame, schema_names
 
 
 def pl_rename_columns(
-    data_frame: pl.LazyFrame, *, data_file: DataFile, proc_spec: TabularProcessing
-) -> pl.LazyFrame:
-    """Rename columns based on mapping."""
-    if not proc_spec or not proc_spec.column_mapping:
-        return data_frame
+    data_frame: pl.LazyFrame,
+    *,
+    data_file: DataFile,
+    proc_spec: TabularProcessing,
+    schema_names: list[str] | None = None,
+) -> tuple[pl.LazyFrame, list[str]]:
+    """Rename columns based on mapping.
 
-    valid_mapping = {
-        old: new
-        for old, new in proc_spec.column_mapping.items()
-        if old in data_frame.collect_schema().names()
-    }
+    Returns the transformed frame and an updated schema name list.
+    """
+    if schema_names is None:
+        schema_names = list(data_frame.collect_schema().names())
+    if not proc_spec or not proc_spec.column_mapping:
+        return data_frame, schema_names
+
+    valid_mapping = {old: new for old, new in proc_spec.column_mapping.items() if old in schema_names}
     if valid_mapping:
         logger.debug("Renaming columns {} in {}", valid_mapping, data_file.name)
-        return data_frame.rename(valid_mapping)
-    return data_frame
+        new_names = [valid_mapping.get(n, n) for n in schema_names]
+        return data_frame.rename(valid_mapping), new_names
+    return data_frame, schema_names
 
 
 def pl_cast_schema(
-    data_frame: pl.LazyFrame, *, data_file: DataFile, proc_spec: TabularProcessing
-) -> pl.LazyFrame:
-    """Cast columns to specified data types."""
+    data_frame: pl.LazyFrame,
+    *,
+    data_file: DataFile,
+    proc_spec: TabularProcessing,
+    schema_names: list[str] | None = None,
+) -> tuple[pl.LazyFrame, list[str]]:
+    """Cast columns to specified data types. Column names are unchanged."""
+    if schema_names is None:
+        schema_names = list(data_frame.collect_schema().names())
     if not proc_spec or not proc_spec.column_schema:
-        return data_frame
+        return data_frame, schema_names
 
     cast_exprs = []
     for col, type_str in (proc_spec.column_schema or {}).items():
-        if col in data_frame.collect_schema().names():
+        if col in schema_names:
             polars_type = _get_polars_type(type_str)
             cast_exprs.append(pl.col(col).cast(polars_type))
 
     if not cast_exprs:
-        return data_frame
+        return data_frame, schema_names
     logger.trace("Applying schema {} to {}", proc_spec.column_schema, data_file.name)
-    return data_frame.with_columns(cast_exprs)
+    return data_frame.with_columns(cast_exprs), schema_names
 
 
 def pl_apply_filters(
-    data_frame: pl.LazyFrame, *, data_file: DataFile, proc_spec: TabularProcessing
-) -> pl.LazyFrame:
-    """Apply row filters."""
+    data_frame: pl.LazyFrame,
+    *,
+    data_file: DataFile,
+    proc_spec: TabularProcessing,
+    schema_names: list[str] | None = None,
+) -> tuple[pl.LazyFrame, list[str]]:
+    """Apply row filters. Column names are unchanged."""
+    if schema_names is None:
+        schema_names = list(data_frame.collect_schema().names())
     if not proc_spec or not proc_spec.filter_by:
-        return data_frame
+        return data_frame, schema_names
 
     filters = [
         pl_build_filter_expr(col, value=value)
         for col, value in (proc_spec.filter_by or {}).items()
-        if col in data_frame.collect_schema().names()
+        if col in schema_names
     ]
 
     if not filters:
-        return data_frame
+        return data_frame, schema_names
     combined_filter = filters[0]
     for filter_expr in filters[1:]:
         combined_filter = combined_filter & filter_expr
     logger.trace("Applying {} filters to {}", len(filters), data_file.name)
-    return data_frame.filter(combined_filter)
+    return data_frame.filter(combined_filter), schema_names
 
 
 def pl_select_columns(
-    data_frame: pl.LazyFrame, *, data_file: DataFile, proc_spec: TabularProcessing
-) -> pl.LazyFrame:
-    """Select specific columns."""
+    data_frame: pl.LazyFrame,
+    *,
+    data_file: DataFile,
+    proc_spec: TabularProcessing,
+    schema_names: list[str] | None = None,
+) -> tuple[pl.LazyFrame, list[str]]:
+    """Select specific columns.
+
+    Returns the transformed frame and an updated schema name list.
+    """
+    if schema_names is None:
+        schema_names = list(data_frame.collect_schema().names())
     if not proc_spec or not proc_spec.select_columns:
-        return data_frame
+        return data_frame, schema_names
 
     # Use dict.fromkeys to maintain order while removing duplicates
     cols_to_select = list(dict.fromkeys(proc_spec.select_columns))
 
-    valid_cols = [col for col in cols_to_select if col in data_frame.collect_schema().names()]
+    valid_cols = [col for col in cols_to_select if col in schema_names]
     if not valid_cols:
-        return data_frame
+        return data_frame, schema_names
 
     logger.trace("Selecting {} columns from {}", len(valid_cols), data_file.name)
-    return data_frame.select(valid_cols)
+    return data_frame.select(valid_cols), list(valid_cols)
+
+
+# Pipeline steps that change columns ahead of time so we can infer the new
+# schema without collect_schema():
+#   pl_lowercase  -> columns become lowercased versions of themselves
+#   pl_drop_columns -> some columns removed
+#   pl_rename_columns -> some columns renamed
+#   pl_pivot_on ->  completely changes columns (needs collect_schema())
+#   pl_cast_schema -> columns unchanged
+#   pl_apply_filters -> columns unchanged
+#   pl_select_columns -> keeps a subset
+_TABULAR_PIPELINE: list[Callable[..., Any]] = [
+    pl_lowercase,
+    pl_drop_columns,
+    pl_rename_columns,
+    pl_pivot_on,
+    pl_cast_schema,
+    pl_apply_filters,
+    pl_select_columns,
+]
 
 
 def json_rename_keys(json_data: JSONType, *, data_file: DataFile, proc_spec: JSONProcessing) -> JSONType:
@@ -559,9 +669,12 @@ def apply_processing(
             return Err(error)
         assert isinstance(result_substitution, Ok), "Result should be Ok after error check"
         substituted = result_substitution.value
-        new_proc = proc_spec.model_copy(update={"filter_by": substituted})
-        data_file = data_file.model_copy(update={"proc_spec": new_proc})
-        proc_spec = new_proc
+
+        # Only copy models when substitution actually changed something
+        if substituted is not proc_spec.filter_by:
+            new_proc = proc_spec.model_copy(update={"filter_by": substituted})
+            data_file = data_file.model_copy(update={"proc_spec": new_proc})
+            proc_spec = new_proc
 
     for registered_types, transform_func in TRANSFORMATIONS.items():
         if isinstance(data, registered_types):

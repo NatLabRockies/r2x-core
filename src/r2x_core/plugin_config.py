@@ -10,6 +10,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, ClassVar
 
+import orjson
 from loguru import logger
 from pydantic import BaseModel, Field, field_validator
 
@@ -211,8 +212,6 @@ class PluginConfig(BaseModel):
         FileNotFoundError
             If any expected configuration asset file is not found in config_path.
         """
-        import orjson
-
         resolved_config_path = Path(config_path) if config_path is not None else cls._package_config_path()
         asset_data: dict[str, Any] = {}
         for asset in PluginConfigAsset:

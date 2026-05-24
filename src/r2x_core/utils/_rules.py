@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+from collections import deque
 from collections.abc import Mapping
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
@@ -172,10 +173,9 @@ def _evaluate_rule_filter(component: Any, *, rule_filter: RuleFilter) -> bool:
         return rule_filter.on_missing == "include"
 
     candidate = str(attr).casefold() if rule_filter.casefold and isinstance(attr, str) else attr
-    values = [
-        str(val).casefold() if rule_filter.casefold and isinstance(val, str) else val
-        for val in rule_filter.values
-    ]
+    # Normalized values are precomputed during RuleFilter construction.
+    values = rule_filter._normalized_values
+    assert values is not None, "_normalized_values must be set during RuleFilter construction"
 
     if rule_filter.op == "eq":
         return candidate == values[0]
@@ -242,12 +242,12 @@ def _sort_rules_by_dependencies(rules: list[Rule]) -> Result[list[Rule], ValueEr
                 adjacency[dep].append(name)
                 in_degree[name] += 1
 
-    # Kahn's algorithm
-    queue = [name for name, degree in in_degree.items() if degree == 0]
+    # Kahn's algorithm (deque for O(1) pops instead of list.pop(0) O(n))
+    queue: deque[str] = deque(name for name, degree in in_degree.items() if degree == 0)
     sorted_names: list[str] = []
 
     while queue:
-        current = queue.pop(0)
+        current = queue.popleft()
         sorted_names.append(current)
 
         for neighbor in adjacency[current]:

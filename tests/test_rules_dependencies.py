@@ -81,7 +81,7 @@ def test_rule_with_system_field_target():
 def test_topological_sort_simple_dependency():
     """Rules are sorted by dependencies."""
     from r2x_core import Rule
-    from r2x_core.rules_executor import _sort_rules_by_dependencies
+    from r2x_core.rules_executor import sort_rules_by_dependencies
 
     rule_a = Rule(
         source_type="A",
@@ -101,7 +101,7 @@ def test_topological_sort_simple_dependency():
     )
 
     rules = [rule_b, rule_a]  # Intentionally out of order
-    result = _sort_rules_by_dependencies(rules)
+    result = sort_rules_by_dependencies(rules)
 
     assert result.is_ok()
     sorted_rules = result.unwrap()
@@ -112,7 +112,7 @@ def test_topological_sort_simple_dependency():
 def test_topological_sort_unnamed_rules_follow_dependencies():
     """Unnamed rules respect dependencies on named rules."""
     from r2x_core import Rule
-    from r2x_core.rules_executor import _sort_rules_by_dependencies
+    from r2x_core.rules_executor import sort_rules_by_dependencies
 
     rule_a = Rule(
         source_type="A",
@@ -131,7 +131,7 @@ def test_topological_sort_unnamed_rules_follow_dependencies():
     )
 
     rules = [unnamed_rule, rule_a]
-    result = _sort_rules_by_dependencies(rules)
+    result = sort_rules_by_dependencies(rules)
 
     assert result.is_ok()
     sorted_rules = result.unwrap()
@@ -142,7 +142,7 @@ def test_topological_sort_unnamed_rules_follow_dependencies():
 def test_topological_sort_complex_dependencies():
     """Rules are sorted with complex dependency graph."""
     from r2x_core import Rule
-    from r2x_core.rules_executor import _sort_rules_by_dependencies
+    from r2x_core.rules_executor import sort_rules_by_dependencies
 
     rule_a = Rule(
         source_type="A",
@@ -180,7 +180,7 @@ def test_topological_sort_complex_dependencies():
     )
 
     rules = [rule_d, rule_c, rule_b, rule_a]  # Intentionally out of order
-    result = _sort_rules_by_dependencies(rules)
+    result = sort_rules_by_dependencies(rules)
 
     assert result.is_ok()
     sorted_rules = result.unwrap()
@@ -196,7 +196,7 @@ def test_topological_sort_complex_dependencies():
 def test_topological_sort_circular_dependency():
     """Circular dependencies are detected."""
     from r2x_core import Rule
-    from r2x_core.rules_executor import _sort_rules_by_dependencies
+    from r2x_core.rules_executor import sort_rules_by_dependencies
 
     rule_a = Rule(
         source_type="A",
@@ -217,7 +217,7 @@ def test_topological_sort_circular_dependency():
     )
 
     rules = [rule_a, rule_b]
-    result = _sort_rules_by_dependencies(rules)
+    result = sort_rules_by_dependencies(rules)
 
     assert result.is_err()
     assert "Circular dependencies" in str(result.err())
@@ -226,7 +226,7 @@ def test_topological_sort_circular_dependency():
 def test_topological_sort_unknown_dependency():
     """Unknown dependencies are detected."""
     from r2x_core import Rule
-    from r2x_core.rules_executor import _sort_rules_by_dependencies
+    from r2x_core.rules_executor import sort_rules_by_dependencies
 
     rule_a = Rule(
         source_type="A",
@@ -238,7 +238,7 @@ def test_topological_sort_unknown_dependency():
     )
 
     rules = [rule_a]
-    result = _sort_rules_by_dependencies(rules)
+    result = sort_rules_by_dependencies(rules)
 
     assert result.is_err()
     assert "unknown rule" in str(result.err()).lower()
@@ -247,7 +247,7 @@ def test_topological_sort_unknown_dependency():
 def test_topological_sort_duplicate_names():
     """Duplicate rule names are detected."""
     from r2x_core import Rule
-    from r2x_core.rules_executor import _sort_rules_by_dependencies
+    from r2x_core.rules_executor import sort_rules_by_dependencies
 
     rule_a = Rule(
         source_type="A",
@@ -266,7 +266,7 @@ def test_topological_sort_duplicate_names():
     )
 
     rules = [rule_a, rule_b]
-    result = _sort_rules_by_dependencies(rules)
+    result = sort_rules_by_dependencies(rules)
 
     assert result.is_err()
     assert "Duplicate rule name" in str(result.err())
@@ -275,7 +275,7 @@ def test_topological_sort_duplicate_names():
 def test_topological_sort_unnamed_rules():
     """Unnamed rules are placed at the beginning."""
     from r2x_core import Rule
-    from r2x_core.rules_executor import _sort_rules_by_dependencies
+    from r2x_core.rules_executor import sort_rules_by_dependencies
 
     unnamed_rule = Rule(
         source_type="A",
@@ -293,7 +293,7 @@ def test_topological_sort_unnamed_rules():
     )
 
     rules = [named_rule, unnamed_rule]
-    result = _sort_rules_by_dependencies(rules)
+    result = sort_rules_by_dependencies(rules)
 
     assert result.is_ok()
     sorted_rules = result.unwrap()

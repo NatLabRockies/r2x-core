@@ -1,4 +1,4 @@
-"""System helpers."""
+"""System component traversal helpers."""
 
 from __future__ import annotations
 
@@ -11,11 +11,11 @@ if TYPE_CHECKING:
     from .. import System
 
 
-def _iter_system_components(
+def iter_components(
     system: System,
     *,
     class_type: type[Component],
     filter_func: Callable[[Component], bool] | None = None,
 ) -> Generator[Component, None, None]:
-    """Yield all source components of a specific type."""
+    """Yield all system components of a specific type, optionally filtered."""
     yield from system.get_components(class_type, filter_func=filter_func)

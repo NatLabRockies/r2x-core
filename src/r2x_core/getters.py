@@ -54,7 +54,7 @@ def getter(func: F | None = None, *, name: str | None = None) -> F | Callable[[F
 
 def _preprocess_rule_getters(getters_dict: dict[str, Any]) -> Result[dict[str, Any], TypeError]:
     """Convert string-based getters in a rule into callables."""
-    from .utils import _make_attr_getter
+    from .utils import build_attr_getter
 
     resolved: dict[str, GetterFunc] = {}
     for field, getter in getters_dict.items():
@@ -71,7 +71,7 @@ def _preprocess_rule_getters(getters_dict: dict[str, Any]) -> Result[dict[str, A
                         getter,
                         field,
                     )
-                resolved[field] = _make_attr_getter(getter.split("."))
+                resolved[field] = build_attr_getter(getter.split("."))
         else:
             return Err(TypeError(f"Invalid getter type for '{field}': {type(getter).__name__}"))
     return Ok(resolved)

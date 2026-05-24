@@ -31,7 +31,7 @@ from .exceptions import ReaderError
 from .file_readers import read_file_by_type
 from .file_types import EXTENSION_MAPPING
 from .processors import apply_processing, register_transformation
-from .utils._datafile import get_fpath
+from .utils.files import get_fpath
 
 
 class DataReader:

@@ -1,4 +1,4 @@
-"""Utility functions for rules management."""
+"""Rule construction, field mapping, filter evaluation, and topological sort."""
 
 from __future__ import annotations
 
@@ -20,28 +20,11 @@ if TYPE_CHECKING:
 _COMPONENT_TYPE_CACHE: dict[str, type] = {}
 
 
-def _resolve_component_type(type_name: str, *, context: PluginContext) -> Result[type, TypeError]:
+def resolve_component_type(type_name: str, *, context: PluginContext) -> Result[type, TypeError]:
     """Resolve a component type name to a class.
 
     Uses cache to avoid repeated module imports for the same type.
-    Searches modules specified in config.models (defaults to r2x_sienna.models, r2x_plexos.models).
-
-    Parameters
-    ----------
-    type_name : str
-        Name of the component type to resolve
-    context : PluginContext
-        Plugin context to get models from config
-
-    Returns
-    -------
-    Result[type, TypeError]
-        Ok with the resolved class, or Err if not found
-
-    Notes
-    -----
-    Uses a module-level cache dict to optimize repeated type lookups.
-    Modules to search are configured via config.models.
+    Searches modules specified in config.models.
     """
     if type_name in _COMPONENT_TYPE_CACHE:
         return Ok(_COMPONENT_TYPE_CACHE[type_name])
@@ -61,16 +44,16 @@ def _resolve_component_type(type_name: str, *, context: PluginContext) -> Result
     return Err(TypeError(f"Component type '{type_name}' not found in modules: {modules_to_search}"))
 
 
-def _create_target_component(target_class: type, *, kwargs: dict[str, Any]) -> Any:
-    """Instantiate a target component safely."""
+def create_target_component(target_class: type, *, kwargs: dict[str, Any]) -> Any:
+    """Instantiate a target component object."""
     return target_class(**kwargs)
 
 
-def _make_attr_getter(chain: list[str]) -> RuleGetter:
-    """Create a getter that safely walks nested attributes and returns a Result."""
+def build_attr_getter(chain: list[str]) -> RuleGetter:
+    """Create a getter that walks nested attributes and returns a Result."""
 
     def _getter(src: Any, *, context: PluginContext) -> Result[Any, ValueError]:
-        """Extract attributes."""
+        """Walk the attribute chain returning the leaf value or None."""
         _ = context
         val = src
         for attr in chain:
@@ -82,18 +65,22 @@ def _make_attr_getter(chain: list[str]) -> RuleGetter:
     return _getter
 
 
-def _build_target_fields(
+def build_target_fields(
     source_component: Any,
     *,
     rule: Rule,
     context: PluginContext,
 ) -> Result[dict[str, Any], ValueError]:
-    """Build field map for the target component."""
+    """Build a field mapping for the target component."""
     return build_component_kwargs(source_component, rule=rule, context=context)
 
 
-def _as_attr_source(source_component: Any) -> Any:
-    """Return an object that supports attribute access for the provided record."""
+def to_attr_source(source_component: Any) -> Any:
+    """Return an object that supports attribute access for the provided record.
+
+    When source_component is a Mapping, wraps it in a SimpleNamespace so
+    field_map can use dotted attribute access. Otherwise returns unchanged.
+    """
     if isinstance(source_component, Mapping):
         return SimpleNamespace(**source_component)
     return source_component
@@ -107,13 +94,13 @@ def build_component_kwargs(
     Parameters
     ----------
     source_component : Any
-        Source object or parser record providing attributes referenced by the rule.
+        Source object or parser record providing attributes.
     rule : RuleLike
         Object exposing field_map, getters, and defaults.
     context : PluginContext
         Active context passed to getters.
     """
-    source_obj = _as_attr_source(source_component)
+    source_obj = to_attr_source(source_component)
     field_map = getattr(rule, "field_map", {})
     getters = getattr(rule, "getters", {})
     defaults = getattr(rule, "defaults", {})
@@ -121,7 +108,6 @@ def build_component_kwargs(
 
     for target_field, source_field in field_map.items():
         if isinstance(source_field, list):
-            # Multi-field mappings must be handled by a getter; skip direct assignment.
             continue
         value = getattr(source_obj, source_field, None)
         if value is not None:
@@ -158,12 +144,12 @@ def build_component_kwargs(
     return Ok(kwargs)
 
 
-def _evaluate_rule_filter(component: Any, *, rule_filter: RuleFilter) -> bool:
+def evaluate_rule_filter(component: Any, *, rule_filter: RuleFilter) -> bool:
     """Return True if the component satisfies the rule filter."""
     if rule_filter.any_of is not None:
-        return any(_evaluate_rule_filter(component, rule_filter=child) for child in rule_filter.any_of)
+        return any(evaluate_rule_filter(component, rule_filter=child) for child in rule_filter.any_of)
     if rule_filter.all_of is not None:
-        return all(_evaluate_rule_filter(component, rule_filter=child) for child in rule_filter.all_of)
+        return all(evaluate_rule_filter(component, rule_filter=child) for child in rule_filter.all_of)
 
     if rule_filter.field is None or rule_filter.op is None or rule_filter.values is None:
         raise ValueError("RuleFilter must have field, op, and values for leaf filters")
@@ -173,9 +159,13 @@ def _evaluate_rule_filter(component: Any, *, rule_filter: RuleFilter) -> bool:
         return rule_filter.on_missing == "include"
 
     candidate = str(attr).casefold() if rule_filter.casefold and isinstance(attr, str) else attr
-    # Normalized values are precomputed during RuleFilter construction.
     values = rule_filter._normalized_values
     assert values is not None, "_normalized_values must be set during RuleFilter construction"
+    if values is None:
+        values = [
+            str(val).casefold() if rule_filter.casefold and isinstance(val, str) else val
+            for val in rule_filter.values
+        ]
 
     if rule_filter.op == "eq":
         return candidate == values[0]
@@ -201,8 +191,8 @@ def _evaluate_rule_filter(component: Any, *, rule_filter: RuleFilter) -> bool:
     return False
 
 
-def _sort_rules_by_dependencies(rules: list[Rule]) -> Result[list[Rule], ValueError]:
-    """Sort rules by dependencies using topological sort.
+def sort_rules_by_dependencies(rules: list[Rule]) -> Result[list[Rule], ValueError]:
+    """Sort rules by dependencies using topological sort (Kahn's algorithm).
 
     Parameters
     ----------
@@ -213,11 +203,6 @@ def _sort_rules_by_dependencies(rules: list[Rule]) -> Result[list[Rule], ValueEr
     -------
     Result[list[Rule], ValueError]
         Ok with sorted rules, or Err if circular dependencies detected
-
-    Notes
-    -----
-    Rules without names or dependencies are placed at the beginning.
-    Uses Kahn's algorithm for topological sorting.
     """
     named_rules: dict[str, Rule] = {}
     unnamed_rules: list[Rule] = []
@@ -230,7 +215,6 @@ def _sort_rules_by_dependencies(rules: list[Rule]) -> Result[list[Rule], ValueEr
         else:
             unnamed_rules.append(rule)
 
-    # Dependency graph
     in_degree: dict[str, int] = dict.fromkeys(named_rules, 0)
     adjacency: dict[str, list[str]] = {name: [] for name in named_rules}
 
@@ -242,7 +226,6 @@ def _sort_rules_by_dependencies(rules: list[Rule]) -> Result[list[Rule], ValueEr
                 adjacency[dep].append(name)
                 in_degree[name] += 1
 
-    # Kahn's algorithm (deque for O(1) pops instead of list.pop(0) O(n))
     queue: deque[str] = deque(name for name, degree in in_degree.items() if degree == 0)
     sorted_names: list[str] = []
 

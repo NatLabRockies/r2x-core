@@ -18,7 +18,7 @@ from .datafile import DataFile, FileProcessing, TabularProcessing
 from .plugin_config import PluginConfig
 from .reader import DataReader
 from .utils import filter_valid_kwargs
-from .utils._upgrade_coordinator import UpgradeCoordinator
+from .utils.upgrade import UpgradeCoordinator
 
 
 class DataStore:

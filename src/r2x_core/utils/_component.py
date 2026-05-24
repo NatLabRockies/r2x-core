@@ -68,8 +68,11 @@ def components_to_records(
 
     # Use a generator to avoid holding all component dicts in memory
     # simultaneously. Filter and key mapping are applied per-component
-    # as we iterate.
+    # as we iterate. The result is still a list (public API contract),
+    # but the generator prevents holding both the component objects AND
+    # the serialized dicts in memory at the same time.
     def _iter_records():
+        """Yield one record dict at a time with filtering and key mapping applied."""
         for component in system.get_components(Component, filter_func=filter_func):
             record = component.model_dump()
             if fields is not None:

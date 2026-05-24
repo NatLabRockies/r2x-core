@@ -173,14 +173,9 @@ def _evaluate_rule_filter(component: Any, *, rule_filter: RuleFilter) -> bool:
         return rule_filter.on_missing == "include"
 
     candidate = str(attr).casefold() if rule_filter.casefold and isinstance(attr, str) else attr
-    # Use precomputed normalized values when available; fall back to lazy
-    # computation when values have been mutated after construction.
+    # Normalized values are precomputed during RuleFilter construction.
     values = rule_filter._normalized_values
-    if values is None:
-        values = [
-            str(val).casefold() if rule_filter.casefold and isinstance(val, str) else val
-            for val in rule_filter.values
-        ]
+    assert values is not None, "_normalized_values must be set during RuleFilter construction"
 
     if rule_filter.op == "eq":
         return candidate == values[0]

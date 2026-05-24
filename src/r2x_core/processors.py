@@ -75,8 +75,13 @@ def substitute_placeholders(
     if isinstance(value, str) and "{" not in value:
         return Ok(value)
 
+    # Track whether any substitution actually changed a value.
+    # When nothing changed, return the original to allow identity checks.
+    changed = False
+
     def substitute_value(val: Any) -> Result[Any, ValueError]:
         """Recursively substitute placeholders in a value."""
+        nonlocal changed
         if isinstance(val, str):
             if "{" not in val:
                 return Ok(val)
@@ -100,6 +105,7 @@ def substitute_placeholders(
                             f"Available placeholders: {available}"
                         )
                     )
+                changed = True
                 return Ok(placeholders[var_name])
 
             if _PLACEHOLDER_PATTERN.search(val):
@@ -113,27 +119,44 @@ def substitute_placeholders(
 
         elif isinstance(val, list):
             new_list = []
+            local_changed = False
             for item in val:
                 res = substitute_value(item)
                 if res.is_err():
-                    return res  # propagate error
+                    return res
                 assert isinstance(res, Ok), "Result should be Ok after error check"
                 new_list.append(res.value)
+                if res.value is not item:
+                    local_changed = True
+            if not local_changed:
+                return Ok(val)  # preserve original
+            changed = True
             return Ok(new_list)
 
         elif isinstance(val, dict):
             new_dict = {}
+            local_changed = False
             for k, v in val.items():
                 res = substitute_value(v)
                 if res.is_err():
                     return res
                 assert isinstance(res, Ok), "Result should be Ok after error check"
                 new_dict[k] = res.value
+                if res.value is not v:
+                    local_changed = True
+            if not local_changed:
+                return Ok(val)  # preserve original
+            changed = True
             return Ok(new_dict)
 
         return Ok(val)
 
-    return substitute_value(value)
+    result = substitute_value(value)
+    if result.is_err():
+        return result
+    if not changed:
+        return Ok(value)
+    return result
 
 
 def process_tabular_data(
@@ -279,7 +302,7 @@ def pl_lowercase(
         {column: column.lower() for column in schema_names}
     )
     new_names = [name.lower() for name in schema_names]
-    logger.trace("Lowercase columns: {} for {}", schema_names, data_file.name)
+    logger.trace("Lowercase columns: {len(schema_names)} -> {len(new_names)} cols for {data_file.name}")
     return result, new_names
 
 
@@ -337,12 +360,12 @@ def pl_cast_schema(
     data_file: DataFile,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
-) -> pl.LazyFrame:
+) -> tuple[pl.LazyFrame, list[str]]:
     """Cast columns to specified data types. Column names are unchanged."""
     if schema_names is None:
         schema_names = list(data_frame.collect_schema().names())
     if not proc_spec or not proc_spec.column_schema:
-        return data_frame
+        return data_frame, schema_names
 
     cast_exprs = []
     for col, type_str in (proc_spec.column_schema or {}).items():
@@ -351,9 +374,9 @@ def pl_cast_schema(
             cast_exprs.append(pl.col(col).cast(polars_type))
 
     if not cast_exprs:
-        return data_frame
+        return data_frame, schema_names
     logger.trace("Applying schema {} to {}", proc_spec.column_schema, data_file.name)
-    return data_frame.with_columns(cast_exprs)
+    return data_frame.with_columns(cast_exprs), schema_names
 
 
 def pl_apply_filters(
@@ -362,12 +385,12 @@ def pl_apply_filters(
     data_file: DataFile,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
-) -> pl.LazyFrame:
+) -> tuple[pl.LazyFrame, list[str]]:
     """Apply row filters. Column names are unchanged."""
     if schema_names is None:
         schema_names = list(data_frame.collect_schema().names())
     if not proc_spec or not proc_spec.filter_by:
-        return data_frame
+        return data_frame, schema_names
 
     filters = [
         pl_build_filter_expr(col, value=value)
@@ -376,12 +399,12 @@ def pl_apply_filters(
     ]
 
     if not filters:
-        return data_frame
+        return data_frame, schema_names
     combined_filter = filters[0]
     for filter_expr in filters[1:]:
         combined_filter = combined_filter & filter_expr
     logger.trace("Applying {} filters to {}", len(filters), data_file.name)
-    return data_frame.filter(combined_filter)
+    return data_frame.filter(combined_filter), schema_names
 
 
 def pl_select_columns(

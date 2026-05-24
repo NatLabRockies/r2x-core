@@ -94,6 +94,15 @@ def _setup_target_and_child_tables(
     tgt_metadata.executemany("INSERT INTO target_components VALUES (?, ?)", list(uuid_to_type.items()))
 
     target_uuids = list(uuid_to_type.keys())
+
+    if not target_uuids:
+        # No target components exist; skip the query and return empty results.
+        tgt_metadata.execute("DROP TABLE IF EXISTS child_mapping")
+        tgt_metadata.execute(
+            "CREATE TEMP TABLE child_mapping (child_uuid TEXT, parent_uuid TEXT, parent_type TEXT)"
+        )
+        return [], uuid_to_type
+
     # Build placeholders for the IN clause
     placeholders = ",".join("?" for _ in target_uuids)
     child_parent_rows = src_associations.execute(

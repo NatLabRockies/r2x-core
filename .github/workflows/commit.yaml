@@ -4,9 +4,17 @@ on:
   pull_request:
     types: [opened, reopened, synchronize]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   labeler:
     name: apply labels
+    timeout-minutes: 5
     permissions:
       contents: read
       pull-requests: write
@@ -14,6 +22,8 @@ jobs:
     runs-on: [ubuntu-latest]
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - uses: actions/labeler@v6.1.0
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -22,6 +32,7 @@ jobs:
 
   lint-commit-messages:
     name: lint commit message
+    timeout-minutes: 5
     runs-on: [ubuntu-latest]
     steps:
       - name: Checkout
@@ -29,14 +40,15 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
+          persist-credentials: false
       - name: Install uv
         uses: astral-sh/setup-uv@v7
       - name: Commitizen check
         run: |
           uvx --from commitizen cz check --rev-range HEAD^!
   lint-pr-title:
-    # default: lints titles using https://github.com/commitizen/conventional-commit-types
     name: lint pr title
+    timeout-minutes: 5
     runs-on: [ubuntu-latest]
     permissions:
       pull-requests: read

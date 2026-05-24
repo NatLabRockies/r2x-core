@@ -92,7 +92,7 @@ def export_components_to_csv(
     fieldnames = list(records[0].keys())
 
     with open(fpath, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames, **dict_writer_kwargs)
+        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore", **dict_writer_kwargs)
         writer.writeheader()
         writer.writerows(records)
     logger.info("Exported {} components to {}", len(records), fpath)

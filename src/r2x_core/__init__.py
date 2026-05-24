@@ -3,7 +3,7 @@
 Eager imports are kept under ``if TYPE_CHECKING`` so IDEs (pyright, mypy)
 see the full API surface for autocompletion and type checking. At runtime,
 attributes are imported on first access via ``__getattr__`` and cached in
-the module globals, dropping cold-import from ~1.4 s to ~50 ms.
+the module globals, dropping cold-import from ~1.4 s to ~0.17 s.
 """
 
 from __future__ import annotations

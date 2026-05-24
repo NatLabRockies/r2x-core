@@ -88,14 +88,17 @@ repos:
         files: ^\.github/workflows/.*\.ya?ml$
         stages: [pre-commit]
 
-  - repo: https://github.com/rhysd/actionlint
-    rev: v1.7.12
-    hooks:
-      - id: actionlint
-        stages: [pre-commit]
-
   - repo: local
     hooks:
+      - id: actionlint
+        name: actionlint
+        entry: bash -c 'files=$(find .github/workflows -name "*.yaml" -type f); uvx --from actionlint-py actionlint $files'
+        language: system
+        types: [yaml]
+        files: ^\.github/workflows/.*\.ya?ml$
+        pass_filenames: false
+        stages: [pre-commit]
+
       - id: pytest
         name: pytest (quick)
         entry: uv run pytest -q --maxfail=1 --disable-warnings

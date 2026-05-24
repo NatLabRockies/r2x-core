@@ -4,17 +4,27 @@ on:
   pull_request:
     types: [opened, reopened, synchronize]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   labeler:
     name: apply labels
+    timeout-minutes: 5
     permissions:
       contents: read
-      pull-requests: write
-      issues: write
+      pull-requests: write  # required by actions/labeler to apply labels to PRs
+      issues: write       # required by actions/labeler to sync labels
     runs-on: [ubuntu-latest]
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/labeler@v6.1.0
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+      - uses: actions/labeler@v6.1.0  # zizmor: ignore[unpinned-uses]
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           configuration-path: .github/labeler.yaml
@@ -22,25 +32,27 @@ jobs:
 
   lint-commit-messages:
     name: lint commit message
+    timeout-minutes: 5
     runs-on: [ubuntu-latest]
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          version: "0.9.4"
       - name: Commitizen check
-        run: |
-          uvx --from commitizen cz check --rev-range HEAD^!
+        run: uvx --from commitizen cz check --rev-range HEAD^!
+
   lint-pr-title:
-    # default: lints titles using https://github.com/commitizen/conventional-commit-types
     name: lint pr title
+    timeout-minutes: 5
     runs-on: [ubuntu-latest]
     permissions:
-      pull-requests: read
+      pull-requests: read  # required by action-semantic-pull-request to read PR title
     steps:
-      - uses: amannn/action-semantic-pull-request@v6.1.1
+      - uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6.1.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

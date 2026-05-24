@@ -20,7 +20,7 @@ maintainers = [
 description = "Extensible framework for building power system model translators with plugin architecture"
 readme = "README.md"
 license = {file = "LICENSE.txt"}
-requires-python = ">=3.11,<3.14"
+requires-python = ">=3.11,<3.15"
 keywords = [
     "power-systems",
     "energy-modeling",

@@ -53,6 +53,7 @@ def build_attr_getter(chain: list[str]) -> RuleGetter:
     """Create a getter that walks nested attributes and returns a Result."""
 
     def _getter(src: Any, *, context: PluginContext) -> Result[Any, ValueError]:
+        """Walk the attribute chain returning the leaf value or None."""
         _ = context
         val = src
         for attr in chain:

@@ -475,3 +475,6 @@ prompt_cache/
 prompt_history/
 *.prompt_cache
 prompt_logs/
+
+# Architecture Decision Records (local only)
+docs/adr/

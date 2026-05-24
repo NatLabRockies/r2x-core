@@ -78,12 +78,14 @@ def _setup_target_and_child_tables(
     tgt_metadata: Connection,
     src_associations: Connection,
     uuid_map: dict,
-) -> list[tuple]:
+) -> tuple[list[tuple], dict[str, str]]:
     """Set up temporary tables for target components and child mapping.
 
     Returns
     -------
-        List of child_remapping tuples (child_uuid, parent_uuid, parent_type).
+        Tuple of (child_remapping, uuid_to_type) where
+        - child_remapping is a list of (child_uuid, parent_uuid, parent_type) tuples
+        - uuid_to_type maps UUID strings to component type names
     """
     uuid_to_type = {str(uuid): type(comp).__name__ for uuid, comp in uuid_map.items()}
 
@@ -91,10 +93,17 @@ def _setup_target_and_child_tables(
     tgt_metadata.execute("CREATE TEMP TABLE target_components (uuid TEXT PRIMARY KEY, type TEXT)")
     tgt_metadata.executemany("INSERT INTO target_components VALUES (?, ?)", list(uuid_to_type.items()))
 
-    child_parent_rows = src_associations.execute("""
+    target_uuids = list(uuid_to_type.keys())
+    # Build placeholders for the IN clause
+    placeholders = ",".join("?" for _ in target_uuids)
+    child_parent_rows = src_associations.execute(
+        f"""
         SELECT component_uuid, attached_component_uuid
         FROM component_associations
-    """).fetchall()
+        WHERE attached_component_uuid IN ({placeholders})
+        """,
+        target_uuids,
+    ).fetchall()
 
     child_remapping = [
         (child_uuid, parent_uuid, type(uuid_map[UUID(parent_uuid)]).__name__)
@@ -109,7 +118,7 @@ def _setup_target_and_child_tables(
     if child_remapping:
         tgt_metadata.executemany("INSERT INTO child_mapping VALUES (?, ?, ?)", child_remapping)
 
-    return child_remapping
+    return child_remapping, uuid_to_type
 
 
 def _transfer_associations(
@@ -264,8 +273,10 @@ def transfer_time_series_metadata(context: PluginContext) -> TimeSeriesTransferR
         tgt_metadata = tgt_store.metadata_conn
         src_associations = source_system._component_mgr._associations._con
 
-        # Setup temporary tables and get child remapping
-        child_remapping = _setup_target_and_child_tables(tgt_metadata, src_associations, uuid_map)
+        # Setup temporary tables and get child remapping + uuid_to_type
+        child_remapping, uuid_to_type = _setup_target_and_child_tables(
+            tgt_metadata, src_associations, uuid_map
+        )
 
         # Deduplicate before transfer
         removed_duplicates = _deduplicate_ts_associations(tgt_metadata, UNIQUE_TS_COLUMNS)
@@ -276,7 +287,6 @@ def transfer_time_series_metadata(context: PluginContext) -> TimeSeriesTransferR
 
         # Transfer associations
         columns = _ts_columns(tgt_metadata)
-        uuid_to_type = {str(uuid): type(comp).__name__ for uuid, comp in uuid_map.items()}
         _transfer_associations(src_metadata, tgt_metadata, uuid_to_type, columns)
 
         # Remove potential duplicates before remapping

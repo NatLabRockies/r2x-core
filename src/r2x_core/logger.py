@@ -18,6 +18,8 @@ import traceback
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 
+from loguru import logger as _loguru_logger
+
 if TYPE_CHECKING:
     import loguru
     from rich.console import Console
@@ -211,18 +213,17 @@ def setup_logging(
         )
 
     global _verbosity
-    from loguru import logger
 
     _verbosity = verbosity
 
-    logger.enable("r2x_core")
+    _loguru_logger.enable("r2x_core")
 
     level = _VERBOSITY_TO_LEVEL.get(verbosity, DEFAULT_LOG_LEVEL)
 
-    logger.remove()
+    _loguru_logger.remove()
 
     if log_file:
-        logger.add(
+        _loguru_logger.add(
             log_file,
             level="TRACE",
             format="[{time:YYYY-MM-DD HH:mm:ss}] [PYTHON] {level} {message}",
@@ -232,7 +233,7 @@ def setup_logging(
         )
 
     if log_to_console:
-        logger.add(
+        _loguru_logger.add(
             structured_sink,
             level=level,
             backtrace=True,
@@ -242,6 +243,4 @@ def setup_logging(
 
 def get_logger(name: str) -> loguru.Logger:
     """Get a logger for a specific component or plugin."""
-    from loguru import logger
-
-    return logger.bind(name=name)
+    return _loguru_logger.bind(name=name)

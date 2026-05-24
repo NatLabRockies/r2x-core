@@ -24,7 +24,7 @@ class RuleFilter(BaseModel):
     all_of: list[RuleFilter] | None = None
     casefold: bool = True
     on_missing: Literal["include", "exclude"] = "exclude"
-    _normalized_prefixes: list[str] | None = PrivateAttr(None)
+    _normalized_values: list[Any] | None = PrivateAttr(None)
 
     @model_validator(mode="after")
     def _validate_structure(self) -> RuleFilter:
@@ -63,6 +63,14 @@ class RuleFilter(BaseModel):
                     raise ValueError("RuleFilter.prefixes entries must be strings")
                 object.__setattr__(self, "values", prefix_values)
 
+            # Precompute casefolded values once so _evaluate_rule_filter does not
+            # recompute them per component.
+            normalized = [
+                str(val).casefold() if self.casefold and isinstance(val, str) else val
+                for val in self.values or []
+            ]
+            object.__setattr__(self, "_normalized_values", normalized)
+
         return self
 
     def matches(self, component: Any) -> bool:
@@ -70,16 +78,6 @@ class RuleFilter(BaseModel):
         from .utils import _evaluate_rule_filter
 
         return _evaluate_rule_filter(component, rule_filter=self)
-
-    def normalized_prefixes(self) -> list[str]:
-        """Return the cached prefix values ready for prefix comparisons."""
-        if self._normalized_prefixes is None:
-            prefixes: list[str] = []
-            for value in self.values or []:
-                normalized = value.casefold() if self.casefold else value
-                prefixes.append(normalized)
-            self._normalized_prefixes = prefixes
-        return self._normalized_prefixes
 
 
 RuleGetter: TypeAlias = Callable[..., Result[Any, ValueError]]

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Any, cast, get_origin
+from typing import TYPE_CHECKING, Any, cast
 
 import pint
+from pydantic import PrivateAttr  # noqa: F401 - used for __repr_args__ caching
 
 if TYPE_CHECKING:
     from ._mixins import HasUnits
@@ -139,6 +140,10 @@ def _format_for_display(
 def _is_annotated(obj: Any) -> bool:
     """Check if an object is an Annotated type hint.
 
+    Uses ``hasattr(..., '__metadata__')`` which avoids the ``get_origin`` dispatch
+    overhead. This is called for every field during ``__repr_args__`` and validation,
+    so avoiding one function call per field adds up.
+
     Parameters
     ----------
     obj : Any
@@ -149,10 +154,7 @@ def _is_annotated(obj: Any) -> bool:
     bool
         True if obj is Annotated[...], False otherwise
     """
-    try:
-        return get_origin(obj) is Annotated
-    except Exception:
-        return False
+    return hasattr(obj, "__metadata__")
 
 
 def _get_base_unit_from_context(context: Any, base_field: str) -> str | None:
@@ -179,8 +181,15 @@ def _get_base_unit_from_context(context: Any, base_field: str) -> str | None:
     return bu if isinstance(bu, str) else None
 
 
+_BASE_UNIT_CLASS_CACHE: dict[tuple[str, str], str | None] = {}
+
+
 def _get_base_unit_from_subclass(owner_name: str | None, base_field: str) -> str | None:
     """Get base unit by scanning subclasses when context unavailable.
+
+    Results are cached via a module-level dict since model classes and their
+    unit specs are defined at import time and do not change at runtime. This
+    avoids the recurrent ``__subclasses__()`` walk for every field validation.
 
     Parameters
     ----------
@@ -197,6 +206,10 @@ def _get_base_unit_from_subclass(owner_name: str | None, base_field: str) -> str
     if not owner_name:
         return None
 
+    key = (owner_name, base_field)
+    if key in _BASE_UNIT_CLASS_CACHE:
+        return _BASE_UNIT_CLASS_CACHE[key]
+
     from ._mixins import HasUnits
 
     def _search_subclasses(base_cls: type[HasUnits]) -> str | None:
@@ -206,10 +219,13 @@ def _get_base_unit_from_subclass(owner_name: str | None, base_field: str) -> str
                 specs = subcls._get_unit_specs_map()
                 base_spec = specs.get(base_field)
                 if base_spec:
+                    _BASE_UNIT_CLASS_CACHE[key] = base_spec.unit
                     return base_spec.unit
             result = _search_subclasses(subcls)
             if result:
                 return result
         return None
 
-    return _search_subclasses(HasUnits)
+    result = _search_subclasses(HasUnits)
+    _BASE_UNIT_CLASS_CACHE[key] = result
+    return result

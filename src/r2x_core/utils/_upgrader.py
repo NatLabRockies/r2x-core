@@ -12,12 +12,13 @@ The upgrade system uses a priority queue where lower numbers execute first.
 Version comparison is delegated to configurable VersionStrategy implementations.
 """
 
+import inspect
 from collections.abc import Callable
 from enum import Enum
 from typing import Annotated, Any
 
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, PrivateAttr
 from rust_ok import Err, Ok, Result
 
 from ..exceptions import UpgradeError
@@ -72,6 +73,7 @@ class UpgradeStep(BaseModel):
     priority: int = 100
     min_version: str | None = None
     max_version: str | None = None
+    _sig: inspect.Signature | None = PrivateAttr(None)
 
 
 def shall_we_upgrade(
@@ -172,10 +174,12 @@ def run_upgrade_step(
     """
     logger.debug("Applying upgrade step: {}", step.name)
     try:
-        # Try to pass upgrader_context if the function accepts it
-        import inspect
+        # Cache the signature on the step to avoid repeated introspection
+        sig = step._sig
+        if sig is None:
+            sig = inspect.signature(step.func)
+            object.__setattr__(step, "_sig", sig)
 
-        sig = inspect.signature(step.func)
         if "upgrader_context" in sig.parameters or any(
             p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
         ):

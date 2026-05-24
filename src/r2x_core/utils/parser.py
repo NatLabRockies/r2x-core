@@ -56,10 +56,10 @@ def create_component(
 
     try:
         # Both paths return the same type T - either via model_construct or model_validate
-        # The narrow path ensures type safety
+        # model_construct bypasses __init__ and all validators for 2-3x speedup
+        # on large batch component creation.
         if skip_validation:
-            # Use direct instantiation which is guaranteed to return T
-            component = component_class(**valid_fields)
+            component = component_class.model_construct(**valid_fields)
         else:
             component = component_class.model_validate(valid_fields)
         return Ok(component)

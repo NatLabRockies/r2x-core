@@ -271,17 +271,17 @@ def test_rulefilter_model_validator_prefixes_type():
         RuleFilter(field="name", op="startswith", prefixes=cast(Any, [123]))
 
 
-def test_rulefilter_normalized_prefixes_casefold():
-    """normalized_prefixes returns casefolded values if casefold=True."""
+def test_rulefilter_normalized_values_casefold():
+    """_normalized_values precomputes casefolded values if casefold=True."""
     from r2x_core import RuleFilter
 
     filt = RuleFilter(field="name", op="startswith", values=["Plant_A"], casefold=True)
-    assert filt.normalized_prefixes() == ["plant_a"]
+    assert filt._normalized_values == ["plant_a"]
 
 
-def test_rulefilter_normalized_prefixes_no_casefold():
-    """normalized_prefixes returns original values if casefold=False."""
+def test_rulefilter_normalized_values_no_casefold():
+    """_normalized_values preserves original values if casefold=False."""
     from r2x_core import RuleFilter
 
     filt = RuleFilter(field="name", op="startswith", values=["Plant_A"], casefold=False)
-    assert filt.normalized_prefixes() == ["Plant_A"]
+    assert filt._normalized_values == ["Plant_A"]

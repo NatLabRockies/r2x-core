@@ -165,16 +165,11 @@ def test_rule_filter_pattern_variants():
     leaf = RuleFilter(field="name", op="eq", values=["alpha"])
     assert leaf.matches(base)
 
-    leaf.op = "neq"
-    leaf.values = ["beta"]
-    assert leaf.matches(base)
+    assert RuleFilter(field="name", op="neq", values=["beta"]).matches(base)
 
-    leaf.op = "in"
-    leaf.values = ["alpha", "beta"]
-    assert leaf.matches(base)
+    assert RuleFilter(field="name", op="in", values=["alpha", "beta"]).matches(base)
 
-    leaf.op = "not_in"
-    assert not leaf.matches(base)
+    assert not RuleFilter(field="name", op="not_in", values=["alpha", "beta"]).matches(base)
 
     geq_filter = RuleFilter(field="count", op="geq", values=[3])
     assert geq_filter.matches(base)

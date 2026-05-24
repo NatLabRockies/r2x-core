@@ -151,6 +151,8 @@ class DataReader:
             processed_data = raw_data
         return processed_data
 
+    _SUPPORTED_FILE_TYPES: list[str] | None = None
+
     def get_supported_file_types(self) -> list[str]:
         """Get list of supported file extensions.
 
@@ -159,7 +161,12 @@ class DataReader:
         list[str]
             List of supported file extensions.
         """
-        return list(EXTENSION_MAPPING.keys())
+        if self._SUPPORTED_FILE_TYPES is None:
+            type(self)._SUPPORTED_FILE_TYPES = list(EXTENSION_MAPPING.keys())
+        # Type checker does not narrow the class-level attribute after the if.
+        result = type(self)._SUPPORTED_FILE_TYPES
+        assert result is not None
+        return result
 
     def register_custom_transformation(
         self,

@@ -106,7 +106,7 @@ jobs:
       - name: Running package tests
         run: uv run pytest --cov --cov-report=xml
 
-      - uses: codecov/codecov-action@v6  # zizmor: ignore[unpinned-uses]
+      - uses: codecov/codecov-action@v7  # zizmor: ignore[unpinned-uses]
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.14'
         with:
           token: ${{ secrets.CODECOV_TOKEN }}

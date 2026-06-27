@@ -21,7 +21,7 @@ jobs:
       issues: write       # required by actions/labeler to sync labels
     runs-on: [ubuntu-latest]
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
         with:
           persist-credentials: false
       - uses: actions/labeler@v6.1.0  # zizmor: ignore[unpinned-uses]
@@ -35,7 +35,7 @@ jobs:
     timeout-minutes: 5
     runs-on: [ubuntu-latest]
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0

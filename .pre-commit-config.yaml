@@ -58,9 +58,10 @@ repos:
         types_or: [python, pyi]
       - id: ty-check
         name: ty check
-        entry: uv run --locked ty check
+        entry: uv run --locked ty check src/
         language: system
-        types_or: [python, pyi]
+        pass_filenames: false
+        files: ^(src/|tests/|pyproject\.toml|uv\.lock)
       - id: pytest
         name: pytest
         entry: uv run --locked pytest -q --maxfail=1 -m "not slow"

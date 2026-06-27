@@ -49,7 +49,7 @@ jobs:
           version: ${{ env.UV_VERSION }}
 
       - name: Install dependencies
-        run: uv sync --all-groups
+        run: uv sync --all-groups --locked
 
       - name: Run prek
         run: uv run prek run --all-files --fail-fast --show-diff-on-failure --color=always
@@ -101,12 +101,13 @@ jobs:
         run: uv python install "$PYTHON_VERSION"
 
       - name: Install dependencies
-        run: uv sync --all-groups
+        run: uv sync --all-groups --locked
 
       - name: Running package tests
         run: uv run pytest --cov --cov-report=xml
 
       - uses: codecov/codecov-action@v6  # zizmor: ignore[unpinned-uses]
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.14'
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
 
@@ -130,7 +131,7 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --all-groups
+        run: uv sync --all-groups --locked
 
       - name: Build and install wheel
         run: |

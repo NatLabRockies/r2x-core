@@ -1,10 +1,10 @@
 # Typos configuration for r2x-core
 # See https://github.com/crate-ci/typos for more information
 [files]
-extend-exclude = [
-    "tests/*",
-]
+extend-exclude = ["tests/*"]
 
 [default.extend-words]
+# Sphinx reports directive option name.
+packageid = "packageid"
 # Pydantic core schema function name (not a typo)
 ser = "ser"

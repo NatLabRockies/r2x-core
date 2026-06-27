@@ -157,7 +157,7 @@ This repository uses [uv](https://docs.astral.sh/uv/) and `just` for local
 automation.
 
 ```console
-just sync
+just setup
 just hooks
 just test
 just docs
@@ -165,15 +165,15 @@ just docs
 
 Common tasks:
 
-| Command       | Purpose                                   |
-| ------------- | ----------------------------------------- |
-| `just sync`   | Install all dependency groups.            |
-| `just format` | Format Python code with Ruff.             |
-| `just lint`   | Run Ruff checks.                          |
-| `just type`   | Run `ty` type checks.                     |
-| `just test`   | Run pytest.                               |
-| `just docs`   | Build Sphinx docs.                        |
-| `just verify` | Run hooks, docstring coverage, and tests. |
+| Command        | Purpose                                   |
+| -------------- | ----------------------------------------- |
+| `just setup`   | Install all dependency groups.            |
+| `just format`  | Format Python code with Ruff.             |
+| `just lint`    | Run Ruff checks.                          |
+| `just type`    | Run `ty` type checks.                     |
+| `just test`    | Run pytest.                               |
+| `just docs`    | Build Sphinx docs.                        |
+| `just verify`  | Run hooks, docstring coverage, and tests. |
 
 ## Roadmap
 

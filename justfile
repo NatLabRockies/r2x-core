@@ -5,8 +5,10 @@ set dotenv-load := false
 default:
     @just --list
 
+alias sync := setup
+
 # Install dev dependencies.
-sync:
+setup:
     uv sync --all-groups --upgrade
 
 # Update uv.lock.

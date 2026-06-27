@@ -1,4 +1,4 @@
-minimum_prek_version: "0.2.0"
+minimum_prek_version: "0.4.1"
 
 default_stages:
   - pre-commit
@@ -9,101 +9,79 @@ default_install_hook_types:
   - pre-push
 
 repos:
-  - repo: local
-    hooks:
-      - id: ruff-format
-        name: ruff format
-        entry: uv run ruff format
-        language: system
-        types_or: [python, pyi]
-
-      - id: ruff-check
-        name: ruff check
-        entry: uv run ruff check --fix --config=pyproject.toml
-        language: system
-        types_or: [python, pyi]
-
-      - id: ty-check
-        name: ty check
-        entry: uv run ty check src/
-        language: system
-        pass_filenames: false
-        files: ^(src/|tests/|pyproject\.toml|uv\.lock)
-
   - repo: builtin
     hooks:
       - id: trailing-whitespace
         args:
           - --markdown-linebreak-ext=md
           - --markdown-linebreak-ext=markdown
-
-      - id: check-added-large-files
-        args: ["--maxkb=1000"]
-
       - id: end-of-file-fixer
-
       - id: check-case-conflict
-      - id: fix-byte-order-marker
-
-      - id: check-json
       - id: check-toml
       - id: check-yaml
-
       - id: mixed-line-ending
         args: ["--fix=lf"]
-
+        exclude: '\.(bat|cmd)$'
       - id: check-merge-conflict
       - id: detect-private-key
-
-      - id: no-commit-to-branch
-        args:
-          - --branch
-          - main
-          - --branch
-          - master
+      - id: check-added-large-files
+        args: ["--maxkb=1000"]
+      - id: pretty-format-json
+        files: ^(?!.*(^|/)package-lock\.json$).+\.json$
 
   - repo: meta
     hooks:
       - id: check-hooks-apply
       - id: check-useless-excludes
 
-  - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: 0.11.16
+  - repo: local
     hooks:
-      - id: uv-lock
-
+      - id: taplo-format
+        name: taplo format
+        entry: uvx --from taplo==0.9.3 taplo fmt
+        language: system
+        types_or: [toml]
+      - id: taplo-lint
+        name: taplo lint
+        entry: uvx --from taplo==0.9.3 taplo check
+        language: system
+        types_or: [toml]
+      - id: ruff-format
+        name: ruff format check
+        entry: uv run --locked ruff format --check
+        language: system
+        types_or: [python, pyi]
+      - id: ruff-check
+        name: ruff check
+        entry: uv run --locked ruff check
+        language: system
+        types_or: [python, pyi]
+      - id: ty-check
+        name: ty check
+        entry: uv run --locked ty check src/
+        language: system
+        pass_filenames: false
+        files: ^(src/|tests/|pyproject\.toml|uv\.lock)
+      - id: pytest
+        name: pytest
+        entry: uv run --locked pytest -q --maxfail=1 -m "not slow"
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
   - repo: https://github.com/commitizen-tools/commitizen
     rev: v4.16.2
     hooks:
       - id: commitizen
         stages: [commit-msg]
       - id: commitizen-branch
+        args: [--rev-range, origin/main..HEAD]
         stages: [pre-push]
-
-  - repo: https://github.com/zizmorcore/zizmor-pre-commit
-    rev: v1.25.2
+  - repo: https://github.com/crate-ci/typos
+    rev: v1.47.2
     hooks:
-      - id: zizmor
-        args: ["--pedantic"]
-        files: ^\.github/workflows/.*\.ya?ml$
-        stages: [pre-commit]
-
-  - repo: local
+      - id: typos
+        args: ["--force-exclude"]
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.9.4
     hooks:
-      - id: actionlint
-        name: actionlint
-        entry: bash -c 'files=$(find .github/workflows -name "*.yaml" -type f); uvx --from actionlint-py actionlint $files'
-        language: system
-        types: [yaml]
-        files: ^\.github/workflows/.*\.ya?ml$
-        pass_filenames: false
-        stages: [pre-commit]
-
-      - id: pytest
-        name: pytest (quick)
-        entry: uv run pytest -q --maxfail=1 --disable-warnings
-        language: system
-        types: [python]
-        pass_filenames: false
-        always_run: true
-        stages: [pre-push]
+      - id: uv-lock

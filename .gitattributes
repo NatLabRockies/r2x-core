@@ -1,0 +1,16 @@
+# Normalize text files to LF in Git checkouts and commits.
+* text=auto eol=lf
+
+# Preserve Windows-native command scripts with CRLF in worktrees.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Keep broadly common binary assets out of text normalization.
+*.gif binary
+*.ico binary
+*.jpg binary
+*.jpeg binary
+*.pdf binary
+*.png binary
+*.webp binary
+*.zip binary

@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.5.1](https://github.com/NatLabRockies/r2x-core/compare/v0.5.0...v0.5.1) (2026-06-27)
+
+
+### Bug Fixes
+
+* resolve circular import when running translations ([#98](https://github.com/NatLabRockies/r2x-core/issues/98)) ([69e5ae0](https://github.com/NatLabRockies/r2x-core/commit/69e5ae0d5ce778ce8bb4751b8afa751b73e4061a))
+
+
+### Performance
+
+* **core:** speed up schema caching, component creation, record export, and time series transfer ([#93](https://github.com/NatLabRockies/r2x-core/issues/93)) ([889a80a](https://github.com/NatLabRockies/r2x-core/commit/889a80af035a8577bd49b54ee98c0d8fd122f3da))
+
+
+### Refactoring
+
+* **core:** lazy imports, utils reorganization, and naming cleanup ([#95](https://github.com/NatLabRockies/r2x-core/issues/95)) ([15fe30a](https://github.com/NatLabRockies/r2x-core/commit/15fe30a6244ada1d91df2161d662301d8b0a8b65))
+
+
+### CI/CD
+
+* align CI coverage uploads with Forge's single-upload pattern ([#104](https://github.com/NatLabRockies/r2x-core/issues/104)) ([49a178c](https://github.com/NatLabRockies/r2x-core/commit/49a178c45777594184c693ea65ad3d812eb58b8a))
+* optimize CI strategy with path filters, reduced PR matrix, and hardening ([#96](https://github.com/NatLabRockies/r2x-core/issues/96)) ([8f7f607](https://github.com/NatLabRockies/r2x-core/commit/8f7f607e6542340b803427e2dc2bb8e4d894857a))
+
 ## [0.5.0](https://github.com/NatLabRockies/r2x-core/compare/v0.4.2...v0.5.0) (2026-05-21)
 
 

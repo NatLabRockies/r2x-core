@@ -17,3 +17,10 @@ charset = utf-8
 [*.py]
 indent_style = space
 indent_size = 4
+
+# Windows command scripts
+[*.bat]
+end_of_line = crlf
+
+[*.cmd]
+end_of_line = crlf

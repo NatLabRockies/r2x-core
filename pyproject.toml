@@ -173,28 +173,3 @@ exclude_lines = [
 ]
 precision = 2
 fail_under = 97
-
-[tool.forge]
-blueprint = "python-library>=0.1.0"
-pyproject = "external"
-gitignore_profile = ["python", "macos", "visualstudiocode", "jetbrains", "node"]
-ignore = [
-  ".github/release-please-config.json",
-  ".github/release-please-manifest.json",
-  ".github/workflows/docs-pages.yaml",
-  ".github/workflows/forge-sync.yaml",
-  ".github/workflows/release-please.yaml",
-  ".github/workflows/ci.yaml",
-  ".github/workflows/workflow-quality.yaml",
-  ".gitignore",
-  ".python-version",
-  ".release-please-config.json",
-  ".release-please-manifest.json",
-  ".typos.toml",
-  "AGENTS.md",
-  "CHANGELOG.md",
-  "LICENSE.txt",
-  "README.md",
-  "justfile",
-  "docs",
-]

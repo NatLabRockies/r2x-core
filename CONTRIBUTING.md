@@ -11,7 +11,6 @@ Thanks for contributing.
 ## Development setup
 
 ```bash
-uv sync --all-groups
 just setup
 ```
 

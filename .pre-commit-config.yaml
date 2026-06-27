@@ -73,6 +73,7 @@ repos:
       - id: commitizen
         stages: [commit-msg]
       - id: commitizen-branch
+        args: [--rev-range, origin/main..HEAD]
         stages: [pre-push]
   - repo: https://github.com/crate-ci/typos
     rev: v1.47.2

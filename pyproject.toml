@@ -2,62 +2,62 @@
 name = "r2x-core"
 version = "0.5.0"
 authors = [
-    { name = "pesap", email = "pesap@users.noreply.github.com" },
-    { name = "kodiobika", email = "kodiobika@users.noreply.github.com" },
-    { name = "Vivienne Liu", email = "vivienne.liu@nrel.gov"},
-    { name = "Micah Webb", email = "micahpw@user.noreply.github.com"},
-    { name = "Kinshuk Panda", email = "7632244+k1nshuk@users.noreply.github.com"},
-    { name = "mcllerena", email = "mcllerena@users.noreply.github.com"},
-    { name = "jarry7", email = "27745389+jarry7@users.noreply.github.com"},
+  { name = "pesap", email = "pesap@users.noreply.github.com" },
+  { name = "kodiobika", email = "kodiobika@users.noreply.github.com" },
+  { name = "Vivienne Liu", email = "vivienne.liu@nrel.gov" },
+  { name = "Micah Webb", email = "micahpw@user.noreply.github.com" },
+  { name = "Kinshuk Panda", email = "7632244+k1nshuk@users.noreply.github.com" },
+  { name = "mcllerena", email = "mcllerena@users.noreply.github.com" },
+  { name = "jarry7", email = "27745389+jarry7@users.noreply.github.com" },
 ]
 maintainers = [
-    { name = "pesap", email = "pesap@users.noreply.github.com" },
-    { name = "Kinshuk Panda", email = "7632244+k1nshuk@users.noreply.github.com"},
-    { name = "mcllerena", email = "mcllerena@users.noreply.github.com"},
-    { name = "jarry7", email = "27745389+jarry7@users.noreply.github.com"},
-    { name = "kodiobika", email = "kodiobika@users.noreply.github.com" },
+  { name = "pesap", email = "pesap@users.noreply.github.com" },
+  { name = "Kinshuk Panda", email = "7632244+k1nshuk@users.noreply.github.com" },
+  { name = "mcllerena", email = "mcllerena@users.noreply.github.com" },
+  { name = "jarry7", email = "27745389+jarry7@users.noreply.github.com" },
+  { name = "kodiobika", email = "kodiobika@users.noreply.github.com" },
 ]
 description = "Extensible framework for building power system model translators with plugin architecture"
 readme = "README.md"
-license = {file = "LICENSE.txt"}
+license = { file = "LICENSE.txt" }
 requires-python = ">=3.11,<3.15"
 keywords = [
-    "power-systems",
-    "energy-modeling",
-    "model-translation",
-    "reeds",
-    "plexos",
-    "switch",
-    "sienna",
-    "plugin-architecture",
+  "power-systems",
+  "energy-modeling",
+  "model-translation",
+  "reeds",
+  "plexos",
+  "switch",
+  "sienna",
+  "plugin-architecture",
 ]
 classifiers = [
-    "Development Status :: 5 - Production/Stable",
-    "Intended Audience :: Developers",
-    "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: BSD License",
-    "Natural Language :: English",
-    "Operating System :: OS Independent",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
-    "Programming Language :: Python :: 3.14",
-    "Topic :: File Formats :: JSON",
-    "Topic :: Scientific/Engineering",
-    "Topic :: Scientific/Engineering :: Information Analysis",
-    "Topic :: Scientific/Engineering :: Interface Engine/Protocol Translator",
-    "Topic :: Software Development :: Build Tools",
-    "Topic :: Software Development :: Libraries :: Python Modules",
-    "Typing :: Typed",
+  "Development Status :: 5 - Production/Stable",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: BSD License",
+  "Natural Language :: English",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: File Formats :: JSON",
+  "Topic :: Scientific/Engineering",
+  "Topic :: Scientific/Engineering :: Information Analysis",
+  "Topic :: Scientific/Engineering :: Interface Engine/Protocol Translator",
+  "Topic :: Software Development :: Build Tools",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Typing :: Typed",
 ]
 dependencies = [
-    "h5py>=3.13.0,<4.0.0",
-    "infrasys>=1.0.0,<2.0.0",
-    "loguru>=0.7.3,<0.8.0",
-    "packaging>=24.0,<26.0",
-    "polars>=1.33.1,<2.0.0",
-    "pydantic>=2.11.9,<3.0.0",
-    "rust-ok>=0.3.0,<1.0.0",
+  "h5py>=3.13.0,<4.0.0",
+  "infrasys>=1.0.0,<2.0.0",
+  "loguru>=0.7.3,<0.8.0",
+  "packaging>=24.0,<26.0",
+  "polars>=1.33.1,<2.0.0",
+  "pydantic>=2.11.9,<3.0.0",
+  "rust-ok>=0.3.0,<1.0.0",
 ]
 
 [project.urls]
@@ -69,26 +69,26 @@ Changelog = "https://nrel.github.io/r2x-core/CHANGELOG.html"
 
 [dependency-groups]
 dev = [
-    "h5py-stubs>=0.1.2,<1.0.0",
-    "mypy>=1.18.2,<2.0.0",
-    "prek>=0.2.29,<0.3.0",
-    "pytest>=8.4.2,<10.0.0",
-    "pytest-coverage>=0.0,<1.0.0",
-    "ruff>=0.13.2,<0.15.0",
-    "ty>=0.0.12,<1.0.0",
+  "h5py-stubs>=0.1.2,<1.0.0",
+  "mypy>=1.18.2,<2.0.0",
+  "prek>=0.4.1,<0.5.0",
+  "pytest>=8.4.2,<10.0.0",
+  "pytest-coverage>=0.0,<1.0.0",
+  "ruff>=0.13.2,<0.15.0",
+  "ty>=0.0.12,<1.0.0",
 ]
 
 docs = [
-    "autodoc-pydantic>=2.0.0,<3.0.0",
-    "docstr-coverage>=2.3.2,<3.0.0",
-    "furo>=2025.9.25,<2026.0.0",
-    "ghp-import>=2.1.0,<3.0.0",
-    "myst-parser>=3.0.0,<5.0.0",
-    "sphinx>=7.2.0,<8.0.0",
-    "sphinx-copybutton>=0.5.2,<1.0.0",
-    "sphinx-reports>=0.1.0,<1.0.0",
-    "sphinx-tabs>=3.4.5,<4.0.0",
-    "sphinxcontrib-mermaid>=2.0.0,<3.0.0",
+  "autodoc-pydantic>=2.0.0,<3.0.0",
+  "docstr-coverage>=2.3.2,<3.0.0",
+  "furo>=2025.9.25,<2026.0.0",
+  "ghp-import>=2.1.0,<3.0.0",
+  "myst-parser>=3.0.0,<5.0.0",
+  "sphinx>=7.2.0,<8.0.0",
+  "sphinx-copybutton>=0.5.2,<1.0.0",
+  "sphinx-reports>=0.1.0,<1.0.0",
+  "sphinx-tabs>=3.4.5,<4.0.0",
+  "sphinxcontrib-mermaid>=2.0.0,<3.0.0",
 ]
 
 [build-system]
@@ -98,47 +98,36 @@ build-backend = "uv_build"
 [tool.mypy]
 strict = true
 exclude = ["tests/"]
-plugins = [
-  "pydantic.mypy"
-]
+plugins = ["pydantic.mypy"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
-addopts = [
-    "--cov=r2x_core",
-    "--cov-report=term-missing",
-]
+addopts = ["--cov=r2x_core", "--cov-report=term-missing"]
 
 [tool.ruff]
 line-length = 110
-extend-exclude = [
-    ".venv",
-    "venv",
-    "build",
-    "dist",
-    "*.egg-info",
-]
+extend-exclude = [".venv", "venv", "build", "dist", "*.egg-info"]
 
 [tool.ruff.lint]
 select = [
-    "D",      # pyddoc
-    "E",      # pycodestyle errors
-    "W",      # pycodestyle warnings
-    "F",      # pyflakes
-    "I",      # isort
-    "N",      # pep8-naming
-    "UP",     # pyupgrade
-    "B",      # flake8-bugbear
-    "C4",     # flake8-comprehensions
-    "SIM",    # flake8-simplify
-    "PIE",    # flake8-pie
-    "PERF",   # perflint (performance)
-    "RUF",    # ruff-specific rules
+  "D",    # pyddoc
+  "E",    # pycodestyle errors
+  "W",    # pycodestyle warnings
+  "F",    # pyflakes
+  "I",    # isort
+  "N",    # pep8-naming
+  "UP",   # pyupgrade
+  "B",    # flake8-bugbear
+  "C4",   # flake8-comprehensions
+  "SIM",  # flake8-simplify
+  "PIE",  # flake8-pie
+  "PERF", # perflint (performance)
+  "RUF",  # ruff-specific rules
 ]
 ignore = [
-    "E501",   # Line too long (handled by formatter)
-    "B027",   # Empty method in abstract class without @abstractmethod (intentional for hooks)
+  "E501", # Line too long (handled by formatter)
+  "B027", # Empty method in abstract class without @abstractmethod (intentional for hooks)
 ]
 
 
@@ -151,7 +140,13 @@ convention = "numpy"
 
 [tool.ruff.lint.isort]
 known-first-party = ["r2x_core"]
-section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+section-order = [
+  "future",
+  "standard-library",
+  "third-party",
+  "first-party",
+  "local-folder",
+]
 
 [tool.ruff.lint.mccabe]
 # Cyclomatic complexity threshold
@@ -178,3 +173,28 @@ exclude_lines = [
 ]
 precision = 2
 fail_under = 97
+
+[tool.forge]
+blueprint = "python-library>=0.1.0"
+pyproject = "external"
+gitignore_profile = ["python", "macos", "visualstudiocode", "jetbrains", "node"]
+ignore = [
+  ".github/release-please-config.json",
+  ".github/release-please-manifest.json",
+  ".github/workflows/docs-pages.yaml",
+  ".github/workflows/forge-sync.yaml",
+  ".github/workflows/release-please.yaml",
+  ".github/workflows/ci.yaml",
+  ".github/workflows/workflow-quality.yaml",
+  ".gitignore",
+  ".python-version",
+  ".release-please-config.json",
+  ".release-please-manifest.json",
+  ".typos.toml",
+  "AGENTS.md",
+  "CHANGELOG.md",
+  "LICENSE.txt",
+  "README.md",
+  "justfile",
+  "docs",
+]

@@ -109,7 +109,7 @@
 
 ### Bug Fixes
 
-- Pydantic validation errors on DataFile errors were not propogated correctly. ([#53](https://github.com/NREL/r2x-core/issues/53)) ([2de2992](https://github.com/NREL/r2x-core/commit/2de2992d0c206cfe79e3f79011131b35b8106476))
+- Pydantic validation errors on DataFile errors were not propagated correctly. ([#53](https://github.com/NREL/r2x-core/issues/53)) ([2de2992](https://github.com/NREL/r2x-core/commit/2de2992d0c206cfe79e3f79011131b35b8106476))
 
 ## [0.2.1](https://github.com/NREL/r2x-core/compare/v0.2.0...v0.2.1) (2025-11-28)
 

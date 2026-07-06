@@ -185,3 +185,38 @@ True
 ```{eval-rst}
 .. autofunction:: r2x_core.utils.run_upgrade_step
 ```
+
+## Results
+
+```{eval-rst}
+.. autoclass:: r2x_core.Result
+   :members:
+   :show-inheritance:
+   :no-index:
+```
+
+```{eval-rst}
+.. autoclass:: r2x_core.Ok
+   :members:
+   :show-inheritance:
+   :no-index:
+```
+
+```{eval-rst}
+.. autoclass:: r2x_core.Err
+   :members:
+   :show-inheritance:
+   :no-index:
+```
+
+```{eval-rst}
+.. autofunction:: r2x_core.is_ok
+```
+
+```{eval-rst}
+.. autofunction:: r2x_core.is_err
+```
+
+## Data Processors
+
+See {doc}`./processors` for complete processor documentation.

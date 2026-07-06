@@ -222,13 +222,68 @@ def test_rulefilter_model_validator_both_any_of_and_all_of_error():
 
 
 def test_rulefilter_model_validator_leaf_field_required():
-    """RuleFilter.field required for leaf filters."""
+    """RuleFilter.field required for field-backed leaf filters."""
     import pytest
 
     from r2x_core import RuleFilter
 
     with pytest.raises(ValueError, match="field is required for leaf filters"):
         RuleFilter(op="eq", values=["gas"])
+
+
+def test_rulefilter_model_validator_getter_leaf():
+    """RuleFilter accepts getter-backed leaf filters."""
+    from rust_ok import Ok
+
+    from r2x_core import RuleFilter
+
+    def resolve_fuel_type(_src: object, *, context: object):
+        _ = context
+        return Ok("gas")
+
+    filt = RuleFilter(getter=resolve_fuel_type, op="eq", values=["gas"])
+
+    assert filt.getter is resolve_fuel_type
+
+
+def test_rulefilter_model_validator_string_getter_resolves_registry_name():
+    """RuleFilter resolves registered getter names to callables."""
+    from rust_ok import Ok
+
+    from r2x_core import RuleFilter
+    from r2x_core.getters import GETTER_REGISTRY, getter
+
+    getter_name = "rulefilter_string_getter"
+    if getter_name not in GETTER_REGISTRY:
+
+        @getter(name=getter_name)
+        def rulefilter_string_getter(_src, *, context):
+            _ = context
+            return Ok("gas")
+
+    filt = RuleFilter(getter=getter_name, op="eq", values=["gas"])
+
+    assert callable(filt.getter)
+
+
+def test_rulefilter_model_validator_rejects_field_and_getter():
+    """RuleFilter cannot specify both field and getter on a leaf."""
+    import pytest
+
+    from r2x_core import RuleFilter
+
+    with pytest.raises(ValueError, match="cannot set both field and getter"):
+        RuleFilter(field="kind", getter=lambda *_args, **_kwargs: None, op="eq", values=["gas"])
+
+
+def test_rulefilter_model_validator_rejects_non_string_non_callable_getter():
+    """RuleFilter getter accepts only callables or strings."""
+    import pytest
+
+    from r2x_core import RuleFilter
+
+    with pytest.raises(TypeError, match="callable or str"):
+        RuleFilter(getter=123, op="eq", values=["gas"])
 
 
 def test_rulefilter_model_validator_leaf_op_required():

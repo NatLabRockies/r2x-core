@@ -118,135 +118,37 @@ Complete API documentation for all r2x-core classes and functions.
 ```{eval-rst}
 .. autoclass:: r2x_core.Rule
    :members:
-   :show-inheritance:
 ```
 
 ```{eval-rst}
 .. autoclass:: r2x_core.RuleFilter
    :members:
-   :show-inheritance:
 ```
 
-```{eval-rst}
-.. autoclass:: r2x_core.RuleResult
-   :members:
-   :show-inheritance:
-   :no-index:
-```
-
-```{eval-rst}
-.. autoclass:: r2x_core.TranslationResult
-   :members:
-   :show-inheritance:
-   :no-index:
-```
-
-```{eval-rst}
-.. autofunction:: r2x_core.apply_rules_to_context
-```
-
-```{eval-rst}
-.. autofunction:: r2x_core.apply_single_rule
-```
-
-## Exceptions
-
-```{eval-rst}
-.. autoclass:: r2x_core.ValidationError
-   :members:
-   :show-inheritance:
-```
-
-```{eval-rst}
-.. autoclass:: r2x_core.ComponentCreationError
-   :members:
-   :show-inheritance:
-```
-
-```{eval-rst}
-.. autoclass:: r2x_core.CLIError
-   :members:
-   :show-inheritance:
-   :no-index:
-```
-
-```{eval-rst}
-.. autoclass:: r2x_core.PluginError
-   :members:
-   :show-inheritance:
-   :no-index:
-```
-
-```{eval-rst}
-.. autoclass:: r2x_core.UpgradeError
-   :members:
-   :show-inheritance:
-   :no-index:
-```
-
-## Versioning and Upgrades
-
-```{eval-rst}
-.. autoclass:: r2x_core.SemanticVersioningStrategy
-   :members:
-   :undoc-members:
-   :show-inheritance:
-```
-
-```{eval-rst}
-.. autoclass:: r2x_core.GitVersioningStrategy
-   :members:
-   :undoc-members:
-   :show-inheritance:
-```
-
-```{eval-rst}
-.. autoclass:: r2x_core.VersionReader
-   :members:
-   :show-inheritance:
-   :no-index:
-```
-
-```{eval-rst}
-.. autoclass:: r2x_core.VersionStrategy
-   :members:
-   :show-inheritance:
-   :no-index:
-```
-
-```{eval-rst}
-.. autoclass:: r2x_core.UpgradeStep
-   :members:
-   :show-inheritance:
-```
-
-```{eval-rst}
-.. autoclass:: r2x_core.UpgradeType
-   :members:
-   :show-inheritance:
-   :no-index:
-```
-
-```{eval-rst}
-.. autofunction:: r2x_core.run_upgrade_step
-```
-
-## Utilities
-
-```{eval-rst}
-.. autofunction:: r2x_core.components_to_records
-```
-
-```{eval-rst}
-.. autofunction:: r2x_core.export_components_to_csv
-```
-
-```{eval-rst}
-.. autofunction:: r2x_core.create_component
-```
+## Getters
 
 ```{eval-rst}
 .. autofunction:: r2x_core.getter
+```
+
+```python doctest
+>>> from r2x_core import getter, resolve_getter
+>>>
+>>> @getter(name="api_resolve_getter")
+... def api_resolve_getter(component, *, context):
+...     _ = component
+...     _ = context
+...     return "resolved"
+>>>
+>>> resolved = resolve_getter("api_resolve_getter")
+>>> resolved.is_ok()
+True
+>>> resolved.unwrap() is api_resolve_getter
+True
+```
+
+```{eval-rst}
+.. autofunction:: r2x_core.resolve_getter
 ```
 
 ```{eval-rst}
@@ -266,6 +168,22 @@ Complete API documentation for all r2x-core classes and functions.
 
 ```{eval-rst}
 .. autofunction:: r2x_core.utils.validate_file_extension
+```
+
+```{eval-rst}
+.. autofunction:: r2x_core.utils.export_components_to_csv
+```
+
+```{eval-rst}
+.. autofunction:: r2x_core.utils.components_to_records
+```
+
+```{eval-rst}
+.. autofunction:: r2x_core.utils.create_component
+```
+
+```{eval-rst}
+.. autofunction:: r2x_core.utils.run_upgrade_step
 ```
 
 ## Results

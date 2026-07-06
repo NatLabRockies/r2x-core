@@ -13,6 +13,7 @@ from r2x_core import (
     PluginConfig,
     PluginContext,
     Rule,
+    RuleFilter,
     System,
     apply_rules_to_context,
     apply_single_rule,
@@ -109,6 +110,59 @@ def test_apply_single_rule_missing_source_attribute(source_system, target_system
     result = apply_single_rule(rule, context=context)
     assert result.is_err()
     assert "No attribute" in str(result.err())
+
+
+def test_apply_single_rule_getter_filter_uses_context(source_system, target_system):
+    """Getter-backed filters can select components using PluginContext data."""
+    from rust_ok import Ok
+
+    def selected_fuel_type(src, *, context):
+        if src.name != context.metadata["selected_name"]:
+            return Ok("coal")
+        return Ok(context.metadata["selected_fuel_type"])
+
+    rule = Rule(
+        source_type="PlantComponent",
+        target_type="StationComponent",
+        version=1,
+        field_map={"name": "name", "uuid": "uuid"},
+        filter=RuleFilter(getter=selected_fuel_type, op="eq", values=["gas"]),
+    )
+    context = _build_context(
+        rules=[rule],
+        source_system=source_system,
+        target_system=target_system,
+    ).evolve(metadata={"selected_name": "plant_alpha", "selected_fuel_type": "gas"})
+
+    result = apply_single_rule(rule, context=context)
+    assert result.is_ok()
+    assert result.unwrap().converted == 1
+
+
+def test_apply_single_rule_getter_filter_failure(source_system, target_system):
+    """Getter failures bubble out as rule failures instead of matches."""
+    from rust_ok import Err
+
+    def faulty_filter(_src, *, context):
+        _ = context
+        return Err(ValueError("boom"))
+
+    rule = Rule(
+        source_type="PlantComponent",
+        target_type="StationComponent",
+        version=1,
+        field_map={"name": "name", "uuid": "uuid"},
+        filter=RuleFilter(getter=faulty_filter, op="eq", values=["gas"]),
+    )
+    context = _build_context(
+        rules=[rule],
+        source_system=source_system,
+        target_system=target_system,
+    )
+
+    result = apply_single_rule(rule, context=context)
+    assert result.is_err()
+    assert "Failed to evaluate filter" in str(result.err())
 
 
 def test_attach_component_supplemental_attribute_target_missing(source_system):

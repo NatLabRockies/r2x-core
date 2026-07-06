@@ -6,8 +6,10 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeAlias
 
-from pydantic import BaseModel, PrivateAttr, model_validator
+from pydantic import BaseModel, PrivateAttr, field_validator, model_validator
 from rust_ok import Result
+
+from .plugin_context import PluginContext
 
 if TYPE_CHECKING:
     pass
@@ -17,6 +19,7 @@ class RuleFilter(BaseModel):
     """Declarative predicate for selecting source components."""
 
     field: str | None = None
+    getter: RuleGetter | str | None = None
     op: Literal["eq", "neq", "in", "not_in", "geq", "startswith", "not_startswith", "endswith"] | None = None
     values: list[Any] | None = None
     prefixes: list[str] | None = None
@@ -26,11 +29,26 @@ class RuleFilter(BaseModel):
     on_missing: Literal["include", "exclude"] = "exclude"
     _normalized_values: list[Any] | None = PrivateAttr(None)
 
+    @field_validator("getter", mode="before")
+    @classmethod
+    def _validate_getter(cls, value: Any) -> Any:
+        """Resolve string getter references into callables."""
+        if value is None or callable(value):
+            return value
+        if not isinstance(value, str):
+            raise TypeError(f"RuleFilter.getter must be callable or str, not {type(value).__name__}")
+
+        from .getters import resolve_getter
+
+        getter = resolve_getter(value).unwrap_or_raise()
+        return getter
+
     @model_validator(mode="after")
     def _validate_structure(self) -> RuleFilter:
         """Ensure the filter is either a leaf or a composition."""
         is_leaf = (
             self.field is not None
+            or self.getter is not None
             or self.op is not None
             or self.values is not None
             or self.prefixes is not None
@@ -45,7 +63,9 @@ class RuleFilter(BaseModel):
             raise ValueError("RuleFilter cannot set both any_of and all_of")
 
         if is_leaf:
-            if not self.field:
+            if self.field and self.getter:
+                raise ValueError("RuleFilter cannot set both field and getter")
+            if not self.field and self.getter is None:
                 raise ValueError("RuleFilter.field is required for leaf filters")
             if self.op is None:
                 raise ValueError("RuleFilter.op is required for leaf filters")
@@ -54,8 +74,8 @@ class RuleFilter(BaseModel):
             if self.op == "geq" and len(self.values or []) != 1:
                 raise ValueError("RuleFilter.geq expects exactly one comparison value")
             if self.op in {"startswith", "not_startswith"}:
-                prefix_values = self.prefixes if self.prefixes else self.values
-                if not prefix_values:
+                prefix_values = self.prefixes if self.prefixes is not None else self.values
+                if prefix_values is None:
                     raise ValueError(
                         "RuleFilter.prefixes must provide at least one entry for prefix operations"
                     )
@@ -73,11 +93,11 @@ class RuleFilter(BaseModel):
 
         return self
 
-    def matches(self, component: Any) -> bool:
+    def matches(self, component: Any, *, context: PluginContext | None = None) -> bool:
         """Evaluate this filter against a component instance."""
         from .utils import evaluate_rule_filter
 
-        return evaluate_rule_filter(component, rule_filter=self)
+        return evaluate_rule_filter(component, rule_filter=self, context=context)
 
 
 RuleGetter: TypeAlias = Callable[..., Result[Any, ValueError]]

@@ -4,7 +4,9 @@ Rule filters declare predicate logic that restricts which source or target compo
 
 ## Leaf filters
 
-A leaf filter must set `field`, `op`, and either `values` or `prefixes`. The `values` list works for equality, inequality, membership, and numeric comparisons:
+A leaf filter must set either `field` or `getter`, plus `op`, and either `values` or `prefixes`. Use `field` when the candidate value lives directly on the source component. Use `getter` when the candidate must be computed from the source component and `PluginContext`. Getter values are typically registered `@getter` names, and the loader also accepts dotted attribute paths for simple lookups.
+
+Field-backed example:
 
 ```json
 {
@@ -12,6 +14,45 @@ A leaf filter must set `field`, `op`, and either `values` or `prefixes`. The `va
   "op": "eq",
   "values": ["gas"]
 }
+```
+
+Getter-backed example:
+
+```json
+{
+  "getter": "selected_fuel_type",
+  "op": "eq",
+  "values": ["gas"]
+}
+```
+
+When evaluating getter-backed filters, the executor passes the current `PluginContext` into the getter so the candidate value can depend on translator state. Use this shape when the choice depends on translator metadata, supplemental attributes, or other source-system lookups that are not present as a direct source field.
+
+### Loading getter-backed filters from records
+
+If you load rules from JSON or another record format, store the getter name in the filter record and make sure the matching `@getter` has been registered before loading:
+
+```python
+>>> from r2x_core import Rule
+>>> from r2x_core.getters import getter
+>>>
+>>> @getter
+... def selected_fuel_type(source, *, context):
+...     return context.metadata["selected_fuel_type"]
+>>>
+>>> rules = Rule.from_records([
+...     {
+...         "source_type": "PlantComponent",
+...         "target_type": "StationComponent",
+...         "version": 1,
+...         "field_map": {"name": "name"},
+...         "filter": {
+...             "getter": "selected_fuel_type",
+...             "op": "eq",
+...             "values": ["gas"],
+...         },
+...     }
+... ])
 ```
 
 Case-insensitive matching is the default; the `casefold` flag controls whether string inputs are normalized.

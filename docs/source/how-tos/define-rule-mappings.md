@@ -66,6 +66,21 @@ The {py:class}`~r2x_core.RuleFilter` class restricts which components a rule pro
 'eq'
 ```
 
+Use a field-backed filter when the selection value is already present on the source component. Use a getter-backed filter when the candidate value must be derived from translator context, supplemental attributes, or other source-system lookups. If a filter uses `getter`, call `matches(component, context=...)` with the active `PluginContext`, because the getter-backed path needs that context to evaluate.
+
+```python doctest
+>>> from types import SimpleNamespace
+>>> from rust_ok import Ok
+>>> from r2x_core import RuleFilter
+>>> from r2x_core.plugin_config import PluginConfig
+>>> from r2x_core.plugin_context import PluginContext
+>>>
+>>> ctx = PluginContext(config=PluginConfig(models=[]), metadata={"selected_fuel_type": "gas"})
+>>> filt = RuleFilter(getter=lambda _src, *, context: Ok(context.metadata["selected_fuel_type"]), op="eq", values=["gas"])
+>>> filt.matches(SimpleNamespace(), context=ctx)
+True
+```
+
 Filters are evaluated before translation begins, so components that don't match are skipped entirely. This improves performance when only a subset of components needs translation.
 
 ## RuleFilter Operations

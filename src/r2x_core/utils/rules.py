@@ -144,28 +144,52 @@ def build_component_kwargs(
     return Ok(kwargs)
 
 
-def evaluate_rule_filter(component: Any, *, rule_filter: RuleFilter) -> bool:
+def evaluate_rule_filter(
+    component: Any, *, rule_filter: RuleFilter, context: PluginContext | None = None
+) -> bool:
     """Return True if the component satisfies the rule filter."""
     if rule_filter.any_of is not None:
-        return any(evaluate_rule_filter(component, rule_filter=child) for child in rule_filter.any_of)
+        return any(
+            evaluate_rule_filter(component, rule_filter=child, context=context)
+            for child in rule_filter.any_of
+        )
     if rule_filter.all_of is not None:
-        return all(evaluate_rule_filter(component, rule_filter=child) for child in rule_filter.all_of)
+        return all(
+            evaluate_rule_filter(component, rule_filter=child, context=context)
+            for child in rule_filter.all_of
+        )
 
-    if rule_filter.field is None or rule_filter.op is None or rule_filter.values is None:
+    if rule_filter.op is None or rule_filter.values is None:
         raise ValueError("RuleFilter must have field, op, and values for leaf filters")
 
-    attr = getattr(component, rule_filter.field, None)
-    if attr is None:
-        return rule_filter.on_missing == "include"
+    candidate: Any
+    if rule_filter.getter is not None:
+        if context is None:
+            raise ValueError("RuleFilter getter-backed filters require PluginContext")
+        getter_func = rule_filter.getter
+        if not callable(getter_func):
+            raise ValueError("RuleFilter getter must resolve to a callable")
+        result = getter_func(component, context=context)
+        match result:
+            case Ok(value):
+                candidate = value
+            case Err(e):
+                raise ValueError(f"Getter for RuleFilter failed: {e}")
+        if candidate is None:
+            return rule_filter.on_missing == "include"
+    else:
+        if rule_filter.field is None:
+            raise ValueError("RuleFilter must have field or getter for leaf filters")
+        attr = getattr(component, rule_filter.field, None)
+        if attr is None:
+            return rule_filter.on_missing == "include"
+        candidate = attr
 
-    candidate = str(attr).casefold() if rule_filter.casefold and isinstance(attr, str) else attr
+    candidate = (
+        str(candidate).casefold() if rule_filter.casefold and isinstance(candidate, str) else candidate
+    )
     values = rule_filter._normalized_values
     assert values is not None, "_normalized_values must be set during RuleFilter construction"
-    if values is None:
-        values = [
-            str(val).casefold() if rule_filter.casefold and isinstance(val, str) else val
-            for val in rule_filter.values
-        ]
 
     if rule_filter.op == "eq":
         return candidate == values[0]

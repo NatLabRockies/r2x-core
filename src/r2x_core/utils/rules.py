@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import importlib
 from collections import deque
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from rust_ok import Err, Ok, Result
 
@@ -166,15 +166,12 @@ def evaluate_rule_filter(
     if rule_filter.getter is not None:
         if context is None:
             raise ValueError("RuleFilter getter-backed filters require PluginContext")
-        getter_func = cast(Callable[..., Result[Any, ValueError]], rule_filter.getter)
-        result = getter_func(component, context=context)
+        result = rule_filter.getter(component, context=context)
         match result:
             case Ok(value):
                 candidate = value
             case Err(e):
                 raise ValueError(f"Getter for RuleFilter failed: {e}")
-            case _:
-                candidate = result
         if candidate is None:
             return rule_filter.on_missing == "include"
     else:
@@ -206,7 +203,7 @@ def evaluate_rule_filter(
         return candidate not in values
     if rule_filter.op == "geq":
         try:
-            cand_num = float(cast(Any, candidate))
+            cand_num = float(candidate)
             threshold = float(values[0])
         except (TypeError, ValueError):
             return False

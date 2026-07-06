@@ -246,6 +246,26 @@ def test_rulefilter_model_validator_getter_leaf():
     assert filt.getter is resolve_fuel_type
 
 
+def test_rulefilter_model_validator_string_getter_resolves_registry_name():
+    """RuleFilter resolves registered getter names to callables."""
+    from rust_ok import Ok
+
+    from r2x_core import RuleFilter
+    from r2x_core.getters import GETTER_REGISTRY, getter
+
+    getter_name = "rulefilter_string_getter"
+    if getter_name not in GETTER_REGISTRY:
+
+        @getter(name=getter_name)
+        def rulefilter_string_getter(_src, *, context):
+            _ = context
+            return Ok("gas")
+
+    filt = RuleFilter(getter=getter_name, op="eq", values=["gas"])
+
+    assert callable(filt.getter)
+
+
 def test_rulefilter_model_validator_rejects_field_and_getter():
     """RuleFilter cannot specify both field and getter on a leaf."""
     import pytest

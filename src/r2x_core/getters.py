@@ -52,26 +52,36 @@ def getter(func: F | None = None, *, name: str | None = None) -> F | Callable[[F
     return _decorator
 
 
-def _preprocess_rule_getters(getters_dict: dict[str, Any]) -> Result[dict[str, Any], TypeError]:
-    """Convert string-based getters in a rule into callables."""
+def resolve_getter(getter: GetterFunc | str) -> Result[GetterFunc, TypeError]:
+    """Resolve a getter reference to a callable."""
     from .utils import build_attr_getter
 
+    if callable(getter):
+        return Ok(getter)
+    if getter in GETTER_REGISTRY:
+        return Ok(GETTER_REGISTRY[getter])
+    if "." not in getter:
+        logger.warning(
+            "Getter '{}' not found in registry; ensure it is imported before loading rules. Falling back to attribute lookup.",
+            getter,
+        )
+    return Ok(build_attr_getter(getter.split(".")))
+
+
+def _preprocess_rule_getters(getters_dict: dict[str, Any]) -> Result[dict[str, Any], TypeError]:
+    """Convert string-based getters in a rule into callables."""
     resolved: dict[str, GetterFunc] = {}
     for field, getter in getters_dict.items():
         if callable(getter):
             resolved[field] = getter
         elif isinstance(getter, str):
-            if getter in GETTER_REGISTRY:
-                resolved[field] = GETTER_REGISTRY[getter]
-            else:
-                if "." not in getter:
-                    logger.warning(
-                        "Getter '{}' for field '{}' not found in registry; ensure it is imported before loading rules. "
-                        "Falling back to attribute lookup.",
-                        getter,
-                        field,
-                    )
-                resolved[field] = build_attr_getter(getter.split("."))
+            result = resolve_getter(getter)
+            if result.is_err():
+                return Err(result.err())
+            resolved_getter = result.ok()
+            if resolved_getter is None:
+                return Err(TypeError(f"Getter resolution returned no callable for '{field}'"))
+            resolved[field] = resolved_getter
         else:
             return Err(TypeError(f"Invalid getter type for '{field}': {type(getter).__name__}"))
     return Ok(resolved)

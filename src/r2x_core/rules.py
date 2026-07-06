@@ -6,8 +6,10 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeAlias
 
-from pydantic import BaseModel, PrivateAttr, model_validator
+from pydantic import BaseModel, PrivateAttr, field_validator, model_validator
 from rust_ok import Result
+
+from .plugin_context import PluginContext
 
 if TYPE_CHECKING:
     pass
@@ -17,7 +19,7 @@ class RuleFilter(BaseModel):
     """Declarative predicate for selecting source components."""
 
     field: str | None = None
-    getter: RuleGetter | str | None = None
+    getter: RuleGetter | None = None
     op: Literal["eq", "neq", "in", "not_in", "geq", "startswith", "not_startswith", "endswith"] | None = None
     values: list[Any] | None = None
     prefixes: list[str] | None = None
@@ -26,6 +28,25 @@ class RuleFilter(BaseModel):
     casefold: bool = True
     on_missing: Literal["include", "exclude"] = "exclude"
     _normalized_values: list[Any] | None = PrivateAttr(None)
+
+    @field_validator("getter", mode="before")
+    @classmethod
+    def _validate_getter(cls, value: Any) -> Any:
+        """Resolve string getter references into callables."""
+        if value is None or callable(value):
+            return value
+        if not isinstance(value, str):
+            raise TypeError(f"RuleFilter.getter must be callable or str, not {type(value).__name__}")
+
+        from .getters import resolve_getter
+
+        resolved = resolve_getter(value)
+        if resolved.is_err():
+            raise ValueError(str(resolved.err()))
+        getter = resolved.ok()
+        if getter is None:
+            raise ValueError("RuleFilter getter resolution returned no callable")
+        return getter
 
     @model_validator(mode="after")
     def _validate_structure(self) -> RuleFilter:
@@ -67,12 +88,6 @@ class RuleFilter(BaseModel):
                     raise ValueError("RuleFilter.prefixes entries must be strings")
                 object.__setattr__(self, "values", prefix_values)
 
-            if isinstance(self.getter, str):
-                from .getters import _preprocess_rule_getters
-
-                resolved = _preprocess_rule_getters({"getter": self.getter}).unwrap_or_raise()
-                object.__setattr__(self, "getter", resolved["getter"])
-
             # Precompute casefolded values once so evaluate_rule_filter does not
             # recompute them per component.
             normalized = [
@@ -83,7 +98,7 @@ class RuleFilter(BaseModel):
 
         return self
 
-    def matches(self, component: Any, *, context: Any | None = None) -> bool:
+    def matches(self, component: Any, *, context: PluginContext | None = None) -> bool:
         """Evaluate this filter against a component instance."""
         from .utils import evaluate_rule_filter
 

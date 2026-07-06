@@ -290,6 +290,48 @@ def test_evaluate_rule_filter_all_of():
     assert not evaluate_rule_filter(FailComponent(), rule_filter=filt)
 
 
+def test_evaluate_rule_filter_getter_uses_context(context_example):
+    """Getter-backed filters can use PluginContext-derived values."""
+    from rust_ok import Ok
+
+    from r2x_core import RuleFilter
+    from r2x_core.utils import evaluate_rule_filter
+
+    class Component:
+        name = "plant_alpha"
+        fuel_type = "gas"
+
+    def select_fuel(src, *, context):
+        if src.name != context.metadata["selected_name"]:
+            return Ok("coal")
+        return Ok(context.metadata["selected_fuel"])
+
+    filt = RuleFilter(getter=select_fuel, op="eq", values=["gas"])
+    ctx = context_example.evolve(metadata={"selected_name": "plant_alpha", "selected_fuel": "gas"})
+
+    assert evaluate_rule_filter(Component(), rule_filter=filt, context=ctx)
+
+
+def test_evaluate_rule_filter_getter_failure_raises(context_example):
+    """Getter-backed filters surface failures instead of matching silently."""
+    from rust_ok import Err
+
+    from r2x_core import RuleFilter
+    from r2x_core.utils import evaluate_rule_filter
+
+    class Component:
+        name = "plant_alpha"
+
+    def faulty_getter(_src, *, context):
+        _ = context
+        return Err(ValueError("boom"))
+
+    filt = RuleFilter(getter=faulty_getter, op="eq", values=["gas"])
+
+    with pytest.raises(ValueError, match="Getter for RuleFilter failed: boom"):
+        evaluate_rule_filter(Component(), rule_filter=filt, context=context_example)
+
+
 def test_evaluate_rule_filter_incomplete_raises():
     """Test evaluate_rule_filter raises on incomplete leaf filter."""
     from r2x_core import RuleFilter

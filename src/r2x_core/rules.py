@@ -17,6 +17,7 @@ class RuleFilter(BaseModel):
     """Declarative predicate for selecting source components."""
 
     field: str | None = None
+    getter: RuleGetter | str | None = None
     op: Literal["eq", "neq", "in", "not_in", "geq", "startswith", "not_startswith", "endswith"] | None = None
     values: list[Any] | None = None
     prefixes: list[str] | None = None
@@ -31,6 +32,7 @@ class RuleFilter(BaseModel):
         """Ensure the filter is either a leaf or a composition."""
         is_leaf = (
             self.field is not None
+            or self.getter is not None
             or self.op is not None
             or self.values is not None
             or self.prefixes is not None
@@ -45,7 +47,9 @@ class RuleFilter(BaseModel):
             raise ValueError("RuleFilter cannot set both any_of and all_of")
 
         if is_leaf:
-            if not self.field:
+            if self.field and self.getter:
+                raise ValueError("RuleFilter cannot set both field and getter")
+            if not self.field and self.getter is None:
                 raise ValueError("RuleFilter.field is required for leaf filters")
             if self.op is None:
                 raise ValueError("RuleFilter.op is required for leaf filters")
@@ -63,6 +67,12 @@ class RuleFilter(BaseModel):
                     raise ValueError("RuleFilter.prefixes entries must be strings")
                 object.__setattr__(self, "values", prefix_values)
 
+            if isinstance(self.getter, str):
+                from .getters import _preprocess_rule_getters
+
+                resolved = _preprocess_rule_getters({"getter": self.getter}).unwrap_or_raise()
+                object.__setattr__(self, "getter", resolved["getter"])
+
             # Precompute casefolded values once so evaluate_rule_filter does not
             # recompute them per component.
             normalized = [
@@ -73,11 +83,11 @@ class RuleFilter(BaseModel):
 
         return self
 
-    def matches(self, component: Any) -> bool:
+    def matches(self, component: Any, *, context: Any | None = None) -> bool:
         """Evaluate this filter against a component instance."""
         from .utils import evaluate_rule_filter
 
-        return evaluate_rule_filter(component, rule_filter=self)
+        return evaluate_rule_filter(component, rule_filter=self, context=context)
 
 
 RuleGetter: TypeAlias = Callable[..., Result[Any, ValueError]]

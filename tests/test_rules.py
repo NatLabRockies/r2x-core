@@ -132,6 +132,15 @@ def test_rule_from_records_processes_string_getters_and_filters():
     from rust_ok import Ok
 
     from r2x_core import Rule, RuleFilter
+    from r2x_core.getters import GETTER_REGISTRY, getter
+
+    filter_getter_name = "rule_filter_record_getter"
+    if filter_getter_name not in GETTER_REGISTRY:
+
+        @getter(name=filter_getter_name)
+        def rule_filter_record_getter(_src, *, context):
+            _ = context
+            return Ok("ok")
 
     records = [
         {
@@ -140,7 +149,7 @@ def test_rule_from_records_processes_string_getters_and_filters():
             "version": 1,
             "field_map": {"name": "name"},
             "getters": {"nested_name": "child.name"},
-            "filter": {"field": "status", "op": "eq", "values": ["ok"]},
+            "filter": {"getter": filter_getter_name, "op": "eq", "values": ["ok"]},
         }
     ]
 
@@ -148,6 +157,7 @@ def test_rule_from_records_processes_string_getters_and_filters():
     assert len(rules) == 1
     rule = rules[0]
     assert isinstance(rule.filter, RuleFilter)
+    assert callable(rule.filter.getter)
     getter_fn = rule.getters["nested_name"]
     if callable(getter_fn):
         result = getter_fn(SimpleNamespace(child=SimpleNamespace(name="x")), context=None)

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import Any, cast
 from uuid import uuid4
 
@@ -122,14 +121,15 @@ def apply_single_rule(rule: Rule, *, context: PluginContext) -> Result[RuleAppli
         assert resolved_class is not None
         resolved_targets.append(resolved_class)
 
-    filter_func: Callable[[Any], bool] | None = None
-    if rule.filter is not None:
-        rule_filter = rule.filter
-        filter_func = lambda comp, rf=rule_filter: evaluate_rule_filter(comp, rule_filter=rf)  # noqa: E731
-
     found_component = False
 
-    for src_component in iter_components(read_system, class_type=source_class, filter_func=filter_func):
+    for src_component in iter_components(read_system, class_type=source_class):
+        if rule.filter is not None:
+            try:
+                if not evaluate_rule_filter(src_component, rule_filter=rule.filter, context=context):
+                    continue
+            except ValueError as exc:
+                return Err(ValueError(f"Failed to evaluate filter for {src_component.label}: {exc}"))
         found_component = True
         for target_class in resolved_targets:
             fields_result = build_target_fields(src_component, rule=rule, context=context).map_err(

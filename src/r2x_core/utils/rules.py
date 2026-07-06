@@ -190,11 +190,6 @@ def evaluate_rule_filter(
     )
     values = rule_filter._normalized_values
     assert values is not None, "_normalized_values must be set during RuleFilter construction"
-    if values is None:
-        values = [
-            str(val).casefold() if rule_filter.casefold and isinstance(val, str) else val
-            for val in rule_filter.values
-        ]
 
     if rule_filter.op == "eq":
         return candidate == values[0]

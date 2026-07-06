@@ -75,13 +75,7 @@ def _preprocess_rule_getters(getters_dict: dict[str, Any]) -> Result[dict[str, A
         if callable(getter):
             resolved[field] = getter
         elif isinstance(getter, str):
-            result = resolve_getter(getter)
-            if result.is_err():
-                return Err(result.err())
-            resolved_getter = result.ok()
-            if resolved_getter is None:
-                return Err(TypeError(f"Getter resolution returned no callable for '{field}'"))
-            resolved[field] = resolved_getter
+            resolved[field] = resolve_getter(getter).unwrap_or_raise()
         else:
             return Err(TypeError(f"Invalid getter type for '{field}': {type(getter).__name__}"))
     return Ok(resolved)

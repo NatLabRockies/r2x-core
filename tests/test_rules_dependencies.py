@@ -244,6 +244,25 @@ def test_topological_sort_unknown_dependency():
     assert "unknown rule" in str(result.err()).lower()
 
 
+def test_topological_sort_unnamed_unknown_dependency():
+    """Unnamed rules with unknown dependencies are rejected."""
+    from r2x_core import Rule
+    from r2x_core.rules_executor import sort_rules_by_dependencies
+
+    unnamed_rule = Rule(
+        source_type="A",
+        target_type="B",
+        version=1,
+        field_map={"f": "f"},
+        depends_on=["missing_named_rule"],
+    )
+
+    result = sort_rules_by_dependencies([unnamed_rule])
+
+    assert result.is_err()
+    assert "unknown rule" in str(result.err()).lower()
+
+
 def test_topological_sort_duplicate_names():
     """Duplicate rule names are detected."""
     from r2x_core import Rule

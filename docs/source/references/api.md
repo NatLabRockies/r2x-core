@@ -249,6 +249,19 @@ Complete API documentation for all r2x-core classes and functions.
 .. autofunction:: r2x_core.getter
 ```
 
+```python doctest
+>>> from r2x_core import getter, resolve_getter
+>>>
+>>> @getter(name="api_resolve_getter")
+... def api_resolve_getter(component, *, context):
+...     _ = component
+...     _ = context
+...     return "resolved"
+>>>
+>>> resolve_getter("api_resolve_getter") is api_resolve_getter
+True
+```
+
 ```{eval-rst}
 .. autofunction:: r2x_core.resolve_getter
 ```

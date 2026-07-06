@@ -332,6 +332,22 @@ def test_evaluate_rule_filter_getter_failure_raises(context_example):
         evaluate_rule_filter(Component(), rule_filter=filt, context=context_example)
 
 
+def test_evaluate_rule_filter_getter_requires_context():
+    """Getter-backed filters reject evaluation without context."""
+    import pytest
+
+    from r2x_core import RuleFilter
+    from r2x_core.utils import evaluate_rule_filter
+
+    class Component:
+        name = "plant_alpha"
+
+    filt = RuleFilter(getter=lambda _src, *, context: "gas", op="eq", values=["gas"])
+
+    with pytest.raises(ValueError, match="getter-backed filters require PluginContext"):
+        evaluate_rule_filter(Component(), rule_filter=filt)
+
+
 def test_evaluate_rule_filter_incomplete_raises():
     """Test evaluate_rule_filter raises on incomplete leaf filter."""
     from r2x_core import RuleFilter

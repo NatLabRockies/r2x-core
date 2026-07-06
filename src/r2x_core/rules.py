@@ -40,12 +40,7 @@ class RuleFilter(BaseModel):
 
         from .getters import resolve_getter
 
-        resolved = resolve_getter(value)
-        if resolved.is_err():
-            raise ValueError(str(resolved.err()))
-        getter = resolved.ok()
-        if getter is None:
-            raise ValueError("RuleFilter getter resolution returned no callable")
+        getter = resolve_getter(value).unwrap_or_raise()
         return getter
 
     @model_validator(mode="after")
@@ -79,8 +74,8 @@ class RuleFilter(BaseModel):
             if self.op == "geq" and len(self.values or []) != 1:
                 raise ValueError("RuleFilter.geq expects exactly one comparison value")
             if self.op in {"startswith", "not_startswith"}:
-                prefix_values = self.prefixes if self.prefixes else self.values
-                if not prefix_values:
+                prefix_values = self.prefixes if self.prefixes is not None else self.values
+                if prefix_values is None:
                     raise ValueError(
                         "RuleFilter.prefixes must provide at least one entry for prefix operations"
                     )

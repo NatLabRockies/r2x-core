@@ -276,6 +276,16 @@ def test_rulefilter_model_validator_rejects_field_and_getter():
         RuleFilter(field="kind", getter=lambda *_args, **_kwargs: None, op="eq", values=["gas"])
 
 
+def test_rulefilter_model_validator_rejects_non_string_non_callable_getter():
+    """RuleFilter getter accepts only callables or strings."""
+    import pytest
+
+    from r2x_core import RuleFilter
+
+    with pytest.raises(TypeError, match="callable or str"):
+        RuleFilter(getter=123, op="eq", values=["gas"])
+
+
 def test_rulefilter_model_validator_leaf_op_required():
     """RuleFilter.op required for leaf filters."""
     import pytest

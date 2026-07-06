@@ -292,3 +292,17 @@ def test_resolve_getter_public_api_registers_and_resolves():
     assert result.is_ok()
     resolved = result.unwrap()
     assert resolved is GETTER_REGISTRY[getter_name]
+
+
+def test_resolve_getter_callable_passthrough():
+    """resolve_getter returns callable inputs unchanged."""
+    from r2x_core import resolve_getter
+
+    def passthrough_getter(comp, *, context):
+        _ = comp
+        _ = context
+        return "ok"
+
+    result = resolve_getter(passthrough_getter)
+    assert result.is_ok()
+    assert result.unwrap() is passthrough_getter

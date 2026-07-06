@@ -166,7 +166,10 @@ def evaluate_rule_filter(
     if rule_filter.getter is not None:
         if context is None:
             raise ValueError("RuleFilter getter-backed filters require PluginContext")
-        result = rule_filter.getter(component, context=context)
+        getter_func = rule_filter.getter
+        if not callable(getter_func):
+            raise ValueError("RuleFilter getter must resolve to a callable")
+        result = getter_func(component, context=context)
         match result:
             case Ok(value):
                 candidate = value

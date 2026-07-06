@@ -270,3 +270,25 @@ def test_preprocess_rule_getters_rejects_invalid_types():
     result = _preprocess_rule_getters({"field": 123})
     assert result.is_err()
     assert isinstance(result.err(), TypeError)
+
+
+def test_resolve_getter_public_api_registers_and_resolves():
+    """The public getter resolver should resolve registry names."""
+    from rust_ok import Ok
+
+    from r2x_core import getter, resolve_getter
+    from r2x_core.getters import GETTER_REGISTRY
+
+    getter_name = "public_api_resolve_getter"
+    if getter_name not in GETTER_REGISTRY:
+
+        @getter(name=getter_name)
+        def public_api_resolve_getter(comp, *, context):
+            _ = comp
+            _ = context
+            return Ok("resolved")
+
+    result = resolve_getter(getter_name)
+    assert result.is_ok()
+    resolved = result.unwrap()
+    assert resolved is GETTER_REGISTRY[getter_name]

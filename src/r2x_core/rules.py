@@ -19,7 +19,7 @@ class RuleFilter(BaseModel):
     """Declarative predicate for selecting source components."""
 
     field: str | None = None
-    getter: RuleGetter | None = None
+    getter: RuleGetter | str | None = None
     op: Literal["eq", "neq", "in", "not_in", "geq", "startswith", "not_startswith", "endswith"] | None = None
     values: list[Any] | None = None
     prefixes: list[str] | None = None

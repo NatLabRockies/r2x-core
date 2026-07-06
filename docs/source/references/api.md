@@ -250,6 +250,10 @@ Complete API documentation for all r2x-core classes and functions.
 ```
 
 ```{eval-rst}
+.. autofunction:: r2x_core.resolve_getter
+```
+
+```{eval-rst}
 .. autofunction:: r2x_core.transfer_time_series_metadata
 ```
 

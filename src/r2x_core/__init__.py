@@ -33,7 +33,7 @@ if TYPE_CHECKING:
         ValidationError,
     )
     from .file_types import FileFormat, H5Format
-    from .getters import getter
+    from .getters import getter, resolve_getter
     from .plugin_base import Plugin
     from .plugin_config import PluginConfig
     from .plugin_context import PluginContext
@@ -76,6 +76,7 @@ _LAZY_IMPORTS: dict[str, str] = {
     "FileFormat": ".file_types",
     "H5Format": ".file_types",
     "getter": ".getters",
+    "resolve_getter": ".getters",
     "Plugin": ".plugin_base",
     "PluginConfig": ".plugin_config",
     "PluginContext": ".plugin_context",
@@ -174,6 +175,7 @@ __all__ = [
     "h5_readers",
     "is_err",
     "is_ok",
+    "resolve_getter",
     "run_upgrade_step",
     "set_unit_system",
     "transfer_time_series_metadata",

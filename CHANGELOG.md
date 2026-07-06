@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/NatLabRockies/r2x-core/compare/v0.5.1...v0.6.0) (2026-07-06)
+
+
+### Features
+
+* support getter-backed rule filters ([#108](https://github.com/NatLabRockies/r2x-core/issues/108)) ([bcd961c](https://github.com/NatLabRockies/r2x-core/commit/bcd961cb263e14276856390b827cd5c1d417eac5))
+
 ## [0.5.1](https://github.com/NatLabRockies/r2x-core/compare/v0.5.0...v0.5.1) (2026-06-27)
 
 

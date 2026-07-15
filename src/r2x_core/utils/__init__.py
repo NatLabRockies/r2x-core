@@ -35,8 +35,10 @@ from .validation import (
     validate_file_extension,
     validate_glob_pattern,
 )
+from .version import UNKNOWN_VERSION, get_package_version, warn_if_persisted_version_newer_than_installed
 
 __all__ = [
+    "UNKNOWN_VERSION",
     "UpgradeCoordinator",
     "UpgradeStep",
     "UpgradeType",
@@ -53,6 +55,7 @@ __all__ = [
     "filter_kwargs_by_signatures",
     "filter_valid_kwargs",
     "get_fpath",
+    "get_package_version",
     "get_r2x_cache_path",
     "iter_components",
     "override_dictionary",
@@ -65,4 +68,5 @@ __all__ = [
     "to_attr_source",
     "validate_file_extension",
     "validate_glob_pattern",
+    "warn_if_persisted_version_newer_than_installed",
 ]

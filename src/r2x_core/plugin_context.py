@@ -90,6 +90,7 @@ class PluginContext(Generic[ConfigT]):
         "config",
         "current_version",
         "metadata",
+        "preserve_source",
         "rules",
         "skip_validation",
         "source_system",
@@ -115,6 +116,7 @@ class PluginContext(Generic[ConfigT]):
         current_version: str | None = None,
         target_version: str | None = None,
         version_strategy: VersionStrategy | None = None,
+        preserve_source: bool = False,
     ) -> None:
         """Initialize plugin context.
 
@@ -144,6 +146,13 @@ class PluginContext(Generic[ConfigT]):
             Target version for upgrades. Default is None.
         version_strategy : VersionStrategy | None
             Version strategy for upgrades. Default is None.
+        preserve_source : bool
+            When True, translation captures source-side provenance so a reverse
+            translation can reproduce the original source. Every translated
+            target component is tagged with a :class:`SourceProvenance` SA
+            recording its source UUID, and every source component (plus its
+            SAs) with no matching rule is copied into the target as a
+            preserved carry-over. Default is False.
         """
         self.config = config
         self.store = store
@@ -157,6 +166,7 @@ class PluginContext(Generic[ConfigT]):
         self.current_version = current_version
         self.target_version = target_version
         self.version_strategy = version_strategy
+        self.preserve_source = preserve_source
         self._cache: dict[str, Any] = {}
 
     def evolve(self, **kwargs: Any) -> PluginContext[ConfigT]:
@@ -215,6 +225,7 @@ class PluginContext(Generic[ConfigT]):
             current_version=kwargs.get("current_version", self.current_version),
             target_version=kwargs.get("target_version", self.target_version),
             version_strategy=kwargs.get("version_strategy", self.version_strategy),
+            preserve_source=kwargs.get("preserve_source", self.preserve_source),
         )
 
     def list_rules(self) -> list[Rule]:

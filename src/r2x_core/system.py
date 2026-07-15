@@ -382,18 +382,15 @@ class System(InfrasysSystem):
             self.base_power = data["system_base_power"]
 
         raw_provenance = data.get("source_provenance_info")
-        if raw_provenance is None:
-            return
-
-        try:
-            self.source_provenance_info = ProvenanceInfo.model_validate(raw_provenance)
-        except ValidationError as exc:
-            # Do not fail the whole system load just because provenance metadata
-            # is malformed; it is informational, not required for correctness.
-            logger.warning("Ignoring malformed source_provenance_info: {}", exc)
-            self.source_provenance_info = None
-            return
-
-        warn_if_persisted_version_newer_than_installed(
-            self.source_provenance_info.r2x_core_version, package_name="r2x_core"
-        )
+        if raw_provenance is not None:
+            try:
+                self.source_provenance_info = ProvenanceInfo.model_validate(raw_provenance)
+            except ValidationError as exc:
+                # Do not fail the whole system load just because provenance metadata
+                # is malformed; it is informational, not required for correctness.
+                logger.warning("Ignoring malformed source_provenance_info: {}", exc)
+                self.source_provenance_info = None
+            else:
+                warn_if_persisted_version_newer_than_installed(
+                    self.source_provenance_info.r2x_core_version, package_name="r2x_core"
+                )

@@ -308,6 +308,31 @@ def test_provenance_info_rejects_unparseable_version() -> None:
         )
 
 
+def test_finalize_survives_missing_r2x_core_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``ProvenanceBuilder.finalize()`` degrades gracefully when r2x_core has no dist metadata.
+
+    Running from a source checkout without ``uv sync`` / ``pip install``
+    makes ``importlib.metadata.version("r2x_core")`` raise
+    ``PackageNotFoundError``. ``finalize`` must not blow up in that path;
+    it should record a PEP 440 sentinel and let ``ProvenanceInfo`` validate.
+    """
+    import r2x_core.provenance as provenance_mod
+    from r2x_core.provenance import ProvenanceBuilder
+
+    # Simulate "package not installed" by making the lookup always return the
+    # documented fallback string. If finalize forwarded that raw string, it
+    # would raise on the PEP 440 validator; the fix uses a numeric sentinel.
+    monkeypatch.setattr(
+        provenance_mod,
+        "get_package_version",
+        lambda _name, fallback="unknown": fallback,
+    )
+
+    stub_source = System(system_base=100.0, name="stub")
+    info = ProvenanceBuilder(stub_source).finalize()
+    assert str(info.r2x_core_version) == "0.0.0"
+
+
 def test_provenance_info_rejects_wrong_version_type() -> None:
     """ProvenanceInfo refuses non-str non-Version inputs for r2x_core_version."""
     with pytest.raises(TypeError, match=r"expected str or packaging\.version\.Version"):

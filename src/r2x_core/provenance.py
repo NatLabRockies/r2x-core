@@ -231,8 +231,12 @@ class ProvenanceBuilder:
         ProvenanceInfo
             Metadata describing which source system produced this target.
         """
+        # Use a PEP 440 sentinel when r2x_core has no distribution metadata
+        # (source checkout). "unknown" would raise here; "0.0.0" is a
+        # deliberately-old marker that a downstream compat check will flag as
+        # "produced by an ancient version" rather than silently accept.
         return ProvenanceInfo(
-            r2x_core_version=_coerce_version(get_package_version("r2x_core")),
+            r2x_core_version=_coerce_version(get_package_version("r2x_core", fallback="0.0.0")),
             source_system_uuid=self._source_system.uuid,
             source_system_name=self._source_system.name,
         )
@@ -280,4 +284,3 @@ class ProvenanceBuilder:
             for owner_uuid in preserved_owner_uuids:
                 target_owner = target_system.get_component_by_uuid(UUID(owner_uuid))
                 target_system.add_supplemental_attribute(target_owner, sa_copy)
-

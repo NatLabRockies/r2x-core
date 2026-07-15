@@ -30,14 +30,24 @@ def captured_warnings() -> Iterator[list[str]]:
     code emits we temporarily re-enable the module and restore the disabled
     state on teardown; that keeps the rest of the test suite's logging
     posture identical to what it inherited on import.
+
+    The sink captures only the formatted message text (not the full record
+    with timestamp/level/module prefixes) so assertions stay stable if
+    loguru's default format ever changes.
     """
     messages: list[str] = []
     logger.enable("r2x_core")
-    handler_id = logger.add(lambda msg: messages.append(str(msg)), level="WARNING")
+    handler_id = logger.add(
+        lambda msg: messages.append(msg.record["message"]),
+        level="WARNING",
+    )
     try:
         yield messages
     finally:
         logger.remove(handler_id)
+        # Restore the disabled state r2x_core sets at import time. If a
+        # future test intentionally leaves r2x_core enabled and then uses
+        # this fixture, that test should snapshot/restore its own state.
         logger.disable("r2x_core")
 
 

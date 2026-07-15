@@ -3,6 +3,7 @@
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 import orjson
 from infrasys.component import Component
@@ -137,8 +138,9 @@ class System(InfrasysSystem):
         Component
             Every component that is not tagged as ``preserved=True``.
         """
+        preserved = self._preserved_component_uuids()
         for component in self.iter_all_components():
-            if not self._is_preserved(component):
+            if component.uuid not in preserved:
                 yield component
 
     def iter_preserved_components(self) -> Iterator[Component]:
@@ -149,12 +151,19 @@ class System(InfrasysSystem):
         Component
             Every component tagged with ``SourceProvenance(preserved=True)``.
         """
+        preserved = self._preserved_component_uuids()
         for component in self.iter_all_components():
-            if self._is_preserved(component):
+            if component.uuid in preserved:
                 yield component
 
     def is_preserved(self, component: Component) -> bool:
         """Return True if ``component`` was carried over from source untranslated.
+
+        Cheap single-component check that hits the SA association table
+        directly. When walking many components, prefer
+        :meth:`iter_preserved_components` or :meth:`iter_translated_components`
+        which resolve the whole preserved-UUID set once instead of
+        per-component.
 
         Parameters
         ----------
@@ -166,13 +175,27 @@ class System(InfrasysSystem):
         bool
             True when the component carries ``SourceProvenance(preserved=True)``.
         """
-        return self._is_preserved(component)
-
-    def _is_preserved(self, component: Component) -> bool:
         provenance = self.get_supplemental_attributes_with_component(
             component, supplemental_attribute_type=SourceProvenance
         )
         return any(tag.preserved for tag in provenance)
+
+    def _preserved_component_uuids(self) -> set[UUID]:
+        """Return the UUIDs of every component carrying a ``preserved=True`` provenance tag.
+
+        Two sqlite scans (one to iterate all ``SourceProvenance`` SAs, one
+        association-table lookup per preserved SA) instead of one per
+        component. For a system with N components and K preserved-tag SAs,
+        this is ``1 + K`` queries versus ``N`` for the naive per-component
+        approach; K is typically much smaller than N.
+        """
+        preserved: set[UUID] = set()
+        for tag in self.get_supplemental_attributes(SourceProvenance):
+            if not tag.preserved:
+                continue
+            for owner in self.get_components_with_supplemental_attribute(tag):
+                preserved.add(owner.uuid)
+        return preserved
 
     def add_components(self, *components: Component, **kwargs: Any) -> None:
         """Add one or more components to the system and set their _system_base.

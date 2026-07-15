@@ -131,7 +131,7 @@ class ProvenanceBuilder:
             The source system being translated from.
         """
         self._source_system = source_system
-        self._translated_source_uuids: set[str] = set()
+        self._translated_source_uuids: set[UUID] = set()
 
     def record_translation(
         self,
@@ -164,12 +164,16 @@ class ProvenanceBuilder:
         target_system : System
             The target system receiving the tag.
         """
-        self._translated_source_uuids.add(str(source_component.uuid))
-
         if isinstance(target_component, SupplementalAttribute):
-            # SAs can't own SAs. The parent component (already translated
-            # earlier or in this same rule pass) carries the provenance mark.
+            # SAs can't own SAs. Do NOT mark the source as translated here:
+            # if the only rule that consumed this source produced an SA (no
+            # Component target), we still want the source itself to survive
+            # via the preservation pass so a reverse translation can put it
+            # back. Sources that also have Component-producing rules get
+            # marked by those rules' record_translation calls.
             return
+
+        self._translated_source_uuids.add(source_component.uuid)
 
         provenance = SourceProvenance(
             source_uuid=source_component.uuid,
@@ -200,7 +204,7 @@ class ProvenanceBuilder:
         target_system : System
             The target system to preserve into.
         """
-        preserved_uuids: set[str] = set()
+        preserved_uuids: set[UUID] = set()
         for source_component in self._iter_untranslated_source_components():
             # deepcopy_component uses model_dump() then re-instantiates, so
             # composed sub-components on `copy` are fresh instances that hold
@@ -216,7 +220,7 @@ class ProvenanceBuilder:
                 preserved=True,
             )
             target_system.add_supplemental_attribute(copy, provenance)
-            preserved_uuids.add(str(source_component.uuid))
+            preserved_uuids.add(source_component.uuid)
 
         if preserved_uuids:
             logger.debug("Preserved {} untranslated source component(s)", len(preserved_uuids))
@@ -244,11 +248,11 @@ class ProvenanceBuilder:
     def _iter_untranslated_source_components(self) -> Iterator[Component]:
         """Yield source components no rule consumed during translation."""
         for component in self._source_system.iter_all_components():
-            if str(component.uuid) not in self._translated_source_uuids:
+            if component.uuid not in self._translated_source_uuids:
                 yield component
 
     def _preserve_source_supplemental_attributes(
-        self, target_system: System, preserved_uuids: set[str]
+        self, target_system: System, preserved_uuids: set[UUID]
     ) -> None:
         """Copy source SAs touching preserved components into the target.
 
@@ -274,13 +278,11 @@ class ProvenanceBuilder:
                 # produces its own provenance for the target.
                 continue
             source_owners = self._source_system.get_components_with_supplemental_attribute(source_sa)
-            preserved_owner_uuids = [
-                str(owner.uuid) for owner in source_owners if str(owner.uuid) in preserved_uuids
-            ]
+            preserved_owner_uuids = [owner.uuid for owner in source_owners if owner.uuid in preserved_uuids]
             if not preserved_owner_uuids:
                 continue
 
             sa_copy = source_sa.model_copy(deep=True)
             for owner_uuid in preserved_owner_uuids:
-                target_owner = target_system.get_component_by_uuid(UUID(owner_uuid))
+                target_owner = target_system.get_component_by_uuid(owner_uuid)
                 target_system.add_supplemental_attribute(target_owner, sa_copy)

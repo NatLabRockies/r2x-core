@@ -369,10 +369,16 @@ def test_supplemental_attribute_with_no_preserved_owners_is_skipped(
         assert sa.location_name != "only_on_translated"
 
 
-def test_record_translation_skips_supplemental_attribute_target(
+def test_record_translation_with_sa_target_does_not_consume_source(
     source_system: System,
 ) -> None:
-    """record_translation returns without tagging when the target is a SupplementalAttribute."""
+    """An SA-target ``record_translation`` leaves the source available for preservation.
+
+    If a rule produces an SA (not a Component) from a source, the source has
+    no target-side Component representation. Marking it as translated would
+    lose it from a reverse trip. So SA targets are recorded as "no-op on the
+    translated set" and the source flows through preservation.
+    """
     from fixtures.source_system import BusComponent, BusGeographicInfo
 
     from r2x_core.provenance import ProvenanceBuilder
@@ -382,13 +388,13 @@ def test_record_translation_skips_supplemental_attribute_target(
     src_bus = next(source_system.get_components(BusComponent))
     sa_target = BusGeographicInfo(latitude=1.0, longitude=2.0, location_name="test")
 
-    # Passing an SA as target must not attempt to attach a SourceProvenance to it.
+    # No SourceProvenance is attached to sa_target (SAs cannot own SAs), AND
+    # the source is NOT marked translated because no Component was produced.
     builder.record_translation(src_bus, sa_target, tgt)
 
-    # Source uuid still marked as translated so it will not be preserved later.
     builder.preserve_untranslated(tgt)
     preserved_uuids = {c.uuid for c in tgt.iter_preserved_components()}
-    assert src_bus.uuid not in preserved_uuids
+    assert src_bus.uuid in preserved_uuids
 
 
 def test_preserve_untranslated_no_op_when_everything_translated(

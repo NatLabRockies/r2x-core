@@ -6,10 +6,7 @@ Covers both the safe ``get_package_version`` lookup and the forward-compat
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-
 import pytest
-from loguru import logger
 from packaging.version import Version
 
 import r2x_core.utils.version as version_mod
@@ -20,35 +17,20 @@ from r2x_core.utils import (
 )
 
 
-@pytest.fixture
-def captured_warnings() -> Iterator[list[str]]:
-    """Capture warnings emitted from within ``r2x_core`` for the duration of one test.
+class CapturingLogger:
+    """Small logger test double that captures rendered warning messages."""
 
-    Loguru sinks fire for messages emitted from modules that are enabled.
-    ``r2x_core`` disables its own logger at import time
-    (see ``r2x_core/__init__.py``), so to observe warnings that r2x_core
-    code emits we temporarily re-enable the module and restore the disabled
-    state on teardown; that keeps the rest of the test suite's logging
-    posture identical to what it inherited on import.
+    def __init__(self) -> None:
+        self.warnings: list[str] = []
+        self.debugs: list[str] = []
 
-    The sink captures only the formatted message text (not the full record
-    with timestamp/level/module prefixes) so assertions stay stable if
-    loguru's default format ever changes.
-    """
-    messages: list[str] = []
-    logger.enable("r2x_core")
-    handler_id = logger.add(
-        lambda msg: messages.append(msg.record["message"]),
-        level="WARNING",
-    )
-    try:
-        yield messages
-    finally:
-        logger.remove(handler_id)
-        # Restore the disabled state r2x_core sets at import time. If a
-        # future test intentionally leaves r2x_core enabled and then uses
-        # this fixture, that test should snapshot/restore its own state.
-        logger.disable("r2x_core")
+    def warning(self, message: str, *args: object) -> None:
+        """Capture a rendered warning message."""
+        self.warnings.append(message.format(*args))
+
+    def debug(self, message: str, *args: object) -> None:
+        """Capture a rendered debug message."""
+        self.debugs.append(message.format(*args))
 
 
 def test_get_package_version_returns_string_for_installed_package(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -73,40 +55,52 @@ def test_get_package_version_honors_custom_fallback() -> None:
     assert get_package_version("definitely-not-a-real-package-xyz", fallback="n/a") == "n/a"
 
 
-def test_warn_when_persisted_newer_logs_warning(
-    monkeypatch: pytest.MonkeyPatch, captured_warnings: list[str]
-) -> None:
+def test_warn_when_persisted_newer_logs_warning(monkeypatch: pytest.MonkeyPatch) -> None:
     """A persisted version newer than the installed one produces a warning.
 
     Pins the installed version through the helper so the test outcome does
     not depend on which r2x-core version the environment reports (or
-    whether it reports one at all).
+    whether it reports one at all). Uses a logger test double instead of
+    mutating global loguru enable/disable state.
     """
+    logger = CapturingLogger()
+    monkeypatch.setattr(version_mod, "logger", logger)
     monkeypatch.setattr(version_mod, "get_package_version", lambda _name: "1.0.0")
+
     warn_if_persisted_version_newer_than_installed(Version("9999.0.0"), package_name="r2x_core")
-    assert any("9999.0.0" in m and "r2x_core" in m for m in captured_warnings)
+
+    assert any("9999.0.0" in m and "r2x_core" in m for m in logger.warnings)
+    assert logger.debugs == []
 
 
-def test_no_warning_when_persisted_not_newer(
-    monkeypatch: pytest.MonkeyPatch, captured_warnings: list[str]
-) -> None:
+def test_no_warning_when_persisted_not_newer(monkeypatch: pytest.MonkeyPatch) -> None:
     """A persisted version equal to or older than installed does not warn."""
+    logger = CapturingLogger()
+    monkeypatch.setattr(version_mod, "logger", logger)
     monkeypatch.setattr(version_mod, "get_package_version", lambda _name: "1.0.0")
+
     warn_if_persisted_version_newer_than_installed(Version("0.0.1"), package_name="r2x_core")
-    assert captured_warnings == []
+
+    assert logger.warnings == []
+    assert logger.debugs == []
 
 
-def test_no_warning_when_installed_version_unparseable(
-    monkeypatch: pytest.MonkeyPatch, captured_warnings: list[str]
-) -> None:
+def test_no_warning_when_installed_version_unparseable(monkeypatch: pytest.MonkeyPatch) -> None:
     """If the installed version cannot be parsed as PEP 440, the check exits quietly.
 
     Reachable when the package is used from a source tree with no distribution
     metadata, so ``get_package_version`` returns the ``"unknown"`` fallback.
     """
+    logger = CapturingLogger()
+    monkeypatch.setattr(version_mod, "logger", logger)
     monkeypatch.setattr(version_mod, "get_package_version", lambda _name: "unknown")
+
     warn_if_persisted_version_newer_than_installed(Version("9999.0.0"), package_name="r2x_core")
-    assert captured_warnings == []
+
+    assert logger.warnings == []
+    assert logger.debugs == [
+        "Installed r2x_core version is not PEP 440 parseable; skipping compatibility check"
+    ]
 
 
 def test_warn_uses_configured_package_name(monkeypatch: pytest.MonkeyPatch) -> None:

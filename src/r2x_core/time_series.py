@@ -264,7 +264,20 @@ def _finalize_transfer(tgt_metadata: Connection) -> None:
 
 
 def transfer_time_series_metadata(context: PluginContext) -> TimeSeriesTransferResult:
-    """Transfer time series metadata for target system."""
+    """Transfer time series metadata for target system.
+
+    Parameters
+    ----------
+    context : PluginContext
+        Plugin context containing source and target systems.
+
+    Notes
+    -----
+    Preserved components (those carried over from source when
+    ``preserve_source=True``) live in the target's component map under their
+    original source UUIDs, so their time series transfer through the normal
+    UUID-matched path with no special handling.
+    """
     if context.source_system is None or context.target_system is None:
         raise ValueError("source_system and target_system must be set in context")
 

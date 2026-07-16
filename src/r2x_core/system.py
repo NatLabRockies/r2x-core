@@ -1,18 +1,24 @@
 """R2X Core System class - subclass of infrasys.System with R2X-specific functionality."""
 
-from collections.abc import Callable
-from importlib.metadata import version
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 import orjson
 from infrasys.component import Component
 from infrasys.system import System as InfrasysSystem
 from infrasys.utils.sqlite import backup
 from loguru import logger
+from pydantic import ValidationError
 
 from . import units
-from .utils import filter_kwargs_by_signatures
+from .provenance import ProvenanceInfo, SourceProvenance
+from .utils import (
+    filter_kwargs_by_signatures,
+    get_package_version,
+    warn_if_persisted_version_newer_than_installed,
+)
 from .utils.files import get_r2x_cache_path
 
 
@@ -81,6 +87,11 @@ class System(InfrasysSystem):
         super().__init__(**super_kwargs)
 
         self.base_power = system_base
+        # Provenance metadata describing which source system produced this one.
+        # Populated by the rules executor when PluginContext.preserve_source is
+        # True; None otherwise. Per-component provenance lives in
+        # SourceProvenance supplemental attributes on the components themselves.
+        self.source_provenance_info: ProvenanceInfo | None = None
 
         # Define the system base for pint unit conversion.
         # This allows components to convert: device_pu.to('system_base')
@@ -112,6 +123,88 @@ class System(InfrasysSystem):
             Same as __str__().
         """
         return str(self)
+
+    def iter_translated_components(self) -> Iterator[Component]:
+        """Iterate components tagged as rule-produced translations.
+
+        If this system contains any :class:`SourceProvenance` tags, this yields
+        only components carrying ``SourceProvenance(preserved=False)``. Untagged
+        components in a provenance-bearing system are neither translated nor
+        preserved; they may be pre-existing target content.
+
+        If no components in this system carry provenance tags, this yields
+        every component (i.e. systems that were not built with
+        ``preserve_source=True`` behave the same as :meth:`iter_all_components`).
+
+        Yields
+        ------
+        Component
+            Every component tagged as a rule-produced translation, or every
+            component when no provenance tags exist.
+        """
+        translated = self._provenance_component_uuids(preserved=False)
+        preserved = self._provenance_component_uuids(preserved=True)
+        if not translated and not preserved:
+            yield from self.iter_all_components()
+            return
+
+        for component in self.iter_all_components():
+            if component.uuid in translated:
+                yield component
+
+    def iter_preserved_components(self) -> Iterator[Component]:
+        """Iterate components that were carried over from source without translation.
+
+        Yields
+        ------
+        Component
+            Every component tagged with ``SourceProvenance(preserved=True)``.
+        """
+        preserved = self._provenance_component_uuids(preserved=True)
+        for component in self.iter_all_components():
+            if component.uuid in preserved:
+                yield component
+
+    def is_preserved(self, component: Component) -> bool:
+        """Return True if ``component`` was carried over from source untranslated.
+
+        Cheap single-component check that hits the SA association table
+        directly. When walking many components, prefer
+        :meth:`iter_preserved_components` or :meth:`iter_translated_components`
+        which resolve the whole preserved-UUID set once instead of
+        per-component.
+
+        Parameters
+        ----------
+        component : Component
+            Component to check.
+
+        Returns
+        -------
+        bool
+            True when the component carries ``SourceProvenance(preserved=True)``.
+        """
+        provenance = self.get_supplemental_attributes_with_component(
+            component, supplemental_attribute_type=SourceProvenance
+        )
+        return any(tag.preserved for tag in provenance)
+
+    def _provenance_component_uuids(self, *, preserved: bool) -> set[UUID]:
+        """Return component UUIDs carrying provenance tags matching ``preserved``.
+
+        Two sqlite scans (one to iterate all ``SourceProvenance`` SAs, one
+        association-table lookup per matching SA) instead of one per
+        component. For a system with N components and K matching provenance
+        SAs, this is ``1 + K`` queries versus ``N`` for the naive
+        per-component approach; K is typically much smaller than N.
+        """
+        result: set[UUID] = set()
+        for tag in self.get_supplemental_attributes(SourceProvenance):
+            if tag.preserved != preserved:
+                continue
+            for owner in self.get_components_with_supplemental_attribute(tag):
+                result.add(owner.uuid)
+        return result
 
     def add_components(self, *components: Component, **kwargs: Any) -> None:
         """Add one or more components to the system and set their _system_base.
@@ -298,9 +391,16 @@ class System(InfrasysSystem):
         Returns
         -------
         dict[str, Any]
-            Dictionary containing system_base_power.
+            Dictionary containing ``system_base_power``, ``r2x_core_version``,
+            and ``source_provenance_info`` when set.
         """
-        return {"system_base_power": self.base_power, "r2x_core_version": version("r2x_core")}
+        attrs: dict[str, Any] = {
+            "system_base_power": self.base_power,
+            "r2x_core_version": get_package_version("r2x_core", fallback="0.0.0"),
+        }
+        if self.source_provenance_info is not None:
+            attrs["source_provenance_info"] = self.source_provenance_info.model_dump(mode="json")
+        return attrs
 
     def deserialize_system_attributes(self, data: dict[str, Any]) -> None:
         """Deserialize R2X-specific system attributes.
@@ -312,3 +412,17 @@ class System(InfrasysSystem):
         """
         if "system_base_power" in data:
             self.base_power = data["system_base_power"]
+
+        raw_provenance = data.get("source_provenance_info")
+        if raw_provenance is not None:
+            try:
+                self.source_provenance_info = ProvenanceInfo.model_validate(raw_provenance)
+            except ValidationError as exc:
+                # Do not fail the whole system load just because provenance metadata
+                # is malformed; it is informational, not required for correctness.
+                logger.warning("Ignoring malformed source_provenance_info: {}", exc)
+                self.source_provenance_info = None
+            else:
+                warn_if_persisted_version_newer_than_installed(
+                    self.source_provenance_info.r2x_core_version, package_name="r2x_core"
+                )

@@ -92,7 +92,7 @@ Use {py:func}`~r2x_core.transfer_time_series_metadata` to transfer time series m
 >>> # transfer_time_series_metadata transfers metadata between systems
 >>> # It requires both source_system and target_system in the context
 >>> # See {doc}`../references/utils` for complete documentation
->>> transfer_time_series_metadata.__doc__[:50]
+>>> transfer_time_series_metadata.__doc__.splitlines()[0]
 'Transfer time series metadata for target system.'
 ```
 

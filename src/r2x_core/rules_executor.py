@@ -10,6 +10,7 @@ from loguru import logger
 from rust_ok import Err, Ok, Result
 
 from .plugin_context import PluginContext
+from .provenance import ProvenanceBuilder
 from .result import RuleApplicationStats, RuleResult, TranslationResult
 from .rules import Rule
 from .time_series import transfer_time_series_metadata
@@ -46,6 +47,8 @@ def apply_rules_to_context(context: PluginContext) -> TranslationResult:
 
     sorted_rules = sort_rules_by_dependencies(context.list_rules()).unwrap_or_raise(exc_type=ValueError)
 
+    builder = _build_provenance_builder(context)
+
     rule_results: list[RuleResult] = []
     total_converted = 0
     successful_rules = 0
@@ -53,7 +56,7 @@ def apply_rules_to_context(context: PluginContext) -> TranslationResult:
 
     for rule in sorted_rules:
         logger.debug("Applying rule: {}", rule)
-        result = apply_single_rule(rule, context=context)
+        result = apply_single_rule(rule, context=context, builder=builder)
 
         match result:
             case Ok(stats):
@@ -82,7 +85,13 @@ def apply_rules_to_context(context: PluginContext) -> TranslationResult:
                 )
                 failed_rules += 1
 
+    if builder is not None and context.target_system is not None:
+        builder.preserve_untranslated(context.target_system)
+
     ts_result = transfer_time_series_metadata(context)
+
+    if builder is not None and context.target_system is not None:
+        context.target_system.source_provenance_info = builder.finalize()
 
     return TranslationResult(
         total_rules=len(context.rules),
@@ -95,8 +104,30 @@ def apply_rules_to_context(context: PluginContext) -> TranslationResult:
     )
 
 
-def apply_single_rule(rule: Rule, *, context: PluginContext) -> Result[RuleApplicationStats, ValueError]:
-    """Apply one transformation rule across matching components."""
+def apply_single_rule(
+    rule: Rule,
+    *,
+    context: PluginContext,
+    builder: ProvenanceBuilder | None = None,
+) -> Result[RuleApplicationStats, ValueError]:
+    """Apply one transformation rule across matching components.
+
+    Parameters
+    ----------
+    rule : Rule
+        The rule to apply.
+    context : PluginContext
+        The plugin context containing rules and systems.
+    builder : ProvenanceBuilder, optional
+        When provided, each successfully translated target component is tagged
+        with a :class:`SourceProvenance` supplemental attribute so a later
+        reverse translation can restore the original source UUID.
+
+    Returns
+    -------
+    Result[RuleApplicationStats, ValueError]
+        Result containing application statistics or an error.
+    """
     converted = 0
     target_types = rule.get_target_types()
     should_regenerate_uuid = len(target_types) > 1
@@ -157,6 +188,10 @@ def apply_single_rule(rule: Rule, *, context: PluginContext) -> Result[RuleAppli
                     type(component).__name__,
                     src_component.label,
                 )
+
+            if builder is not None and rule.system == "source" and context.target_system is not None:
+                builder.record_translation(src_component, component, context.target_system)
+
             converted += 1
 
     if not found_component:
@@ -164,6 +199,20 @@ def apply_single_rule(rule: Rule, *, context: PluginContext) -> Result[RuleAppli
 
     logger.debug("Rule {}: {} converted", rule, converted)
     return Ok(RuleApplicationStats(converted=converted, skipped=0))
+
+
+def _build_provenance_builder(context: PluginContext) -> ProvenanceBuilder | None:
+    """Return a provenance builder when the context opts into source preservation.
+
+    Returns None when ``preserve_source`` is False or when the context is
+    missing the source system that the builder needs to inspect.
+    """
+    if not context.preserve_source:
+        return None
+    if context.source_system is None:
+        logger.warning("preserve_source=True but context has no source_system; skipping provenance capture")
+        return None
+    return ProvenanceBuilder(context.source_system)
 
 
 def _convert_component_with_class(

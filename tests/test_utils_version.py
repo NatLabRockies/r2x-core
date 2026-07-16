@@ -51,11 +51,16 @@ def captured_warnings() -> Iterator[list[str]]:
         logger.disable("r2x_core")
 
 
-def test_get_package_version_returns_string_for_installed_package() -> None:
-    """For an installed distribution, the helper returns its real version."""
-    installed = get_package_version("r2x_core")
-    assert isinstance(installed, str)
-    assert installed != UNKNOWN_VERSION
+def test_get_package_version_returns_string_for_installed_package(monkeypatch: pytest.MonkeyPatch) -> None:
+    """For an installed distribution, the helper returns its real version.
+
+    Monkeypatches the underlying ``importlib.metadata.version`` so the test
+    does not depend on how the current environment installed r2x-core (in
+    a source checkout without dist metadata, the real lookup would return
+    the fallback and this assertion would flap).
+    """
+    monkeypatch.setattr(version_mod, "version", lambda _name: "1.2.3")
+    assert get_package_version("r2x_core") == "1.2.3"
 
 
 def test_get_package_version_returns_fallback_for_missing_package() -> None:
@@ -68,14 +73,25 @@ def test_get_package_version_honors_custom_fallback() -> None:
     assert get_package_version("definitely-not-a-real-package-xyz", fallback="n/a") == "n/a"
 
 
-def test_warn_when_persisted_newer_logs_warning(captured_warnings: list[str]) -> None:
-    """A persisted version newer than the installed one produces a warning."""
+def test_warn_when_persisted_newer_logs_warning(
+    monkeypatch: pytest.MonkeyPatch, captured_warnings: list[str]
+) -> None:
+    """A persisted version newer than the installed one produces a warning.
+
+    Pins the installed version through the helper so the test outcome does
+    not depend on which r2x-core version the environment reports (or
+    whether it reports one at all).
+    """
+    monkeypatch.setattr(version_mod, "get_package_version", lambda _name: "1.0.0")
     warn_if_persisted_version_newer_than_installed(Version("9999.0.0"), package_name="r2x_core")
     assert any("9999.0.0" in m and "r2x_core" in m for m in captured_warnings)
 
 
-def test_no_warning_when_persisted_not_newer(captured_warnings: list[str]) -> None:
+def test_no_warning_when_persisted_not_newer(
+    monkeypatch: pytest.MonkeyPatch, captured_warnings: list[str]
+) -> None:
     """A persisted version equal to or older than installed does not warn."""
+    monkeypatch.setattr(version_mod, "get_package_version", lambda _name: "1.0.0")
     warn_if_persisted_version_newer_than_installed(Version("0.0.1"), package_name="r2x_core")
     assert captured_warnings == []
 

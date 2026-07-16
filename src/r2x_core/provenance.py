@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Annotated, Any
 from uuid import UUID
 
 from infrasys import Component, SupplementalAttribute
+from infrasys.exceptions import ISAlreadyAttached
 from loguru import logger
 from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_serializer
@@ -219,7 +220,21 @@ class ProvenanceBuilder:
             # auto_add_composed_components path already de-duplicates by uuid
             # so this does not corrupt the target's component graph.
             copy = self._source_system.deepcopy_component(source_component)
-            target_system.add_component(copy)
+            try:
+                target_system.add_component(copy)
+            except ISAlreadyAttached as exc:
+                # Re-raise with preserve-source-specific context. Infrasys's
+                # own message names the component and UUID, but does not
+                # explain why r2x-core is trying to add a source-uuid
+                # component; wrapping makes the failure actionable for
+                # users who pre-populated the target system.
+                raise ISAlreadyAttached(
+                    f"Cannot preserve source component {source_component.label} "
+                    f"(UUID={source_component.uuid}): target system already contains a "
+                    f"component with that UUID. Target systems used with "
+                    f"preserve_source=True should not be pre-populated with components "
+                    f"that share UUIDs with untranslated source components."
+                ) from exc
             provenance = SourceProvenance(
                 source_uuid=source_component.uuid,
                 preserved=True,

@@ -447,3 +447,24 @@ def test_source_provenance_tags_are_not_carried_across(
     # Exactly one tag: the fresh one this translation produced, not the stray.
     assert len(tags) == 1
     assert tags[0].uuid != stray_tag.uuid
+
+
+def test_preserve_untranslated_raises_contextual_error_on_uuid_collision(
+    source_system: System,
+) -> None:
+    """When target already holds a component with a source UUID, the wrapped error explains why."""
+    from fixtures.source_system import BusComponent
+    from infrasys.exceptions import ISAlreadyAttached
+
+    from r2x_core.provenance import ProvenanceBuilder
+
+    # Pre-populate target with a component that has the SAME UUID as a source bus.
+    src_bus = next(source_system.get_components(BusComponent))
+    tgt = System(system_base=100.0, name="target")
+    collision = source_system.deepcopy_component(src_bus)
+    tgt.add_component(collision)
+
+    builder = ProvenanceBuilder(source_system)
+    # No record_translation calls -> every source component is "untranslated".
+    with pytest.raises(ISAlreadyAttached, match=r"Cannot preserve source component"):
+        builder.preserve_untranslated(tgt)

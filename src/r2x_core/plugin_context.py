@@ -180,7 +180,7 @@ class PluginContext(Generic[ConfigT]):
         **kwargs : Any
             Fields to update (config, store, system, source_system, target_system,
             rules, metadata, skip_validation, auto_add_composed_components,
-            current_version, target_version, version_strategy).
+            current_version, target_version, version_strategy, preserve_source).
 
         Returns
         -------

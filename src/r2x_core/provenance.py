@@ -102,10 +102,12 @@ class ProvenanceInfo(BaseModel):
 
     @field_serializer("r2x_core_version")
     def _serialize_version(self, value: Version) -> str:
+        """Render the version as its PEP 440 string form for JSON output."""
         return str(value)
 
     @field_serializer("source_system_uuid")
     def _serialize_uuid(self, value: UUID) -> str:
+        """Render the UUID as its canonical hex-with-dashes string for JSON output."""
         return str(value)
 
 
@@ -141,11 +143,19 @@ class ProvenanceBuilder:
     ) -> None:
         """Tag a translated target component with its source-side UUID.
 
-        Marks ``source_component.uuid`` as translated (safe to repeat; the
+        When ``target_component`` is a plain :class:`Component`: marks
+        ``source_component.uuid`` as translated (safe to repeat; the
         underlying set is idempotent on membership) and attaches a fresh
-        :class:`SourceProvenance` tag to ``target_component``. Fan-out rules
-        that produce multiple targets from one source therefore end up with
-        one distinct tag per target, all pointing at the same source uuid.
+        :class:`SourceProvenance` tag to the target. Fan-out rules that
+        produce multiple targets from one source therefore end up with one
+        distinct tag per target, all pointing at the same source uuid.
+
+        When ``target_component`` is a :class:`SupplementalAttribute`: no-op.
+        The source is deliberately NOT marked as translated so that a
+        source consumed only by SA-producing rules (no Component target)
+        still flows through the preservation pass and survives the reverse
+        trip. Any Component-producing rule that later consumes the same
+        source will still mark it via its own call to this method.
 
         Parameters
         ----------
@@ -155,12 +165,7 @@ class ProvenanceBuilder:
             wider type keeps the door open for the reverse direction where
             an SA-source rule would call this helper with an SA.
         target_component : Component or SupplementalAttribute
-            The target entity the rule produced. For plain components, gets
-            tagged with ``SourceProvenance(preserved=False)``. For SAs
-            (produced by SA rules), we skip the tag because tagging an SA with
-            another SA is not a supported association pattern in infrasys; the
-            source entity itself is still recorded as translated so it
-            won't be preserved as a carry-over.
+            The target entity the rule produced. See behavior notes above.
         target_system : System
             The target system receiving the tag.
         """

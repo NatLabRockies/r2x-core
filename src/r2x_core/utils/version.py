@@ -91,9 +91,10 @@ def warn_if_persisted_version_newer_than_installed(
 
     if persisted > installed:
         logger.warning(
-            "Artifact was produced by {} {} but {} is installed; "
+            "Artifact was produced by {} {} but {} {} is installed; "
             "persisted data may reference features this version does not handle.",
             package_name,
             persisted,
+            package_name,
             installed,
         )

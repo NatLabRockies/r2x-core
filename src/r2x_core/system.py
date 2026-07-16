@@ -125,22 +125,31 @@ class System(InfrasysSystem):
         return str(self)
 
     def iter_translated_components(self) -> Iterator[Component]:
-        """Iterate components produced by translation rules (not carry-overs).
+        """Iterate components tagged as rule-produced translations.
 
-        Skips components that were preserved from the source system without
-        being translated (see :class:`SourceProvenance`). If no components in
-        this system carry provenance tags, this yields every component (i.e.
-        systems that were not built with ``preserve_source=True`` behave the
-        same as :meth:`iter_all_components`).
+        If this system contains any :class:`SourceProvenance` tags, this yields
+        only components carrying ``SourceProvenance(preserved=False)``. Untagged
+        components in a provenance-bearing system are neither translated nor
+        preserved; they may be pre-existing target content.
+
+        If no components in this system carry provenance tags, this yields
+        every component (i.e. systems that were not built with
+        ``preserve_source=True`` behave the same as :meth:`iter_all_components`).
 
         Yields
         ------
         Component
-            Every component that is not tagged as ``preserved=True``.
+            Every component tagged as a rule-produced translation, or every
+            component when no provenance tags exist.
         """
-        preserved = self._preserved_component_uuids()
+        translated = self._provenance_component_uuids(preserved=False)
+        preserved = self._provenance_component_uuids(preserved=True)
+        if not translated and not preserved:
+            yield from self.iter_all_components()
+            return
+
         for component in self.iter_all_components():
-            if component.uuid not in preserved:
+            if component.uuid in translated:
                 yield component
 
     def iter_preserved_components(self) -> Iterator[Component]:
@@ -151,7 +160,7 @@ class System(InfrasysSystem):
         Component
             Every component tagged with ``SourceProvenance(preserved=True)``.
         """
-        preserved = self._preserved_component_uuids()
+        preserved = self._provenance_component_uuids(preserved=True)
         for component in self.iter_all_components():
             if component.uuid in preserved:
                 yield component
@@ -180,22 +189,22 @@ class System(InfrasysSystem):
         )
         return any(tag.preserved for tag in provenance)
 
-    def _preserved_component_uuids(self) -> set[UUID]:
-        """Return the UUIDs of every component carrying a ``preserved=True`` provenance tag.
+    def _provenance_component_uuids(self, *, preserved: bool) -> set[UUID]:
+        """Return component UUIDs carrying provenance tags matching ``preserved``.
 
         Two sqlite scans (one to iterate all ``SourceProvenance`` SAs, one
-        association-table lookup per preserved SA) instead of one per
-        component. For a system with N components and K preserved-tag SAs,
-        this is ``1 + K`` queries versus ``N`` for the naive per-component
-        approach; K is typically much smaller than N.
+        association-table lookup per matching SA) instead of one per
+        component. For a system with N components and K matching provenance
+        SAs, this is ``1 + K`` queries versus ``N`` for the naive
+        per-component approach; K is typically much smaller than N.
         """
-        preserved: set[UUID] = set()
+        result: set[UUID] = set()
         for tag in self.get_supplemental_attributes(SourceProvenance):
-            if not tag.preserved:
+            if tag.preserved != preserved:
                 continue
             for owner in self.get_components_with_supplemental_attribute(tag):
-                preserved.add(owner.uuid)
-        return preserved
+                result.add(owner.uuid)
+        return result
 
     def add_components(self, *components: Component, **kwargs: Any) -> None:
         """Add one or more components to the system and set their _system_base.
@@ -387,7 +396,7 @@ class System(InfrasysSystem):
         """
         attrs: dict[str, Any] = {
             "system_base_power": self.base_power,
-            "r2x_core_version": get_package_version("r2x_core"),
+            "r2x_core_version": get_package_version("r2x_core", fallback="0.0.0"),
         }
         if self.source_provenance_info is not None:
             attrs["source_provenance_info"] = self.source_provenance_info.model_dump(mode="json")

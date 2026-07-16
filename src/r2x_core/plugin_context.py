@@ -149,8 +149,9 @@ class PluginContext(Generic[ConfigT]):
         preserve_source : bool
             When True, translation captures source-side provenance so a reverse
             translation can reproduce the original source. Every translated
-            target component is tagged with a :class:`SourceProvenance` SA
-            recording its source UUID, and every source component (plus its
+            target component is tagged with a
+            :class:`~r2x_core.provenance.SourceProvenance` SA recording its
+            source UUID, and every source component (plus its
             SAs) with no matching rule is copied into the target as a
             preserved carry-over. Default is False.
         """

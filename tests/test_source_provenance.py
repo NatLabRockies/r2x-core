@@ -152,8 +152,12 @@ def test_iter_translated_excludes_preserved(context_preserve_source: PluginConte
 
     translated_uuids = {c.uuid for c in tgt.iter_translated_components()}
     preserved_uuids = {c.uuid for c in tgt.iter_preserved_components()}
+    all_uuids = {c.uuid for c in tgt.iter_all_components()}
+    untagged_uuids = all_uuids - translated_uuids - preserved_uuids
+
     assert translated_uuids.isdisjoint(preserved_uuids)
-    assert translated_uuids | preserved_uuids == {c.uuid for c in tgt.iter_all_components()}
+    assert untagged_uuids, "pre-seeded target fixture components are intentionally untagged"
+    assert translated_uuids | preserved_uuids | untagged_uuids == all_uuids
 
 
 def test_preserved_supplemental_attributes_are_carried_over(
@@ -209,6 +213,9 @@ def test_preserve_source_off_produces_no_provenance(
     tags = list(ctx.target_system.get_supplemental_attributes(SourceProvenance))
     assert tags == []
     assert list(ctx.target_system.iter_preserved_components()) == []
+    assert {c.uuid for c in ctx.target_system.iter_translated_components()} == {
+        c.uuid for c in ctx.target_system.iter_all_components()
+    }
 
 
 def test_provenance_survives_json_round_trip(context_preserve_source: PluginContext) -> None:
@@ -331,6 +338,18 @@ def test_finalize_survives_missing_r2x_core_metadata(monkeypatch: pytest.MonkeyP
     stub_source = System(system_base=100.0, name="stub")
     info = ProvenanceBuilder(stub_source).finalize()
     assert str(info.r2x_core_version) == "0.0.0"
+
+
+def test_system_serialize_uses_same_version_sentinel_as_provenance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """System-level and provenance-level r2x versions share the same no-metadata sentinel."""
+    import r2x_core.system as system_mod
+
+    monkeypatch.setattr(system_mod, "get_package_version", lambda _name, fallback="unknown": fallback)
+    system = System(system_base=100.0, name="target")
+    attrs = system.serialize_system_attributes()
+    assert attrs["r2x_core_version"] == "0.0.0"
 
 
 def test_provenance_info_rejects_wrong_version_type() -> None:

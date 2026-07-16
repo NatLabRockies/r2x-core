@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Annotated, Any
 from uuid import UUID
 
 from infrasys import Component, SupplementalAttribute
-from infrasys.exceptions import ISAlreadyAttached, ISNotStored
+from infrasys.exceptions import ISAlreadyAttached
 from loguru import logger
 from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_serializer
@@ -232,18 +232,11 @@ class ProvenanceBuilder:
             # so this does not corrupt the target's component graph.
             copy = self._source_system.deepcopy_component(source_component)
             try:
-                target_system.get_component_by_uuid(source_component.uuid)
-            except ISNotStored:
-                pass
-            else:
-                raise ISAlreadyAttached(_preserve_uuid_collision_message(source_component))
-
-            try:
                 target_system.add_component(copy)
             except ISAlreadyAttached as exc:
-                # Race/secondary guard: infrasys owns the canonical uniqueness
-                # check. Keep our preserve-source-specific message if its
-                # add path still detects a collision.
+                # Infrasys owns the canonical UUID uniqueness check. Keep the
+                # preserve-source-specific message while avoiding a duplicate
+                # preflight lookup for every preserved component.
                 raise ISAlreadyAttached(_preserve_uuid_collision_message(source_component)) from exc
             provenance = SourceProvenance(
                 source_uuid=source_component.uuid,

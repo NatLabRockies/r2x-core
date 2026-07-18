@@ -85,12 +85,12 @@ def apply_rules_to_context(context: PluginContext) -> TranslationResult:
                 )
                 failed_rules += 1
 
-    if builder is not None and context.target_system is not None:
-        builder.preserve_untranslated(context.target_system)
-
     ts_result = transfer_time_series_metadata(context)
 
     if builder is not None and context.target_system is not None:
+        # Build the hop record after time-series transfer so the mapped-field
+        # baseline reads final, validated target values.
+        context.target_system.translation_history.append(builder.build_hop_record(context.target_system))
         context.target_system.source_provenance_info = builder.finalize()
 
     return TranslationResult(
@@ -153,15 +153,38 @@ def apply_single_rule(
         resolved_targets.append(resolved_class)
 
     found_component = False
+    # Only source-driven rules record correspondence automatically. A
+    # target-driven (system="target") rule iterates the target system, so its
+    # iterated components are not source components; recording them here would
+    # pollute the source-side edge set. Such rules must declare their
+    # correspondence explicitly via builder.record_edge (the imperative path).
+    record_provenance = builder is not None and rule.system == "source"
 
     for src_component in iter_components(read_system, class_type=source_class):
         if rule.filter is not None:
             try:
                 if not evaluate_rule_filter(src_component, rule_filter=rule.filter, context=context):
+                    # The rule named this component's type but its filter
+                    # excluded it: a rule-asserted drop, not "no rule ever
+                    # named it" (which would be unclaimed).
+                    if record_provenance:
+                        assert builder is not None
+                        builder.record_edge(
+                            sources=[src_component],
+                            targets=[],
+                            status="dropped",
+                            rule_name=rule.name,
+                            rule_version=rule.version,
+                        )
                     continue
             except ValueError as exc:
                 return Err(ValueError(f"Failed to evaluate filter for {src_component.label}: {exc}"))
         found_component = True
+
+        # Accumulate every target produced from this one iterated component so
+        # the whole fan-out becomes a single correspondence edge (one source,
+        # many targets) instead of one edge per target.
+        produced_targets: list[Any] = []
         for target_class in resolved_targets:
             fields_result = build_target_fields(src_component, rule=rule, context=context).map_err(
                 lambda e: ValueError(f"Failed to build fields for {src_component.label}: {e}")  # noqa: B023
@@ -189,16 +212,56 @@ def apply_single_rule(
                     src_component.label,
                 )
 
-            if builder is not None and rule.system == "source" and context.target_system is not None:
+            if record_provenance and context.target_system is not None:
+                assert builder is not None
                 builder.record_translation(src_component, component, context.target_system)
 
+            produced_targets.append(component)
             converted += 1
+
+        if record_provenance:
+            assert builder is not None
+            consumed_result = _resolve_consumed_sources(rule, src_component, context=context)
+            if consumed_result.is_err():
+                return consumed_result.map(lambda _: RuleApplicationStats(converted=0, skipped=0))
+            consumed = cast(list[Any], consumed_result.ok())
+            builder.record_edge(
+                sources=[src_component, *consumed],
+                targets=produced_targets,
+                status="translated" if produced_targets else "dropped",
+                rule_name=rule.name,
+                rule_version=rule.version,
+                mapped_fields=set(rule.field_map) | set(rule.getters),
+            )
 
     if not found_component:
         logger.warning("No components found for source type '{}' in rule {}", rule.get_source_types(), rule)
 
     logger.debug("Rule {}: {} converted", rule, converted)
     return Ok(RuleApplicationStats(converted=converted, skipped=0))
+
+
+def _resolve_consumed_sources(
+    rule: Rule, iterated_component: Any, *, context: PluginContext
+) -> Result[list[Any], ValueError]:
+    """Return the extra source components a rule's ``consumes`` hook folds in.
+
+    Returns an empty list when the rule declares no ``consumes``. The hook is
+    called with the iterated component (source for ``system="source"`` rules,
+    target for ``system="target"`` rules), matching the getter calling
+    convention.
+    """
+    if rule.consumes is None:
+        return Ok([])
+    if not callable(rule.consumes):
+        return Err(ValueError(f"Rule.consumes for {rule} is not callable"))
+    try:
+        consumed = rule.consumes(iterated_component, context=context)
+    except Exception as exc:
+        return Err(ValueError(f"consumes hook for {rule} failed: {exc}"))
+    if not isinstance(consumed, list):
+        return Err(ValueError(f"consumes hook for {rule} must return a list, got {type(consumed).__name__}"))
+    return Ok(consumed)
 
 
 def _build_provenance_builder(context: PluginContext) -> ProvenanceBuilder | None:

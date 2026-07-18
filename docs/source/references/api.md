@@ -125,6 +125,29 @@ Complete API documentation for all r2x-core classes and functions.
    :members:
 ```
 
+```{eval-rst}
+.. autofunction:: r2x_core.apply_rules_to_context
+```
+
+```{eval-rst}
+.. autofunction:: r2x_core.apply_single_rule
+```
+
+```{eval-rst}
+.. autoclass:: r2x_core.TranslationResult
+   :members:
+```
+
+```{eval-rst}
+.. autoclass:: r2x_core.RuleResult
+   :members:
+```
+
+```{eval-rst}
+.. autoclass:: r2x_core.result.RuleApplicationStats
+   :members:
+```
+
 ## Getters
 
 ```{eval-rst}

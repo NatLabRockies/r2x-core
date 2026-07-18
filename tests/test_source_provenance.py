@@ -2,12 +2,8 @@
 
 Exercises the ``preserve_source`` flag on ``PluginContext``:
 
-- Translated components get tagged with ``SourceProvenance(preserved=False)``
-  carrying the source UUID.
-- Untranslated source components are copied into the target and tagged with
-  ``SourceProvenance(preserved=True)`` while keeping their original UUID.
-- Source supplemental attributes riding on preserved components are carried
-  over and re-attached.
+- Translated components get tagged with a ``SourceProvenance`` carrying the
+  source UUID.
 - ``System.source_provenance_info`` records source-side identity.
 - Everything above survives a JSON round-trip.
 """
@@ -95,100 +91,7 @@ def test_translated_components_get_source_provenance_tag(
         translated[0], supplemental_attribute_type=SourceProvenance
     )
     assert len(tags) == 1
-    assert tags[0].preserved is False
     assert tags[0].source_uuid == source_bus.uuid
-
-
-def test_untranslated_source_component_is_preserved_with_uuid(
-    context_preserve_source: PluginContext,
-) -> None:
-    """A source component with no matching rule shows up in the target under its source UUID."""
-    from infrasys import Component
-    from pydantic import Field
-
-    src = context_preserve_source.source_system
-    tgt = context_preserve_source.target_system
-    assert src is not None and tgt is not None
-
-    # A brand-new source type that no fixture rule matches (not a subtype of
-    # anything the rules already handle).
-    class UnmappedSourceType(Component):
-        """Source-only type with no translation rule."""
-
-        payload: str = Field(default="")
-
-    phantom = UnmappedSourceType(name="phantom", payload="data")
-    src.add_component(phantom)
-
-    apply_rules_to_context(context_preserve_source)
-
-    preserved = list(tgt.iter_preserved_components())
-    preserved_uuids = {c.uuid for c in preserved}
-    assert phantom.uuid in preserved_uuids
-
-    carried = next(c for c in preserved if c.uuid == phantom.uuid)
-    tags = tgt.get_supplemental_attributes_with_component(
-        carried, supplemental_attribute_type=SourceProvenance
-    )
-    assert len(tags) == 1
-    assert tags[0].preserved is True
-    assert tags[0].source_uuid == phantom.uuid
-
-
-def test_iter_translated_excludes_preserved(context_preserve_source: PluginContext) -> None:
-    """iter_translated_components yields only rule-produced components; iter_preserved yields carry-overs."""
-    from infrasys import Component
-    from pydantic import Field
-
-    src = context_preserve_source.source_system
-    tgt = context_preserve_source.target_system
-    assert src is not None and tgt is not None
-
-    class UnmappedSource(Component):
-        payload: str = Field(default="")
-
-    src.add_component(UnmappedSource(name="drop_me"))
-    apply_rules_to_context(context_preserve_source)
-
-    translated_uuids = {c.uuid for c in tgt.iter_translated_components()}
-    preserved_uuids = {c.uuid for c in tgt.iter_preserved_components()}
-    all_uuids = {c.uuid for c in tgt.iter_all_components()}
-    untagged_uuids = all_uuids - translated_uuids - preserved_uuids
-
-    assert translated_uuids.isdisjoint(preserved_uuids)
-    assert untagged_uuids, "pre-seeded target fixture components are intentionally untagged"
-    assert translated_uuids | preserved_uuids | untagged_uuids == all_uuids
-
-
-def test_preserved_supplemental_attributes_are_carried_over(
-    context_preserve_source: PluginContext,
-) -> None:
-    """Source SAs attached to untranslated components ride into the target and re-attach."""
-    from fixtures.source_system import BusGeographicInfo
-    from infrasys import Component
-    from pydantic import Field
-
-    src = context_preserve_source.source_system
-    tgt = context_preserve_source.target_system
-    assert src is not None and tgt is not None
-
-    class UnmappedType(Component):
-        payload: str = Field(default="")
-
-    unmapped = UnmappedType(name="preserved_thing", payload="x")
-    src.add_component(unmapped)
-    geo = BusGeographicInfo(latitude=40.7, longitude=-74.0, location_name="somewhere")
-    src.add_supplemental_attribute(unmapped, geo)
-
-    apply_rules_to_context(context_preserve_source)
-
-    carried = next(c for c in tgt.iter_preserved_components() if c.uuid == unmapped.uuid)
-    carried_sas = tgt.get_supplemental_attributes_with_component(
-        carried, supplemental_attribute_type=BusGeographicInfo
-    )
-    assert len(carried_sas) == 1
-    assert carried_sas[0].location_name == "somewhere"
-    assert carried_sas[0].latitude == pytest.approx(40.7)
 
 
 def test_preserve_source_off_produces_no_provenance(
@@ -212,7 +115,6 @@ def test_preserve_source_off_produces_no_provenance(
     assert ctx.target_system.source_provenance_info is None
     tags = list(ctx.target_system.get_supplemental_attributes(SourceProvenance))
     assert tags == []
-    assert list(ctx.target_system.iter_preserved_components()) == []
     assert {c.uuid for c in ctx.target_system.iter_translated_components()} == {
         c.uuid for c in ctx.target_system.iter_all_components()
     }
@@ -231,10 +133,7 @@ def test_provenance_survives_json_round_trip(context_preserve_source: PluginCont
 
     apply_rules_to_context(context_preserve_source)
 
-    original_source_uuids = {
-        unmapped.uuid,
-        *{tag.source_uuid for tag in tgt.get_supplemental_attributes(SourceProvenance)},
-    }
+    original_source_uuids = {tag.source_uuid for tag in tgt.get_supplemental_attributes(SourceProvenance)}
 
     with tempfile.TemporaryDirectory() as td:
         path = Path(td) / "sys.json"
@@ -244,9 +143,7 @@ def test_provenance_survives_json_round_trip(context_preserve_source: PluginCont
     assert loaded.source_provenance_info is not None
     assert loaded.source_provenance_info.source_system_uuid == src.uuid
 
-    loaded_source_uuids = {c.uuid for c in loaded.iter_preserved_components()} | {
-        tag.source_uuid for tag in loaded.get_supplemental_attributes(SourceProvenance)
-    }
+    loaded_source_uuids = {tag.source_uuid for tag in loaded.get_supplemental_attributes(SourceProvenance)}
     assert loaded_source_uuids == original_source_uuids
 
     loaded_nodes = list(loaded.get_components(NodeComponent))
@@ -262,24 +159,6 @@ def test_provenance_survives_json_round_trip(context_preserve_source: PluginCont
             node, supplemental_attribute_type=SourceProvenance
         )
         assert len(tags) == 1
-        assert tags[0].preserved is False
-
-
-def test_is_preserved_public_wrapper(context_preserve_source: PluginContext) -> None:
-    """System.is_preserved returns True for carry-overs, False for translations."""
-    src = context_preserve_source.source_system
-    tgt = context_preserve_source.target_system
-    assert src is not None and tgt is not None
-    unmapped = RoundTripUnmappedType(name="is_preserved_probe", payload="y")
-    src.add_component(unmapped)
-
-    apply_rules_to_context(context_preserve_source)
-
-    preserved = next(c for c in tgt.iter_preserved_components() if c.uuid == unmapped.uuid)
-    assert tgt.is_preserved(preserved) is True
-
-    translated = next(iter(tgt.iter_translated_components()))
-    assert tgt.is_preserved(translated) is False
 
 
 def test_malformed_provenance_info_ignored_not_fatal(
@@ -361,129 +240,30 @@ def test_provenance_info_rejects_wrong_version_type() -> None:
         )
 
 
-def test_supplemental_attribute_with_no_preserved_owners_is_skipped(
-    context_preserve_source: PluginContext,
-) -> None:
-    """SAs whose every owner was translated do not ride into the target."""
-    from fixtures.source_system import BusComponent, BusGeographicInfo
+def test_record_edge_requires_at_least_one_source(source_system: System) -> None:
+    """record_edge rejects an empty source list: an edge with no source is meaningless."""
+    from r2x_core.provenance import ProvenanceBuilder
 
-    src = context_preserve_source.source_system
-    tgt = context_preserve_source.target_system
-    assert src is not None and tgt is not None
-
-    # Attach an SA to a bus that WILL be translated (rules_simple maps BusComponent).
-    # That means the SA's only owner is translated, so preserve_untranslated should skip it.
-    translated_bus = next(src.get_components(BusComponent))
-    only_translated_sa = BusGeographicInfo(latitude=1.0, longitude=2.0, location_name="only_on_translated")
-    src.add_supplemental_attribute(translated_bus, only_translated_sa)
-
-    # Force at least one preserved component so the SA loop actually runs.
-    src.add_component(RoundTripUnmappedType(name="forces_sa_loop", payload="x"))
-
-    apply_rules_to_context(context_preserve_source)
-
-    carried_geo = list(tgt.get_supplemental_attributes(BusGeographicInfo))
-    # Only the SAs attached to preserved components should appear; the translated-only one is filtered out.
-    for sa in carried_geo:
-        assert sa.location_name != "only_on_translated"
+    builder = ProvenanceBuilder(source_system)
+    with pytest.raises(ValueError, match="record_edge requires at least one source"):
+        builder.record_edge(sources=[], targets=[], status="dropped")
 
 
-def test_record_translation_with_sa_target_does_not_consume_source(
-    source_system: System,
-) -> None:
-    """An SA-target ``record_translation`` leaves the source available for preservation.
+def test_record_translation_sa_target_is_noop(source_system: System) -> None:
+    """record_translation does nothing for a supplemental-attribute target.
 
-    If a rule produces an SA (not a Component) from a source, the source has
-    no target-side Component representation. Marking it as translated would
-    lose it from a reverse trip. So SA targets are recorded as "no-op on the
-    translated set" and the source flows through preservation.
+    SAs cannot own SAs, so no SourceProvenance tag is attached; the
+    correspondence is captured in the hop record instead.
     """
     from fixtures.source_system import BusComponent, BusGeographicInfo
 
-    from r2x_core.provenance import ProvenanceBuilder
+    from r2x_core.provenance import ProvenanceBuilder, SourceProvenance
 
     tgt = System(system_base=100.0, name="target")
     builder = ProvenanceBuilder(source_system)
     src_bus = next(source_system.get_components(BusComponent))
-    sa_target = BusGeographicInfo(latitude=1.0, longitude=2.0, location_name="test")
+    sa_target = BusGeographicInfo(latitude=1.0, longitude=2.0, location_name="x")
 
-    # No SourceProvenance is attached to sa_target (SAs cannot own SAs), AND
-    # the source is NOT marked translated because no Component was produced.
+    # Must not raise and must not attach any tag.
     builder.record_translation(src_bus, sa_target, tgt)
-
-    builder.preserve_untranslated(tgt)
-    preserved_uuids = {c.uuid for c in tgt.iter_preserved_components()}
-    assert src_bus.uuid in preserved_uuids
-
-
-def test_preserve_untranslated_no_op_when_everything_translated(
-    context_preserve_source: PluginContext,
-) -> None:
-    """When every source component has a rule, no carry-overs are produced and the SA loop is skipped."""
-    from r2x_core.provenance import ProvenanceBuilder
-
-    src = context_preserve_source.source_system
-    tgt = context_preserve_source.target_system
-    assert src is not None and tgt is not None
-
-    # Mark every source component as translated by feeding record_translation
-    # a synthetic target component per source. We reuse the source components
-    # themselves as the "target" argument since we only care about the uuid
-    # bookkeeping side of the call, and the SA branch short-circuits attach.
-    builder = ProvenanceBuilder(src)
-    scratch_target = System(system_base=100.0, name="scratch")
-    for comp in src.iter_all_components():
-        clone = src.deepcopy_component(comp)
-        scratch_target.add_component(clone)
-        builder.record_translation(comp, clone, scratch_target)
-
-    builder.preserve_untranslated(tgt)
-    assert list(tgt.iter_preserved_components()) == []
-
-
-def test_source_provenance_tags_are_not_carried_across(
-    context_preserve_source: PluginContext,
-) -> None:
-    """SourceProvenance SAs on the source system are not re-copied to the target."""
-
-    src = context_preserve_source.source_system
-    tgt = context_preserve_source.target_system
-    assert src is not None and tgt is not None
-
-    # Pre-tag a source component with a SourceProvenance (simulating a system
-    # that already went through a translation earlier).
-    unmapped = RoundTripUnmappedType(name="already_tagged", payload="x")
-    src.add_component(unmapped)
-    stray_tag = SourceProvenance(source_uuid=unmapped.uuid, preserved=True)
-    src.add_supplemental_attribute(unmapped, stray_tag)
-
-    apply_rules_to_context(context_preserve_source)
-
-    carried = next(c for c in tgt.iter_preserved_components() if c.uuid == unmapped.uuid)
-    tags = tgt.get_supplemental_attributes_with_component(
-        carried, supplemental_attribute_type=SourceProvenance
-    )
-    # Exactly one tag: the fresh one this translation produced, not the stray.
-    assert len(tags) == 1
-    assert tags[0].uuid != stray_tag.uuid
-
-
-def test_preserve_untranslated_raises_contextual_error_on_uuid_collision(
-    source_system: System,
-) -> None:
-    """When target already holds a component with a source UUID, the wrapped error explains why."""
-    from fixtures.source_system import BusComponent
-    from infrasys.exceptions import ISAlreadyAttached
-
-    from r2x_core.provenance import ProvenanceBuilder
-
-    # Pre-populate target with a component that has the SAME UUID as a source bus.
-    src_bus = next(source_system.get_components(BusComponent))
-    tgt = System(system_base=100.0, name="target")
-    collision = source_system.deepcopy_component(src_bus)
-    tgt.add_component(collision)
-
-    builder = ProvenanceBuilder(source_system)
-    # No record_translation calls -> every source component is "untranslated".
-    with pytest.raises(ISAlreadyAttached, match=r"Cannot preserve source component"):
-        builder.preserve_untranslated(tgt)
+    assert list(tgt.get_supplemental_attributes(SourceProvenance)) == []

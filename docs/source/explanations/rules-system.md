@@ -47,45 +47,51 @@ def translate_model_c_to_model_b(component_c, target_system):
 This approach creates several problems. Adding a new target format requires
 writing new functions for every source format. Changes to source or target
 schemas require updating multiple locations. Testing becomes difficult because
-conversion logic is scattered across many functions. Operator precedence and
-evaluation order can become ambiguous as the number of translation paths grows.
+conversion logic is scattered across many functions.
 
 The rule system addresses these challenges through declarative specifications
 that separate the "what" from the "how." A {py:class}`~r2x_core.Rule` declares
 what transformation should happen. The
 {py:func}`~r2x_core.apply_rules_to_context` executor handles how to perform it.
 
-With the rule system, the same rules work for any source format:
+The same transformation expressed as a rule:
 
 ```python
-# Rule-based approach - single definition, works for all formats
+from r2x_core import Rule, RuleFilter, PluginContext, apply_rules_to_context
+
 translation_rule = Rule(
     name="translate_large_components",
     source_type="ComponentA",
     target_type="ComponentB",
+    version=1,
     filter=RuleFilter(
-        operation="all_of",
-        predicates=[
-            RuleFilter(field="type", operation="eq", values=["TypeA"]),
-            RuleFilter(field="capacity", operation="geq", values=[100.0]),
+        all_of=[
+            RuleFilter(field="type", op="eq", values=["TypeA"]),
+            RuleFilter(field="capacity", op="geq", values=[100.0]),
         ]
     ),
     field_map={
         "name": "name",
         "capacity": "capacity",
-        "type": lambda src: "TypeA_Translated",
         "location": "location",
-    }
+    },
 )
 
-# Apply to any source format - same rule works for all
-apply_rules_to_context(context, [translation_rule], model_a_components)
-apply_rules_to_context(context, [translation_rule], model_c_components)
-apply_rules_to_context(context, [translation_rule], model_x_components)
+# Rules travel on the context; the executor pulls components from
+# context.source_system and adds the converted ones to context.target_system.
+context = PluginContext(
+    config=config,
+    rules=(translation_rule,),
+    source_system=model_a_system,
+    target_system=target_system,
+)
+result = apply_rules_to_context(context)
 ```
 
 The rule system eliminates code duplication, makes translation logic explicit
-and testable, and enables configuration-driven translation.
+and testable, and enables configuration-driven translation: the same rule can
+be expressed as a JSON record and loaded with
+{py:meth}`~r2x_core.Rule.from_records`.
 
 ## Core Design Principles
 
@@ -106,15 +112,14 @@ making translation logic configurable without code changes.
 
 Rather than embedding conditional logic within rules, the system uses composable
 {py:class}`~r2x_core.RuleFilter` objects to restrict which components a rule
-processes. A filter can match components by field values, by name prefixes, or
-by complex boolean combinations using `any_of` and `all_of`.
+processes. A filter can match components by field values, by derived values
+computed through getters, or by boolean combinations using `any_of` and
+`all_of`.
 
 Filters are separate objects that rules reference, enabling reuse across
 multiple rules. A filter matching "all generators with capacity above 100 MW in
 region 'West'" can be defined once and applied to multiple translation rules.
-Changes to selection criteria require updating only the filter definition. This
-composition avoids the combinatorial explosion that would result from hardcoding
-each source/target/filter combination.
+Changes to selection criteria require updating only the filter definition.
 
 ### Immutability for Correctness
 
@@ -126,9 +131,9 @@ that was defined, making behavior reproducible and debugging straightforward.
 
 The immutability constraint also enables safe sharing of rules across threads
 and processes. Concurrent translation operations cannot interfere with each
-other through shared mutable state. This is particularly important in enterprise
-environments where translation pipelines run continuously on large numbers of
-systems.
+other through shared mutable state. Rule identity (equality and hashing) is
+keyed on `(source_type, target_type, version)`, so two rules for the same
+conversion must declare distinct versions.
 
 ## Architecture Overview
 
@@ -136,12 +141,11 @@ systems.
 
 The {py:class}`~r2x_core.Rule` class encapsulates a single transformation
 between source and target types. Each rule specifies the source component type
-(or types) it matches, the target type (or types) it produces, and a version
-number for schema evolution. The `field_map` dictionary describes how source
-fields become target fields, supporting both simple one-to-one mappings and
-complex multi-field derivations through getter functions.
+it matches, the target type (or types) it produces, and an integer `version`
+for schema evolution. The `field_map` dictionary maps target field names to
+source field names for direct copies; anything computed goes in `getters`.
 
-Here's a simple example converting a model_a generator to a model_b generator:
+A simple rule using only direct field mappings:
 
 ```python
 from r2x_core import Rule
@@ -154,16 +158,30 @@ rule = Rule(
     field_map={
         "name": "name",
         "capacity_mw": "capacity_mw",
-        "fuel_type": lambda src: src.fuel_type.lower(),  # Transform fuel type
         "location": "location",
     },
-    defaults={"fuel_type": "natural_gas"},  # Fallback if fuel is missing
+    defaults={"fuel_type": "natural_gas"},  # Fallback when the source lacks a value
 )
 ```
 
-A more complex example showing multi-field derivation:
+A rule that derives target fields from computation uses `getters`. A getter is
+a callable receiving the source component and the active
+{py:class}`~r2x_core.PluginContext` as a keyword argument, returning a
+`rust_ok` `Result`:
 
 ```python
+from rust_ok import Ok
+from r2x_core import Rule
+
+
+def total_capacity(src, *, context):
+    return Ok(src.max_capacity * src.unit_count)
+
+
+def ramp_rate_per_minute(src, *, context):
+    return Ok(src.ramp_up_rate * 60)
+
+
 rule = Rule(
     name="model_a_to_model_b_generator_advanced",
     source_type="GeneratorA",
@@ -171,172 +189,187 @@ rule = Rule(
     version=1,
     field_map={
         "name": "name",
-        "capacity_mw": lambda src: src.max_capacity * src.unit_count,
         "min_up_time_hours": "min_online_time",
-        "ramp_rate_mw_per_minute": lambda src: src.ramp_up_rate * 60,
     },
-    depends_on=["generator_location_mapping"],  # Wait for other rules
+    getters={
+        "capacity_mw": total_capacity,
+        "ramp_rate_mw_per_minute": ramp_rate_per_minute,
+    },
+    depends_on=["generator_location_mapping"],  # Run after other rules
 )
 ```
 
-Rules support several advanced features. The `defaults` parameter provides
-fallback values when source fields are missing, enabling translation from
-simpler models that lack detail. The `depends_on` parameter ensures rules
-execute in the correct order when target fields come from previously translated
-components. The `filter` parameter references a {py:class}`~r2x_core.RuleFilter`
-that restricts which source components the rule processes.
+Getters can also be referenced by name. Functions decorated with
+{py:func}`~r2x_core.getter` register under their name (or a custom one), and
+JSON rule records can then reference them as strings; dotted strings fall back
+to nested attribute lookups. This keeps computed mappings available to fully
+configuration-driven rules.
+
+Field values are resolved with a fixed precedence: `field_map` reads the source
+attribute directly, `getters` compute values, and `defaults` (keyed by target
+field name) fill in whenever the mapped attribute is missing or the getter
+returns nothing. A mapped field that is missing on the source with no default
+is an error that fails the rule.
+
+A few structural constraints keep rules unambiguous. A rule may declare
+multiple target types (fan-out: one source component produces one target
+component per type) or multiple source types, but not both. A `field_map` entry
+whose source side is a list of fields requires a matching getter to combine
+them. The `system` parameter (default `"source"`) selects which system the rule
+reads from; `system="target"` lets a rule derive components from already
+translated ones.
 
 ### Filter Predicates
 
 The {py:class}`~r2x_core.RuleFilter` class provides a flexible predicate
-language for component selection. Leaf filters compare a component field against
-values using operations like equality, membership, numeric comparison, or prefix
-matching. Compound filters combine multiple predicates with `any_of` (OR) or
-`all_of` (AND) semantics.
-
-Here are some practical filter examples:
+language for component selection. Leaf filters compare a candidate value
+against `values` using one of: `eq`, `neq`, `in`, `not_in`, `geq`,
+`startswith`, `not_startswith`, `endswith`. Compound filters nest other filters
+under `any_of` (OR) or `all_of` (AND).
 
 ```python
 from r2x_core import RuleFilter
 
 # Simple equality filter
-filter_type_a = RuleFilter(
-    field="component_type",
-    operation="eq",
-    values=["TypeA"]
-)
+filter_type_a = RuleFilter(field="component_type", op="eq", values=["TypeA"])
 
-# Multiple values (membership)
+# Membership
 filter_multiple_types = RuleFilter(
-    field="component_type",
-    operation="in",
-    values=["TypeA", "TypeB", "TypeC"]
+    field="component_type", op="in", values=["TypeA", "TypeB", "TypeC"]
 )
 
-# Numeric comparison - components above 100 capacity
-filter_large = RuleFilter(
-    field="capacity",
-    operation="geq",
-    values=[100.0]
-)
+# Numeric comparison - components with capacity >= 100
+filter_large = RuleFilter(field="capacity", op="geq", values=[100.0])
 
-# Prefix matching - all components starting with "Region1"
-filter_region = RuleFilter(
-    field="name",
-    operation="startswith",
-    values=["Region1"]
-)
+# Prefix matching uses the dedicated `prefixes` field
+filter_region = RuleFilter(field="name", op="startswith", prefixes=["Region1"])
 
-# Complex combinations
+# AND composition
 filter_large_type_a = RuleFilter(
-    operation="all_of",
-    predicates=[
-        RuleFilter(field="component_type", operation="eq", values=["TypeA"]),
-        RuleFilter(field="capacity", operation="geq", values=[50.0]),
+    all_of=[
+        RuleFilter(field="component_type", op="eq", values=["TypeA"]),
+        RuleFilter(field="capacity", op="geq", values=[50.0]),
     ]
 )
 
-# OR combinations - TypeA OR TypeB
+# OR composition
 filter_common_types = RuleFilter(
-    operation="any_of",
-    predicates=[
-        RuleFilter(field="component_type", operation="in", values=["TypeA", "TypeB"]),
-        RuleFilter(field="component_type", operation="eq", values=["TypeC"]),
+    any_of=[
+        RuleFilter(field="component_type", op="in", values=["TypeA", "TypeB"]),
+        RuleFilter(field="component_type", op="eq", values=["TypeC"]),
     ]
 )
 ```
 
+The candidate value normally comes from a component attribute (`field`), but a
+filter can instead declare a `getter` to derive it from translator context,
+supplemental attributes, or other source-system lookups. Two more knobs control
+edge cases: `casefold` (default true) makes string comparison
+case-insensitive, and `on_missing` decides whether a component lacking the
+field is included or excluded (default `"exclude"`).
+
 The filter implementation optimizes for repeated evaluation. String values are
 casefolded once during filter construction rather than on every comparison.
-Prefix lists are cached in normalized form. These optimizations matter when
-filtering thousands of components during a large system translation.
+These optimizations matter when filtering thousands of components during a
+large system translation. See {doc}`../how-tos/create-rule-filters` for the
+full how-to, including getter-backed filters loaded from JSON records.
 
 ### Rule Execution
 
 The {py:func}`~r2x_core.apply_rules_to_context` function orchestrates the
-translation process. It first validates rules for consistency, checking for
-duplicate names and unresolved dependencies. Rules are then topologically sorted
-so that dependencies execute before dependents. Each rule is applied to all
-matching source components, creating target components that are added to the
-target system.
-
-Here's how to apply rules to translate components:
+translation. It takes only the {py:class}`~r2x_core.PluginContext`; rules,
+source system, and target system all travel on the context:
 
 ```python
-from r2x_core import apply_rules_to_context, Rule, PluginContext
+from r2x_core import Rule, PluginContext, apply_rules_to_context
 
-# Define rules for translation
-rules = [
+rules = (
     Rule(
         name="translate_component_type_a",
         source_type="ComponentA",
         target_type="ComponentB",
         version=1,
-        field_map={
-            "name": "name",
-            "capacity": "capacity",
-            "location": "location",
-        }
+        field_map={"name": "name", "capacity": "capacity", "location": "location"},
     ),
     Rule(
         name="translate_component_type_b",
         source_type="NodeA",
         target_type="NodeB",
         version=1,
-        field_map={
-            "name": "name",
-            "voltage": "voltage",
-        }
+        field_map={"name": "name", "voltage": "voltage"},
     ),
-]
+)
 
-# Apply rules within a plugin context
-result = apply_rules_to_context(
-    context=plugin_context,
+context = PluginContext(
+    config=config,
     rules=rules,
-    source_components=source_system.get_components(),
+    source_system=source_system,
+    target_system=target_system,
 )
+result = apply_rules_to_context(context)
 
-# Check results
-if result.is_complete():
-    print(f"Translation successful: {result.total_components} components")
+if result.success:
+    print(f"Translation successful: {result.total_converted} components")
 else:
-    print(f"Some translations failed:")
     for rule_result in result.rule_results:
-        if rule_result.is_err():
-            print(f"  {rule_result.rule_name}: {rule_result.error}")
+        if not rule_result.success:
+            print(f"  {rule_result.rule}: {rule_result.error}")
 ```
 
-For single-rule application with fine-grained control:
+Execution proceeds in well-defined stages:
 
-```python
-from r2x_core import apply_single_rule
+1. **Dependency sorting.** Rules are topologically sorted by their
+   `depends_on` declarations (Kahn's algorithm). Duplicate rule names,
+   unknown dependencies, and dependency cycles are rejected up front. Unnamed
+   rules without dependencies run first.
+2. **Per-rule application.** For each rule, the executor resolves the source
+   and target classes by name, iterates matching components from the system
+   selected by `rule.system`, evaluates the filter, builds target field values,
+   and constructs one target component per target type. A failing rule is
+   recorded in its {py:class}`~r2x_core.RuleResult` without aborting the
+   remaining rules.
+3. **UUID handling.** By convention, mapping `"uuid": "uuid"` in `field_map`
+   preserves the source component's identity on the target, which later stages
+   rely on. When a rule declares multiple target types, the executor assigns
+   each created component a fresh UUID instead, since several components cannot
+   share one identity.
+4. **Supplemental attribute attachment.** When a rule's target type is a
+   `SupplementalAttribute` subclass, the created attribute is attached to the
+   target component whose UUID matches the source component's UUID. The
+   component-producing rule must therefore run first (use `depends_on`) and
+   preserve the UUID.
+5. **Time series transfer.** After all rules have run,
+   {py:func}`~r2x_core.transfer_time_series_metadata` copies time series
+   associations in bulk, matching source and target components by equal UUID
+   and remapping child-owned series onto translated parents where needed. The
+   counts appear on the returned result as `time_series_transferred` and
+   `time_series_updated`.
 
-# Apply one rule to specific components
-result = apply_single_rule(
-    context=plugin_context,
-    rule=rules[0],
-    source_components=source_system.get_components()[:10],  # First 10 only
-)
-
-if result.is_ok():
-    created = result.value()
-    target_system.add_components(created)
-```
-
-The function returns a {py:class}`~r2x_core.TranslationResult` containing
-detailed statistics. Individual rule outcomes are captured in
-{py:class}`~r2x_core.RuleResult` objects, providing visibility into what
-succeeded, what failed, and why. This detailed reporting enables debugging of
-translation workflows and monitoring of translation quality.
+The function returns a {py:class}`~r2x_core.TranslationResult` with aggregate
+statistics (`total_rules`, `successful_rules`, `failed_rules`,
+`total_converted`, the per-rule `rule_results`, and the time series counters).
+Its `success` property is true when no rule failed, and `summary()` prints a
+formatted table for logging and debugging.
 
 ### Single-Rule Application
 
 The {py:func}`~r2x_core.apply_single_rule` function handles translation for a
-single rule. It resolves source and target types, evaluates filters, builds
-target field values, and creates target components. This function is useful when
-you need fine-grained control over the translation process or want to apply
-rules selectively outside the full workflow.
+single rule, useful for fine-grained control or selective application outside
+the full workflow:
+
+```python
+from r2x_core import apply_single_rule
+from rust_ok import Ok, Err
+
+match apply_single_rule(rule, context=context):
+    case Ok(stats):
+        print(f"converted={stats.converted} skipped={stats.skipped}")
+    case Err(error):
+        print(f"rule failed: {error}")
+```
+
+It returns a `Result[RuleApplicationStats, ValueError]` rather than raising,
+consistent with the `rust_ok` error handling used across the executor.
 
 ## Design Trade-offs
 
@@ -355,10 +388,10 @@ rule objects are rarely modified after creation, making this cost acceptable.
 Rules reference source and target types by string name rather than actual Python
 classes. This design enables rules to be defined in JSON configuration files
 where class objects cannot be represented. The executor resolves strings to
-classes at runtime using the {py:class}`~r2x_core.PluginContext` model registry.
-This late binding adds flexibility but means type errors are caught at execution
-rather than definition time. The trade-off favors runtime flexibility for
-configuration-driven use cases.
+classes at runtime by searching the modules listed in the context's
+`config.models`. This late binding adds flexibility but means type errors are
+caught at execution rather than definition time. The trade-off favors runtime
+flexibility for configuration-driven use cases.
 
 ### Why Separate Filters from Rules?
 
@@ -374,9 +407,12 @@ pushdown.
 
 Rules integrate with the broader plugin system through the
 {py:class}`~r2x_core.PluginContext`. The context provides access to source and
-target systems, configuration, and the model registry for type resolution.
+target systems, configuration, and the model modules used for type resolution.
 Translation plugins define rules as part of their configuration and invoke the
-rule executor during the `on_translate` lifecycle hook.
+rule executor during the `on_translate` lifecycle hook. The context also
+exposes lookup helpers (`list_rules`, `get_rule`, `get_rules_for_source`,
+`list_available_conversions`) so plugins can discover available conversions at
+runtime.
 
 This integration enables declarative plugin configuration. A translation plugin
 can be fully configured through JSON files specifying rules, filters, and field
@@ -389,8 +425,8 @@ expressed declaratively.
 The rule system is designed for large-scale translations involving thousands of
 components. Rule validation and dependency sorting happen once per translation,
 not per component. Filter predicates cache normalized values to avoid repeated
-computation. The executor minimizes object allocation by reusing context objects
-across rule applications.
+computation. Component classes are resolved once per rule rather than per
+component.
 
 For very large systems, the executor could be extended to parallelize
 independent rules. The current sequential execution is sufficient for typical
@@ -403,10 +439,10 @@ need for locking or synchronization.
 The rule system provides several extension points for future enhancement. Custom
 filter operations could be registered to extend the predicate language. Rule
 inheritance could allow base rules with shared mappings that derived rules
-extend. Bidirectional rules could support round-trip translation by defining
-both directions in a single specification. Transformation pipelines could
-combine rules from multiple plugins. These extensions would build on the
-existing architecture without fundamental changes.
+extend. Transformation pipelines could combine rules from multiple plugins.
+Round-trip (bidirectional) translation is addressed by the translation history
+described in {doc}`./lossless-translation`. These extensions build on
+the existing architecture without fundamental changes.
 
 ## Complete Example: ReEDS to Infrasys Translation
 
@@ -414,104 +450,97 @@ Here's a realistic example translating ReEDS model generators and buses to an
 Infrasys system:
 
 ```python
-from r2x_core import (
-    Rule, RuleFilter, apply_rules_to_context, PluginContext
-)
+from rust_ok import Ok
+from r2x_core import Rule, RuleFilter, PluginContext, apply_rules_to_context
 
-# Define filters for selective translation
-filter_wind = RuleFilter(field="fuel", operation="eq", values=["Wind"])
-filter_large = RuleFilter(field="p_max_mw", operation="geq", values=[100.0])
+# Filters for selective translation
 filter_large_wind = RuleFilter(
-    operation="all_of",
-    predicates=[filter_wind, filter_large]
+    all_of=[
+        RuleFilter(field="fuel", op="eq", values=["Wind"]),
+        RuleFilter(field="p_max_mw", op="geq", values=[100.0]),
+    ]
 )
 
-# Define translation rules
-rules = [
-    # Step 1: Translate all buses
+
+def wind_category(src, *, context):
+    return Ok("WindOnshore")
+
+
+rules = (
+    # Step 1: Translate all buses, preserving identity for later steps
     Rule(
         name="reeds_buses_to_infrasys",
         source_type="ReEDSBus",
         target_type="Bus",
         version=1,
         field_map={
+            "uuid": "uuid",
             "name": "name",
             "voltage_kv": "voltage_kv",
             "region": "region",
-        }
+        },
     ),
-
-    # Step 2: Translate large wind generators (depends on buses)
+    # Step 2: Translate large wind generators (after buses)
     Rule(
         name="reeds_wind_generators",
         source_type="ReEDSGenerator",
         target_type="Generator",
         version=1,
-        filter=filter_large_wind,  # Only generators >100MW with wind fuel
+        filter=filter_large_wind,
         field_map={
             "name": "name",
             "p_max_mw": "p_max_mw",
-            "fuel": lambda src: "WindOnshore",
             "zone_id": "zone",
             "min_up_time": "min_online_time_minutes",
         },
+        getters={"fuel": wind_category},
         depends_on=["reeds_buses_to_infrasys"],
     ),
-
     # Step 3: Translate conventional generators
     Rule(
         name="reeds_thermal_generators",
         source_type="ReEDSGenerator",
         target_type="ThermalGenerator",
         version=1,
-        filter=RuleFilter(
-            operation="any_of",
-            predicates=[
-                RuleFilter(field="fuel", operation="eq", values=["Coal"]),
-                RuleFilter(field="fuel", operation="eq", values=["Gas"]),
-            ]
-        ),
+        filter=RuleFilter(field="fuel", op="in", values=["Coal", "Gas"]),
         field_map={
             "name": "name",
             "p_max_mw": "p_max_mw",
             "fuel": "fuel",
             "heat_rate_mmbtu_per_mwh": "heat_rate",
         },
-        defaults={"heat_rate": 10.5},  # Default if missing
+        defaults={"heat_rate_mmbtu_per_mwh": 10.5},  # Keyed by target field
         depends_on=["reeds_buses_to_infrasys"],
     ),
-]
+)
 
-# Apply rules in order
 context = PluginContext(
+    config=config,
+    rules=rules,
     source_system=reeds_system,
     target_system=infrasys_system,
 )
 
-result = apply_rules_to_context(
-    context=context,
-    rules=rules,
-    source_components=reeds_system.components,
-)
+result = apply_rules_to_context(context)
 
-# Examine results
+result.summary()
 for rule_result in result.rule_results:
-    print(f"{rule_result.rule_name}:")
-    print(f"  Components processed: {rule_result.components_processed}")
-    print(f"  Successfully translated: {rule_result.components_translated}")
-    if rule_result.is_err():
-        print(f"  Error: {rule_result.error}")
+    status = "ok" if rule_result.success else f"error: {rule_result.error}"
+    print(f"{rule_result.rule}: converted={rule_result.converted} ({status})")
 ```
 
 This example demonstrates several key concepts: selective translation through
-filters, field transformation using lambda functions, default values for missing
-data, and ordered execution through dependencies. The same rule definitions could
-be stored in JSON and loaded from configuration files, enabling fully declarative
-translation pipelines.
+filters, computed fields using getters, default values for missing data, UUID
+preservation for cross-rule identity, and ordered execution through
+dependencies. The same rule definitions could be stored in JSON and loaded from
+configuration files with {py:meth}`~r2x_core.Rule.from_records`, enabling fully
+declarative translation pipelines.
 
 ## See Also
 
 - {doc}`../how-tos/define-rule-mappings` for practical usage examples
+- {doc}`../how-tos/create-rule-filters` for filter composition patterns
+- {doc}`./lossless-translation` for round-trip translation and the translation history
 - {doc}`./plugin-system` for understanding plugin integration
 - {py:class}`~r2x_core.Rule` API reference
 - {py:class}`~r2x_core.RuleFilter` API reference

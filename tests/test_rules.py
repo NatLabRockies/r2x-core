@@ -195,3 +195,39 @@ def test_rule_filter_pattern_variants():
 
     with pytest.raises(ValueError):
         RuleFilter(field="value", op="geq", values=[1, 2])
+
+
+def test_rule_consumes_string_resolves_to_callable():
+    """A string consumes reference resolves to a registered getter callable."""
+    from rust_ok import Ok
+
+    from r2x_core import Rule, getter
+
+    @getter(name="_consumes_resolution_probe")
+    def _probe(iterated, *, context):
+        return Ok([])
+
+    rule = Rule(
+        source_type="A",
+        target_type="B",
+        version=1,
+        field_map={"f": "f"},
+        consumes="_consumes_resolution_probe",
+    )
+    assert callable(rule.consumes)
+
+
+def test_rule_consumes_rejects_non_callable_non_string():
+    """consumes must be a callable or a getter-name string."""
+    from r2x_core import Rule
+
+    with pytest.raises(TypeError, match=r"Rule\.consumes must be callable or a getter name str"):
+        Rule(source_type="A", target_type="B", version=1, consumes=123)  # type: ignore[arg-type]
+
+
+def test_rule_consumes_defaults_to_none():
+    """Rules without aggregation leave consumes unset."""
+    from r2x_core import Rule
+
+    rule = Rule(source_type="A", target_type="B", version=1, field_map={"f": "f"})
+    assert rule.consumes is None

@@ -14,6 +14,7 @@ from pydantic import ValidationError
 
 from . import units
 from .provenance import ProvenanceInfo, SourceProvenance
+from .translation_history import HopRecord
 from .utils import (
     filter_kwargs_by_signatures,
     get_package_version,
@@ -93,6 +94,17 @@ class System(InfrasysSystem):
         # SourceProvenance supplemental attributes on the components themselves.
         self.source_provenance_info: ProvenanceInfo | None = None
 
+        # Append-only stack of translation hops (the lens complement). Populated
+        # by the rules executor when PluginContext.preserve_source is True.
+        # Empty otherwise, in which case serialization output is unchanged.
+        self.translation_history: list[HopRecord] = []
+        # Raw hop-record payloads that failed to validate on load (schema newer
+        # than this library, or corrupt), each with its original stack position.
+        # Kept inert so the system still loads (C4: downstream tools must open
+        # the file) and so re-serialization restores the exact original order
+        # (the stack is an append-only chain history; reordering corrupts it).
+        self._unparsed_translation_history: list[tuple[int, dict[str, Any]]] = []
+
         # Define the system base for pint unit conversion.
         # This allows components to convert: device_pu.to('system_base')
         units.ureg.define(f"system_base = {system_base} * MVA")  # overwrite
@@ -128,9 +140,9 @@ class System(InfrasysSystem):
         """Iterate components tagged as rule-produced translations.
 
         If this system contains any :class:`SourceProvenance` tags, this yields
-        only components carrying ``SourceProvenance(preserved=False)``. Untagged
-        components in a provenance-bearing system are neither translated nor
-        preserved; they may be pre-existing target content.
+        only components carrying one. Untagged components in a provenance-bearing
+        system are not rule-produced translations; they may be pre-existing
+        target content.
 
         If no components in this system carry provenance tags, this yields
         every component (i.e. systems that were not built with
@@ -142,9 +154,8 @@ class System(InfrasysSystem):
             Every component tagged as a rule-produced translation, or every
             component when no provenance tags exist.
         """
-        translated = self._provenance_component_uuids(preserved=False)
-        preserved = self._provenance_component_uuids(preserved=True)
-        if not translated and not preserved:
+        translated = self._translated_component_uuids()
+        if not translated:
             yield from self.iter_all_components()
             return
 
@@ -152,56 +163,17 @@ class System(InfrasysSystem):
             if component.uuid in translated:
                 yield component
 
-    def iter_preserved_components(self) -> Iterator[Component]:
-        """Iterate components that were carried over from source without translation.
-
-        Yields
-        ------
-        Component
-            Every component tagged with ``SourceProvenance(preserved=True)``.
-        """
-        preserved = self._provenance_component_uuids(preserved=True)
-        for component in self.iter_all_components():
-            if component.uuid in preserved:
-                yield component
-
-    def is_preserved(self, component: Component) -> bool:
-        """Return True if ``component`` was carried over from source untranslated.
-
-        Cheap single-component check that hits the SA association table
-        directly. When walking many components, prefer
-        :meth:`iter_preserved_components` or :meth:`iter_translated_components`
-        which resolve the whole preserved-UUID set once instead of
-        per-component.
-
-        Parameters
-        ----------
-        component : Component
-            Component to check.
-
-        Returns
-        -------
-        bool
-            True when the component carries ``SourceProvenance(preserved=True)``.
-        """
-        provenance = self.get_supplemental_attributes_with_component(
-            component, supplemental_attribute_type=SourceProvenance
-        )
-        return any(tag.preserved for tag in provenance)
-
-    def _provenance_component_uuids(self, *, preserved: bool) -> set[UUID]:
-        """Return component UUIDs carrying provenance tags matching ``preserved``.
+    def _translated_component_uuids(self) -> set[UUID]:
+        """Return component UUIDs carrying a :class:`SourceProvenance` tag.
 
         Two sqlite scans (one to iterate all ``SourceProvenance`` SAs, one
-        association-table lookup per matching SA) instead of one per
-        component. For a system with N components and K matching provenance
-        SAs, this is ``1 + K`` queries versus ``N`` for the naive
-        per-component approach; K is typically much smaller than N.
+        association-table lookup per SA) instead of one per component. For a
+        system with N components and K provenance SAs, this is ``1 + K``
+        queries versus ``N`` for the naive per-component approach; K is
+        typically much smaller than N.
         """
         result: set[UUID] = set()
         for tag in self.get_supplemental_attributes(SourceProvenance):
-            if tag.preserved != preserved:
-                continue
             for owner in self.get_components_with_supplemental_attribute(tag):
                 result.add(owner.uuid)
         return result
@@ -392,7 +364,9 @@ class System(InfrasysSystem):
         -------
         dict[str, Any]
             Dictionary containing ``system_base_power``, ``r2x_core_version``,
-            and ``source_provenance_info`` when set.
+            ``source_provenance_info`` when set, and ``translation_history``
+            when non-empty. When no provenance was captured, output is
+            identical to a plain system: no extra keys are emitted.
         """
         attrs: dict[str, Any] = {
             "system_base_power": self.base_power,
@@ -400,7 +374,31 @@ class System(InfrasysSystem):
         }
         if self.source_provenance_info is not None:
             attrs["source_provenance_info"] = self.source_provenance_info.model_dump(mode="json")
+        history = self._serialize_translation_history()
+        if history:
+            attrs["translation_history"] = history
         return attrs
+
+    def _serialize_translation_history(self) -> list[dict[str, Any]]:
+        """Serialize the hop stack, restoring unparsed records to their positions.
+
+        Parsed records are dumped in order; unparsed records (retained from a
+        load under schema skew) are spliced back at their original indices so a
+        round trip preserves the exact append-only order.
+        """
+        parsed = [record.model_dump(mode="json") for record in self.translation_history]
+        if not self._unparsed_translation_history:
+            return parsed
+        total = len(parsed) + len(self._unparsed_translation_history)
+        unparsed_by_index = dict(self._unparsed_translation_history)
+        result: list[dict[str, Any]] = []
+        parsed_iter = iter(parsed)
+        for index in range(total):
+            if index in unparsed_by_index:
+                result.append(unparsed_by_index[index])
+            else:
+                result.append(next(parsed_iter))
+        return result
 
     def deserialize_system_attributes(self, data: dict[str, Any]) -> None:
         """Deserialize R2X-specific system attributes.
@@ -426,3 +424,41 @@ class System(InfrasysSystem):
                 warn_if_persisted_version_newer_than_installed(
                     self.source_provenance_info.r2x_core_version, package_name="r2x_core"
                 )
+
+        self._deserialize_translation_history(data.get("translation_history"))
+
+    def _deserialize_translation_history(self, raw_history: Any) -> None:
+        """Load the translation-history stack leniently.
+
+        Records that validate become :class:`HopRecord` instances. Records that
+        do not (a newer schema than this library, or corruption) are retained
+        as raw payloads in ``_unparsed_translation_history`` so they survive a
+        round trip and so the system still loads. Code that relies on the
+        history for recovery must fail loudly on unparsed records rather than
+        silently proceed with a truncated stack.
+        """
+        self.translation_history = []
+        self._unparsed_translation_history = []
+        if not raw_history:
+            return
+        if not isinstance(raw_history, list):
+            logger.warning("Ignoring malformed translation_history: expected a list")
+            return
+        for index, raw_record in enumerate(raw_history):
+            try:
+                self.translation_history.append(HopRecord.model_validate(raw_record))
+            except ValidationError as exc:
+                logger.warning(
+                    "Retaining unparsable translation-history record inertly (schema drift?): {}", exc
+                )
+                self._unparsed_translation_history.append((index, raw_record))
+
+    def has_unparsed_translation_history(self) -> bool:
+        """Return True if any hop record on this system failed to validate on load.
+
+        A reverse/recovery pass must check this and refuse to proceed when True:
+        a record we could not parse may be exactly the one holding the data
+        needed to reconstruct an ancestor, and silently ignoring it would
+        convert losslessness into silent loss.
+        """
+        return bool(self._unparsed_translation_history)

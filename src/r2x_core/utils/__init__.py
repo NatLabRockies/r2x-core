@@ -35,18 +35,26 @@ from .validation import (
     validate_file_extension,
     validate_glob_pattern,
 )
-from .version import UNKNOWN_VERSION, get_package_version, warn_if_persisted_version_newer_than_installed
+from .version import (
+    UNKNOWN_VERSION,
+    VersionField,
+    coerce_version,
+    get_package_version,
+    warn_if_persisted_version_newer_than_installed,
+)
 
 __all__ = [
     "UNKNOWN_VERSION",
     "UpgradeCoordinator",
     "UpgradeStep",
     "UpgradeType",
+    "VersionField",
     "audit_file",
     "backup_folder",
     "build_attr_getter",
     "build_component_kwargs",
     "build_target_fields",
+    "coerce_version",
     "components_to_records",
     "create_component",
     "create_target_component",

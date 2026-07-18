@@ -3,11 +3,40 @@
 from __future__ import annotations
 
 from importlib.metadata import PackageNotFoundError, version
+from typing import Annotated, Any
 
 from loguru import logger
 from packaging.version import InvalidVersion, Version
+from pydantic import BeforeValidator
 
 UNKNOWN_VERSION = "unknown"
+
+
+def coerce_version(value: Any) -> Version:
+    """Accept a Version or PEP 440 string; raise a clear error otherwise.
+
+    Parameters
+    ----------
+    value : Any
+        A :class:`packaging.version.Version` or a PEP 440 version string.
+
+    Returns
+    -------
+    Version
+        The coerced version.
+    """
+    if isinstance(value, Version):
+        return value
+    if isinstance(value, str):
+        try:
+            return Version(value)
+        except InvalidVersion as exc:
+            raise ValueError(f"{value!r} is not a valid PEP 440 version") from exc
+    raise TypeError(f"expected str or packaging.version.Version, got {type(value).__name__}")
+
+
+VersionField = Annotated[Version, BeforeValidator(coerce_version)]
+"""A pydantic field type that accepts a Version or PEP 440 string."""
 
 
 def get_package_version(package_name: str, *, fallback: str = UNKNOWN_VERSION) -> str:

@@ -152,19 +152,21 @@ configuration.
 
 #### Plugin Base Class
 
-Custom plugins inherit from `Plugin`:
+Custom plugins inherit from `Plugin` and implement lifecycle hooks. The base class invokes the implemented hooks in a fixed order: `on_validate`, `on_prepare`, `on_upgrade`, `on_build`, `on_transform`, `on_translate`, `on_export`, `on_cleanup`. Each hook returns a `rust_ok` `Result`; hooks that produce a system (`on_build`, `on_transform`, `on_translate`) have their `Ok` value assigned back onto the context (`on_translate` populates `ctx.target_system`).
 
 ```python
-from r2x_core import Plugin, PluginConfig, PluginContext
+from r2x_core import Plugin, PluginConfig, apply_rules_to_context
+from rust_ok import Ok
 
-class MyPlugin(Plugin):
-    """Custom plugin for data transformation."""
+class MyTranslator(Plugin[MyPluginConfig]):
+    """Translate a source system into a target model format."""
 
-    def apply(self, context: PluginContext) -> None:
-        """Apply plugin logic to context systems."""
-        source = context.source_system
-        target = context.target_system
-        # Custom logic here
+    def on_translate(self):
+        """Build the target system by applying the context's rules."""
+        result = apply_rules_to_context(self.ctx)
+        if not result.success:
+            result.summary()
+        return Ok(self.ctx.target_system)
 ```
 
 ### 3. Plugin Configuration
@@ -201,8 +203,8 @@ Plugins are called during the system transformation process:
 
 1. **Initialization**: Plugin receives configuration (PluginConfig subclass)
 2. **Context Creation**: PluginContext is created with source and target systems
-3. **Plugin Execution**: Plugin.apply(context) performs custom logic
-4. **Result**: Modified or new system is returned
+3. **Plugin Execution**: `Plugin.run()` invokes the implemented lifecycle hooks in order (`on_validate` through `on_cleanup`)
+4. **Result**: Hook return values are assigned onto the context (`on_build`/`on_transform` update `system`, `on_translate` updates `target_system`)
 
 ### Filter Application in Parsers
 

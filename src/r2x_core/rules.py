@@ -136,6 +136,25 @@ class Rule:
     system: Literal["source", "target"] = "source"
     name: str | None = None
     depends_on: list[str] | None = None
+    consumes: RuleGetter | str | None = field(default=None)
+    """Declares extra source components this rule folds in beyond the iterated one.
+
+    Most rules leave this ``None``: their correspondence is fully derivable
+    from ``source_type``/``target_type`` and the components the executor feeds
+    in and produces. Aggregation rules (many-to-one) do work the executor's
+    per-component loop cannot see (a getter reaching into the system, or a
+    ``system="target"`` rule), so they must *declare* what they consume.
+
+    Given the component the executor iterated, ``consumes`` returns the
+    additional source components this rule folded into the same target. The
+    parameter is the iterated component (which is a source component for
+    ``system="source"`` rules and a target component for ``system="target"``
+    rules), so the same hook covers both directions. Provenance then records
+    ``source_uuids = [iterated, *consumed]`` on one edge.
+
+    Accepts a callable ``(iterated, *, context) -> list[Component]`` or a
+    string naming a registered getter, resolved the same way ``getters`` are.
+    """
 
     def __str__(self) -> str:
         """Represent string."""
@@ -155,6 +174,16 @@ class Rule:
                 raise ValueError(msg)
         if self.filter is not None and not isinstance(self.filter, RuleFilter):
             raise TypeError(f"Rule.filter must be a RuleFilter, not {type(self.filter).__name__}")
+
+        if self.consumes is not None and not callable(self.consumes):
+            if not isinstance(self.consumes, str):
+                raise TypeError(
+                    f"Rule.consumes must be callable or a getter name str, not {type(self.consumes).__name__}"
+                )
+            from .getters import resolve_getter
+
+            resolved = resolve_getter(self.consumes).unwrap_or_raise()
+            object.__setattr__(self, "consumes", resolved)
 
     def __hash__(self) -> int:
         """Hash based on rule's unique identifier."""

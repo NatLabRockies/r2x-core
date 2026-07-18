@@ -1,21 +1,11 @@
 """Source-side provenance for lossless round-trip translations.
 
-When a translation runs with ``PluginContext.preserve_source=True``, we want a
-later reverse translation to reproduce the original source system. Two things
-have to survive the trip:
-
-1. The identity of every source component that was translated, so the reverse
-   pass can restore the original source UUIDs (needed for PutGet).
-2. Every source component (and supplemental attribute) that had no matching
-   translation rule, so the reverse pass can put them back.
-
-We record both by attaching a :class:`SourceProvenance` supplemental attribute
-to the relevant target-side entities:
-
-- Translated components get a ``SourceProvenance(preserved=False, source_uuid=...)``
-  pointing back at the source UUID they came from.
-- Untranslated source components (and their SAs) are copied into the target as
-  first-class components, tagged with ``SourceProvenance(preserved=True, ...)``.
+When a translation runs with ``PluginContext.preserve_source=True``, every
+translated target component is tagged with a :class:`SourceProvenance`
+supplemental attribute pointing back at the source component's UUID. This is a
+cheap 1:1 identity index ("which source did this target come from"); the full
+lens complement (dropped components, per-hop snapshots, correspondence edges,
+mapped-field baselines) lives in ``System.translation_history``.
 
 Because ``SourceProvenance`` is a real ``SupplementalAttribute``, it rides
 inside the standard infrasys serialization (JSON + sqlite associations) with
@@ -25,35 +15,32 @@ tag; nothing is hidden in an r2x-only side channel.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from infrasys import Component, SupplementalAttribute
-from infrasys.exceptions import ISAlreadyAttached
-from loguru import logger
-from packaging.version import InvalidVersion, Version
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_serializer
+from packaging.version import Version
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
-from .utils import get_package_version
+from .translation_history import EdgeStatus, HopEdge, HopRecord, SystemSnapshot
+from .utils import VersionField, coerce_version, get_package_version
 
 if TYPE_CHECKING:
     from .system import System
 
 
 class SourceProvenance(SupplementalAttribute):
-    """Marks a target-side entity with its source-side provenance.
+    """Identity tag linking a translated target component to its source.
 
-    Two modes:
+    Attached to every rule-produced target component when
+    ``preserve_source=True``. It records the UUID of the source component the
+    target was translated from, so a later reverse translation can remap the
+    target's UUID back to its original source UUID (PutGet).
 
-    - ``preserved=False`` (translated): the tagged component was produced by a
-      translation rule from a source component with UUID ``source_uuid``. Used
-      on the reverse trip to remap Y-side UUIDs back to their original X-side
-      UUIDs (PutGet).
-    - ``preserved=True`` (carry-over): the tagged component is a copy of a
-      source component that no translation rule matched. It exists in the
-      target system solely so the reverse pass can put it back. The tagged
-      component's UUID equals ``source_uuid``.
+    This is deliberately a thin 1:1 index, not the lens complement. Everything
+    needed to reconstruct the source (dropped components, per-hop snapshots,
+    many-to-many correspondence edges, mapped-field baselines) lives in
+    ``System.translation_history``.
 
     ``SourceProvenance`` itself is a supplemental attribute, so it participates
     in normal infrasys serialization (persisted in ``supplemental_attributes``
@@ -61,41 +48,6 @@ class SourceProvenance(SupplementalAttribute):
     """
 
     source_uuid: UUID = Field(description="UUID of the originating source component")
-    preserved: Annotated[
-        bool,
-        Field(
-            description=(
-                "True if the tagged component is a carry-over from source that no rule translated. "
-                "False if the tagged component is a rule-produced translation of the source component."
-            )
-        ),
-    ]
-
-
-def _coerce_version(value: Any) -> Version:
-    """Accept a Version or PEP 440 string; raise a clear ValueError otherwise."""
-    if isinstance(value, Version):
-        return value
-    if isinstance(value, str):
-        try:
-            return Version(value)
-        except InvalidVersion as exc:
-            raise ValueError(f"{value!r} is not a valid PEP 440 version") from exc
-    raise TypeError(f"expected str or packaging.version.Version, got {type(value).__name__}")
-
-
-VersionField = Annotated[Version, BeforeValidator(_coerce_version)]
-
-
-def _preserve_uuid_collision_message(source_component: Component | SupplementalAttribute) -> str:
-    """Return a user-facing message for preserve-source UUID collisions."""
-    return (
-        f"Cannot preserve source component {source_component.label} "
-        f"(UUID={source_component.uuid}): target system already contains a "
-        f"component with that UUID. Target systems used with "
-        f"preserve_source=True should not be pre-populated with components "
-        f"that share UUIDs with untranslated source components."
-    )
 
 
 class ProvenanceInfo(BaseModel):
@@ -124,15 +76,18 @@ class ProvenanceInfo(BaseModel):
 
 
 class ProvenanceBuilder:
-    """Records source-to-target mappings during translation and preserves untranslated state.
+    """Captures the lens complement (a :class:`HopRecord`) during translation.
 
     Usage sits inside :func:`r2x_core.rules_executor.apply_rules_to_context`:
 
     1. Construct with the source system.
-    2. Call :meth:`record_translation` after each successful rule application.
-    3. Call :meth:`preserve_untranslated` after the rules loop to copy every
-       untranslated source component (and its SAs) into the target.
-    4. Call :meth:`finalize` to produce a :class:`ProvenanceInfo` for the
+    2. Call :meth:`record_translation` per produced target (attaches the cheap
+       1:1 identity tag).
+    3. Call :meth:`record_edge` per rule application (accumulates the
+       correspondence, with arity and mapped-field baseline).
+    4. Call :meth:`build_hop_record` after the rules loop to produce the full
+       hop record (snapshot + edges + unclaimed detection).
+    5. Call :meth:`finalize` to produce a :class:`ProvenanceInfo` for the
        target system's metadata.
     """
 
@@ -145,7 +100,16 @@ class ProvenanceBuilder:
             The source system being translated from.
         """
         self._source_system = source_system
-        self._translated_source_uuids: set[UUID] = set()
+        # Accumulated correspondence edges, one per rule application.
+        self._edges: list[HopEdge] = []
+        # Source UUIDs that at least one rule named (matched), whether it
+        # produced a target or deliberately dropped. Anything left over after
+        # all rules run is "unclaimed": no rule ever mentioned its type.
+        self._claimed_source_uuids: set[UUID] = set()
+        # target_uuid -> the mapped field names the producing rule declared, so
+        # the baseline captures only rule-produced fields (not defaults or
+        # computed fields the target happens to carry).
+        self._mapped_fields_by_target: dict[UUID, set[str]] = {}
 
     def record_translation(
         self,
@@ -155,19 +119,15 @@ class ProvenanceBuilder:
     ) -> None:
         """Tag a translated target component with its source-side UUID.
 
-        When ``target_component`` is a plain :class:`Component`: marks
-        ``source_component.uuid`` as translated (safe to repeat; the
-        underlying set is idempotent on membership) and attaches a fresh
-        :class:`SourceProvenance` tag to the target. Fan-out rules that
-        produce multiple targets from one source therefore end up with one
-        distinct tag per target, all pointing at the same source uuid.
+        When ``target_component`` is a plain :class:`Component`: attaches a
+        fresh :class:`SourceProvenance` tag to the target pointing at
+        ``source_component.uuid``. Fan-out rules that produce multiple targets
+        from one source therefore end up with one distinct tag per target, all
+        pointing at the same source uuid.
 
-        When ``target_component`` is a :class:`SupplementalAttribute`: no-op.
-        The source is deliberately NOT marked as translated so that a
-        source consumed only by SA-producing rules (no Component target)
-        still flows through the preservation pass and survives the reverse
-        trip. Any Component-producing rule that later consumes the same
-        source will still mark it via its own call to this method.
+        When ``target_component`` is a :class:`SupplementalAttribute`: no-op,
+        because SAs cannot own SAs. The correspondence for SA-producing rules
+        is captured in ``System.translation_history`` instead.
 
         Parameters
         ----------
@@ -182,73 +142,145 @@ class ProvenanceBuilder:
             The target system receiving the tag.
         """
         if isinstance(target_component, SupplementalAttribute):
-            # SAs can't own SAs. Do NOT mark the source as translated here:
-            # if the only rule that consumed this source produced an SA (no
-            # Component target), we still want the source itself to survive
-            # via the preservation pass so a reverse translation can put it
-            # back. Sources that also have Component-producing rules get
-            # marked by those rules' record_translation calls.
             return
 
-        self._translated_source_uuids.add(source_component.uuid)
-
-        provenance = SourceProvenance(
-            source_uuid=source_component.uuid,
-            preserved=False,
-        )
+        provenance = SourceProvenance(source_uuid=source_component.uuid)
         target_system.add_supplemental_attribute(target_component, provenance)
 
-    def preserve_untranslated(self, target_system: System) -> None:
-        """Copy untranslated source components (and their SAs) into the target.
+    def record_edge(
+        self,
+        *,
+        sources: list[Component | SupplementalAttribute],
+        targets: list[Component | SupplementalAttribute],
+        status: EdgeStatus,
+        rule_name: str | None = None,
+        rule_version: int | None = None,
+        mapped_fields: set[str] | None = None,
+    ) -> None:
+        """Record one source-to-target correspondence edge for the current hop.
 
-        Every source component whose UUID was not recorded via
-        :meth:`record_translation` is deep-copied into ``target_system`` (which
-        preserves its original UUID) and tagged with
-        ``SourceProvenance(preserved=True)``.
+        Arity is data: pass multiple ``sources`` for aggregation (many-to-one),
+        multiple ``targets`` for fan-out (one-to-many). All named sources are
+        marked claimed so they are not later misclassified as ``unclaimed``.
 
-        Every source SA that references at least one preserved component is
-        also deep-copied and re-attached, but only to owners that made it into
-        the target. Owners that were translated are skipped for that SA (their
-        translated counterparts get whatever SA the rules decided to produce).
+        Parameters
+        ----------
+        sources : list of Component or SupplementalAttribute
+            The source entities this edge consumed. Must be non-empty.
+        targets : list of Component or SupplementalAttribute
+            The target entities this edge produced. Empty for a drop.
+        status : EdgeStatus
+            ``"translated"`` when targets were produced, ``"dropped"`` when a
+            rule matched but deliberately produced nothing.
+        rule_name : str, optional
+            Name of the rule that produced this edge, if named.
+        rule_version : int, optional
+            Version of the rule that produced this edge.
+        mapped_fields : set of str, optional
+            Names of the target fields this rule actually produced (its
+            ``field_map`` and ``getters`` keys). Used to scope the baseline to
+            rule-produced fields. When ``None``, no baseline is captured for
+            these targets.
+        """
+        if not sources:
+            raise ValueError("record_edge requires at least one source")
+        source_uuids = [source.uuid for source in sources]
+        self._claimed_source_uuids.update(source_uuids)
+        if mapped_fields is not None:
+            for target in targets:
+                self._mapped_fields_by_target[target.uuid] = mapped_fields
+        self._edges.append(
+            HopEdge(
+                source_uuids=source_uuids,
+                target_uuids=[target.uuid for target in targets],
+                rule_name=rule_name,
+                rule_version=rule_version,
+                status=status,
+            )
+        )
 
-        Time series metadata for preserved components flows through the normal
-        :func:`transfer_time_series_metadata` path: preserved components live
-        in the target's ``_components_by_uuid`` under their original UUID, so
-        the sqlite transfer picks them up with no orphan-owner special case.
+    def build_hop_record(self, target_system: System) -> HopRecord:
+        """Assemble the hop record for this translation run.
+
+        Snapshots the whole source system (the lens complement), appends the
+        accumulated edges, adds one ``unclaimed`` edge per source component no
+        rule ever named, and captures the mapped-field baseline off the
+        constructed target components (post-validation).
 
         Parameters
         ----------
         target_system : System
-            The target system to preserve into.
+            The target system the translation produced. Used to read final,
+            validated target field values for the baseline.
+
+        Returns
+        -------
+        HopRecord
+            The self-contained complement for this hop.
         """
-        preserved_uuids: set[UUID] = set()
-        for source_component in self._iter_untranslated_source_components():
-            # deepcopy_component uses model_dump() then re-instantiates, so
-            # composed sub-components on `copy` are fresh instances that hold
-            # the same uuid as their source counterparts but do not point at
-            # the target-side canonical instance. Reverse translation will
-            # need to re-link composed refs by uuid; the executor's normal
-            # auto_add_composed_components path already de-duplicates by uuid
-            # so this does not corrupt the target's component graph.
-            copy = self._source_system.deepcopy_component(source_component)
-            try:
-                target_system.add_component(copy)
-            except ISAlreadyAttached as exc:
-                # Infrasys owns the canonical UUID uniqueness check. Keep the
-                # preserve-source-specific message while avoiding a duplicate
-                # preflight lookup for every preserved component.
-                raise ISAlreadyAttached(_preserve_uuid_collision_message(source_component)) from exc
-            provenance = SourceProvenance(
-                source_uuid=source_component.uuid,
-                preserved=True,
-            )
-            target_system.add_supplemental_attribute(copy, provenance)
-            preserved_uuids.add(source_component.uuid)
+        edges = list(self._edges)
+        edges.extend(
+            HopEdge(source_uuids=[source.uuid], target_uuids=[], status="unclaimed")
+            for source in self._source_system.iter_all_components()
+            if source.uuid not in self._claimed_source_uuids
+        )
 
-        if preserved_uuids:
-            logger.debug("Preserved {} untranslated source component(s)", len(preserved_uuids))
+        baseline = self._build_baseline(edges, target_system)
 
-        self._preserve_source_supplemental_attributes(target_system, preserved_uuids)
+        return HopRecord(
+            r2x_core_version=coerce_version(get_package_version("r2x_core", fallback="0.0.0")),
+            source_system_uuid=self._source_system.uuid,
+            from_model=self._source_system.name,
+            to_model=target_system.name,
+            snapshot=self._snapshot_source(),
+            edges=edges,
+            baseline=baseline,
+            time_series_manifest=[],
+        )
+
+    def _snapshot_source(self) -> SystemSnapshot:
+        """Serialize the source system into the infrasys record form.
+
+        Uses ``model_dump_custom()`` (the exact form the system JSON emits,
+        carrying the ``__metadata__`` type discriminator) so a reverse pass
+        reconstructs through the same deserialization path ``from_json`` uses.
+        """
+        components = [
+            component.model_dump_custom() for component in self._source_system.iter_all_components()
+        ]
+        supplemental_attributes = [
+            sa.model_dump_custom()
+            for sa in self._source_system.get_supplemental_attributes(SupplementalAttribute)
+            if not isinstance(sa, SourceProvenance)
+        ]
+        return SystemSnapshot(
+            components=components,
+            supplemental_attributes=supplemental_attributes,
+        )
+
+    def _build_baseline(self, edges: list[HopEdge], target_system: System) -> dict[UUID, dict[str, Any]]:
+        """Capture as-produced values of rule-mapped fields off constructed targets.
+
+        Read after the whole hop has run and validated, so the values reflect
+        pydantic coercion (and any later ``system="target"`` enrichment), not
+        the raw kwargs that entered construction. Scoped to the fields the rule
+        actually produced (recorded per target in ``record_edge``), so a
+        reverse pass compares only rule-produced fields when telling a user
+        edit from a lossy forward transform.
+        """
+        baseline: dict[UUID, dict[str, Any]] = {}
+        target_uuids = {c.uuid for c in target_system.iter_all_components()}
+        for edge in edges:
+            for target_uuid in edge.target_uuids:
+                mapped_fields = self._mapped_fields_by_target.get(target_uuid)
+                # Skip targets with no recorded mapped fields (e.g. SA targets,
+                # which are not components and carry no baseline).
+                if not mapped_fields or target_uuid not in target_uuids:
+                    continue
+                target = target_system.get_component_by_uuid(target_uuid)
+                dumped = target.model_dump(mode="json")
+                baseline[target_uuid] = {field: dumped[field] for field in mapped_fields if field in dumped}
+        return baseline
 
     def finalize(self) -> ProvenanceInfo:
         """Return system-level provenance metadata for the target system.
@@ -263,49 +295,7 @@ class ProvenanceBuilder:
         # deliberately-old marker that a downstream compat check will flag as
         # "produced by an ancient version" rather than silently accept.
         return ProvenanceInfo(
-            r2x_core_version=_coerce_version(get_package_version("r2x_core", fallback="0.0.0")),
+            r2x_core_version=coerce_version(get_package_version("r2x_core", fallback="0.0.0")),
             source_system_uuid=self._source_system.uuid,
             source_system_name=self._source_system.name,
         )
-
-    def _iter_untranslated_source_components(self) -> Iterator[Component]:
-        """Yield source components no rule consumed during translation."""
-        for component in self._source_system.iter_all_components():
-            if component.uuid not in self._translated_source_uuids:
-                yield component
-
-    def _preserve_source_supplemental_attributes(
-        self, target_system: System, preserved_uuids: set[UUID]
-    ) -> None:
-        """Copy source SAs touching preserved components into the target.
-
-        For each source SA:
-
-        - Find its source-side owner components.
-        - Keep only owners whose UUIDs are in ``preserved_uuids`` (i.e. owners
-          that were preserved, not translated). Translated owners already
-          received rule-driven SAs on the target and don't get the source SA
-          re-attached.
-        - If at least one preserved owner remains, deepcopy the SA into the
-          target and attach it to each preserved owner (which exists there
-          under its source UUID).
-        """
-        if not preserved_uuids:
-            return
-
-        # get_supplemental_attributes() with no type arg yields nothing (infrasys
-        # iterates only requested types); pass the base to iterate all subtypes.
-        for source_sa in self._source_system.get_supplemental_attributes(SupplementalAttribute):
-            if isinstance(source_sa, SourceProvenance):
-                # Never carry provenance tags across systems; each translation
-                # produces its own provenance for the target.
-                continue
-            source_owners = self._source_system.get_components_with_supplemental_attribute(source_sa)
-            preserved_owner_uuids = [owner.uuid for owner in source_owners if owner.uuid in preserved_uuids]
-            if not preserved_owner_uuids:
-                continue
-
-            sa_copy = source_sa.model_copy(deep=True)
-            for owner_uuid in preserved_owner_uuids:
-                target_owner = target_system.get_component_by_uuid(owner_uuid)
-                target_system.add_supplemental_attribute(target_owner, sa_copy)

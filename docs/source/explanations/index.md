@@ -11,6 +11,7 @@ plugin-system
 unit-system
 h5-readers
 rules-system
+lossless-translation
 data-management
 versioning
 ```

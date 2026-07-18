@@ -112,9 +112,14 @@ True
 >>> geq_filter = RuleFilter(field="count", op="geq", values=[3])
 >>> geq_filter.matches(component)
 True
+
+>>> # Suffix match
+>>> ends_filter = RuleFilter(field="name", op="endswith", values=["pha"])
+>>> ends_filter.matches(component)
+True
 ```
 
-Numeric comparisons like `geq`, `leq`, `gt`, and `lt` require exactly one value in the `values` list. The filter validates this constraint during construction.
+The full operator set is `eq`, `neq`, `in`, `not_in`, `geq`, `startswith`, `not_startswith`, and `endswith`. The only numeric comparison is `geq`, and it requires exactly one value in the `values` list; the filter validates this constraint during construction. For prefix matching with `startswith`/`not_startswith`, see {doc}`create-rule-filters`.
 
 ## Handle Missing Fields
 
@@ -261,12 +266,13 @@ The {py:meth}`~r2x_core.TranslationResult.summary` method prints a formatted tab
 Use {py:func}`~r2x_core.apply_rules_to_context` to apply all rules in a translation context:
 
 ```python doctest
->>> from r2x_core import Rule, apply_rules_to_context
->>> # rules = [rule1, rule2, rule3]
->>> # context = TranslationContext(rules=rules, source_components=[...])
+>>> from r2x_core import apply_rules_to_context
+>>> # context = PluginContext(config=config, rules=tuple(rules), source_system=source, target_system=target)
 >>> # result = apply_rules_to_context(context)
 >>> # result.total_converted contains the total number of components converted
 ```
+
+Rules are carried by the {py:class}`~r2x_core.PluginContext` itself; `apply_rules_to_context` takes only the context. Rules are topologically sorted by their `depends_on` declarations before execution, and time series metadata is transferred once after all rules have run.
 
 ## Apply a Single Rule
 
@@ -275,14 +281,17 @@ Apply one rule at a time using {py:func}`~r2x_core.apply_single_rule`:
 ```python doctest
 >>> from r2x_core import Rule, apply_single_rule
 >>> rule = Rule(source_type="Gen", target_type="Unit", version=1, field_map={"name": "name"})
->>> # result = apply_single_rule(rule, source_components=[...])
->>> # result.converted contains how many components were translated by this rule
+>>> # stats = apply_single_rule(rule, context=context).unwrap()
+>>> # stats.converted contains how many components this rule translated
 ```
+
+`apply_single_rule` returns a `Result[RuleApplicationStats, ValueError]` from `rust_ok`; unwrap it or pattern-match on `Ok`/`Err` to get the per-rule statistics.
 
 ## See Also
 
 - {doc}`../explanations/rules-system` for understanding rule system design decisions
 - {doc}`create-rule-filters` for advanced filter composition patterns
+- {doc}`round-trip-translations` for lossless round-trip translation
 - {doc}`./manage-versions` for handling rule versions
 - {py:class}`~r2x_core.Rule` API reference
 - {py:class}`~r2x_core.RuleFilter` API reference

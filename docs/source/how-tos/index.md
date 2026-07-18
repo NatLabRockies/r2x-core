@@ -55,6 +55,7 @@ define-rule-mappings
 create-rules
 apply-rules
 create-rule-filters
+round-trip-translations
 ```
 
 ## Versioning

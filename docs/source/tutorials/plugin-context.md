@@ -37,7 +37,7 @@ True
 | `system`                       | `System \| None`    | Optional | System object (created/modified) |
 | `source_system`                | `System \| None`    | Optional | Source for translation           |
 | `target_system`                | `System \| None`    | Optional | Output of translation            |
-| `rules`                        | `Sequence[Rule]`    | Optional | Transformation rules             |
+| `rules`                        | `tuple[Rule, ...]`  | Optional | Transformation rules             |
 | `metadata`                     | `dict[str, Any]`    | Optional | Arbitrary metadata               |
 | `skip_validation`              | `bool`              | Optional | Skip Pydantic validation         |
 | `auto_add_composed_components` | `bool`              | Optional | Auto-add composed components     |
@@ -204,6 +204,40 @@ target = System(name="sienna")
 ctx.target_system = target
 ctx.target_system.name
 'sienna'
+```
+
+### Inspecting Rules on the Context
+
+The context exposes lookup helpers so a plugin can discover which conversions are available without walking `ctx.rules` by hand:
+
+```python
+from r2x_core import PluginContext, PluginConfig, Rule
+
+class Config(PluginConfig):
+    pass
+
+rules = (
+    Rule(source_type="Bus", target_type="Node", version=1, field_map={"name": "name"}),
+    Rule(source_type="Generator", target_type="Unit", version=1, field_map={"name": "name"}),
+)
+ctx = PluginContext(config=Config(), rules=rules)
+
+ctx.list_rules()                          # all rules as a list
+ctx.get_rule("Bus", "Node")               # exact lookup, optionally by version
+ctx.get_rules_for_source("Generator")     # every rule consuming a source type
+ctx.list_available_conversions()          # (source_type, target_type, version) triples
+```
+
+### Deriving a New Context with evolve()
+
+When a step needs a modified context without mutating the shared one, `evolve()` copies the context with selected fields replaced. This is the copy-on-write mechanism behind the pipeline pattern:
+
+```python
+translated_ctx = ctx.evolve(target_system=target)
+translated_ctx is ctx
+False
+ctx.target_system is None  # original untouched
+True
 ```
 
 ## Creating Context from Command-Line Arguments

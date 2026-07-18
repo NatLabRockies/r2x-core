@@ -81,6 +81,18 @@ To negate the match, use `not_startswith`:
 }
 ```
 
+## Suffix-aware filters
+
+The `endswith` operator compares against string suffixes. Unlike the prefix operators, suffixes are supplied through the regular `values` field:
+
+```json
+{
+  "field": "name",
+  "op": "endswith",
+  "values": ["_dc", "_ac"]
+}
+```
+
 ## Composing filters
 
 Combine filters with `any_of`/`all_of` to express more subtle constraints:

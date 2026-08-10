@@ -5,13 +5,17 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from sqlite3 import Connection
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
+from infrasys import SingleTimeSeries
 from loguru import logger
 
 if TYPE_CHECKING:
+    from infrasys import Component
+
     from .plugin_context import PluginContext
+    from .system import System
 
 
 @dataclass(frozen=True, slots=True)
@@ -261,6 +265,53 @@ def _finalize_transfer(tgt_metadata: Connection) -> None:
         )
         """
     )
+
+
+def replace_single_time_series(
+    system: System,
+    owner: Component,
+    time_series: SingleTimeSeries,
+    **features: Any,
+) -> None:
+    """Replace exactly one time series association without removing shared data.
+
+    The metadata change is rolled back if storing the replacement fails. This
+    preserves the existing association and any backing data shared with another
+    system.
+    """
+    metadata = system.list_time_series_metadata(
+        owner,
+        name=time_series.name,
+        time_series_type=SingleTimeSeries,
+        **features,
+    )
+    if len(metadata) != 1:
+        raise ValueError(
+            f"Expected one SingleTimeSeries named '{time_series.name}' on {owner.name}, found {len(metadata)}"
+        )
+
+    metadata_store = system.time_series.metadata_store
+    error: Exception | None = None
+    try:
+        with system.open_time_series_store(mode="a") as store:
+            try:
+                metadata_store.remove(
+                    owner,
+                    name=time_series.name,
+                    time_series_type=SingleTimeSeries.__name__,
+                    connection=store.metadata_conn,
+                    **features,
+                )
+                system.add_time_series(time_series, owner, **features)
+            except Exception as exc:
+                store.metadata_conn.rollback()
+                error = exc
+    finally:
+        metadata_store._cache_metadata.clear()
+        metadata_store._load_metadata_into_memory()
+
+    if error is not None:
+        raise error.with_traceback(error.__traceback__)
 
 
 def transfer_time_series_metadata(context: PluginContext) -> TimeSeriesTransferResult:

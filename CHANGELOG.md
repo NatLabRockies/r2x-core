@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.7.0](https://github.com/NatLabRockies/r2x-core/compare/v0.6.0...v0.7.0) (2026-08-10)
+
+
+### Features
+
+* Add safe timeseries association replacement ([#116](https://github.com/NatLabRockies/r2x-core/issues/116)) ([a060cb5](https://github.com/NatLabRockies/r2x-core/commit/a060cb5d89619644ba8995a643eb946f32d07aa1))
+* **system:** add source provenance for lossless round-trip translations ([#113](https://github.com/NatLabRockies/r2x-core/issues/113)) ([0176fc1](https://github.com/NatLabRockies/r2x-core/commit/0176fc12a3ecfb94a2e852ac2d559c5daa89890d))
+
+
+### Build
+
+* **deps:** bump actions/checkout from 6.0.2 to 7.0.0 ([#102](https://github.com/NatLabRockies/r2x-core/issues/102)) ([a229fea](https://github.com/NatLabRockies/r2x-core/commit/a229feaba91fdf67a768a8e982731594089fc102))
+* **deps:** bump actions/labeler from 6.1.0 to 6.2.0 ([#110](https://github.com/NatLabRockies/r2x-core/issues/110)) ([3fe32c9](https://github.com/NatLabRockies/r2x-core/commit/3fe32c99ff4d15c51f00150f9e5a7da3ba92bf6f))
+* **deps:** bump actions/setup-python from 6.2.0 to 6.3.0 ([#105](https://github.com/NatLabRockies/r2x-core/issues/105)) ([d3c2122](https://github.com/NatLabRockies/r2x-core/commit/d3c2122603bc925db64565acf1fd4c195d269b24))
+* **deps:** bump astral-sh/setup-uv from 7.6.0 to 8.3.2 ([#111](https://github.com/NatLabRockies/r2x-core/issues/111)) ([772e9a7](https://github.com/NatLabRockies/r2x-core/commit/772e9a70f90e004fa8c7f724ea81acdd1fb8db2d))
+* **deps:** bump codecov/codecov-action from 6 to 7 ([#99](https://github.com/NatLabRockies/r2x-core/issues/99)) ([21ddc40](https://github.com/NatLabRockies/r2x-core/commit/21ddc40a9d708ee2a4cf002125ba026b3edc4b0d))
+
 ## [0.6.0](https://github.com/NatLabRockies/r2x-core/compare/v0.5.1...v0.6.0) (2026-07-06)
 
 

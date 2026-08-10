@@ -306,11 +306,14 @@ def replace_single_time_series(
             except Exception as exc:
                 store.metadata_conn.rollback()
                 error = exc
-    finally:
+    except Exception:
         metadata_store._cache_metadata.clear()
         metadata_store._load_metadata_into_memory()
+        raise
 
     if error is not None:
+        metadata_store._cache_metadata.clear()
+        metadata_store._load_metadata_into_memory()
         raise error.with_traceback(error.__traceback__)
 
 

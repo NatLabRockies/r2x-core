@@ -96,6 +96,16 @@ Use {py:func}`~r2x_core.transfer_time_series_metadata` to transfer time series m
 'Transfer time series metadata for target system.'
 ```
 
+## Replace a Time Series Association
+
+Use {py:func}`~r2x_core.replace_single_time_series` to replace one target association while preserving backing data that may be shared with the source system:
+
+```python doctest
+>>> from r2x_core import replace_single_time_series
+>>> replace_single_time_series.__doc__.splitlines()[0]
+'Replace exactly one time series association without removing shared data.'
+```
+
 ## See Also
 
 - {doc}`manage-datastores` - Manage collections of files
@@ -103,4 +113,5 @@ Use {py:func}`~r2x_core.transfer_time_series_metadata` to transfer time series m
 - {doc}`process-file-data` - Apply time series transformations
 - {py:class}`~r2x_core.FileInfo` - File metadata class
 - {py:class}`~r2x_core.DataStore` - DataStore API reference
+- {py:func}`~r2x_core.replace_single_time_series` - Replace one time series association
 - {py:func}`~r2x_core.transfer_time_series_metadata` - Transfer metadata function

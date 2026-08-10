@@ -152,6 +152,10 @@ True
 ```
 
 ```{eval-rst}
+.. autofunction:: r2x_core.replace_single_time_series
+```
+
+```{eval-rst}
 .. autofunction:: r2x_core.transfer_time_series_metadata
 ```
 

@@ -44,7 +44,7 @@ if TYPE_CHECKING:
     from .rules_executor import apply_rules_to_context, apply_single_rule
     from .store import DataStore
     from .system import System
-    from .time_series import transfer_time_series_metadata
+    from .time_series import replace_single_time_series, transfer_time_series_metadata
     from .units import HasPerUnit, HasUnits, Unit, UnitSystem, get_unit_system, set_unit_system
     from .utils import (
         UpgradeStep,
@@ -93,6 +93,7 @@ _LAZY_IMPORTS: dict[str, str] = {
     "apply_single_rule": ".rules_executor",
     "DataStore": ".store",
     "System": ".system",
+    "replace_single_time_series": ".time_series",
     "transfer_time_series_metadata": ".time_series",
     "HasPerUnit": ".units",
     "HasUnits": ".units",
@@ -178,6 +179,7 @@ __all__ = [
     "h5_readers",
     "is_err",
     "is_ok",
+    "replace_single_time_series",
     "resolve_getter",
     "run_upgrade_step",
     "set_unit_system",

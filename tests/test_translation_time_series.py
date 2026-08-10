@@ -6,11 +6,21 @@ import sqlite3
 from typing import Any, cast
 from uuid import uuid4
 
+import numpy as np
 import pytest
+from fixtures.source_system import BusComponent
 from fixtures.target_system import NodeComponent
+from infrasys import SingleTimeSeries
+from infrasys.time_series_manager import TimeSeriesManager
+from infrasys.time_series_models import TimeSeriesStorageType
+from infrasys.utils.sqlite import create_in_memory_db
 
-from r2x_core import PluginContext, apply_rules_to_context
-from r2x_core.time_series import _main_db_path, transfer_time_series_metadata
+from r2x_core import PluginContext, System, apply_rules_to_context
+from r2x_core.time_series import (
+    _main_db_path,
+    replace_single_time_series,
+    transfer_time_series_metadata,
+)
 
 
 def test_time_series_transfer_via_fixture_context(context_example: PluginContext):
@@ -30,6 +40,87 @@ def test_time_series_transfer_via_fixture_context(context_example: PluginContext
     for node in nodes_with_ts:
         keys = target_system.list_time_series_keys(node)
         assert keys
+
+
+def test_replace_single_time_series_preserves_shared_source_data(context_example: PluginContext):
+    """Replacing a target association preserves shared source data."""
+    source_system = context_example.source_system
+    assert source_system is not None
+    source_bus = source_system.get_component(BusComponent, "bus_a")
+    original = source_system.get_time_series(source_bus, name="load_profile")
+    manager = TimeSeriesManager(
+        create_in_memory_db(),
+        time_series_directory=source_system.get_time_series_directory(),
+        time_series_storage_type=TimeSeriesStorageType.ARROW,
+        permanent=True,
+    )
+    target_system = System(name="TargetFixture", time_series_manager=manager)
+    target_bus = source_bus.model_copy(deep=True)
+    target_system.add_component(target_bus)
+    context = context_example.evolve(target_system=target_system)
+    transfer_time_series_metadata(context)
+    replacement = SingleTimeSeries.from_array(
+        data=original.data_array / 100.0,
+        name=original.name,
+        initial_timestamp=original.initial_timestamp,
+        resolution=original.resolution,
+    )
+
+    replace_single_time_series(target_system, target_bus, replacement)
+
+    replaced = target_system.get_time_series(target_bus, name="load_profile")
+    preserved = source_system.get_time_series(source_bus, name="load_profile")
+    np.testing.assert_allclose(replaced.data_array, replacement.data_array)
+    np.testing.assert_allclose(preserved.data_array, original.data_array)
+    assert replaced.uuid == replacement.uuid
+    assert preserved.uuid == original.uuid
+
+
+def test_replace_single_time_series_requires_one_match(context_example: PluginContext):
+    """Replacement requires one matching association."""
+    source_system = context_example.source_system
+    assert source_system is not None
+    source_bus = source_system.get_component(BusComponent, "bus_a")
+    original = source_system.get_time_series(source_bus, name="load_profile")
+    replacement = SingleTimeSeries.from_array(
+        data=original.data_array,
+        name="missing_profile",
+        initial_timestamp=original.initial_timestamp,
+        resolution=original.resolution,
+    )
+
+    with pytest.raises(ValueError, match="found 0"):
+        replace_single_time_series(source_system, source_bus, replacement)
+
+
+def test_replace_single_time_series_restores_association_on_storage_failure(
+    context_example: PluginContext, tmp_path
+):
+    """A storage failure restores the existing association."""
+    source_system = context_example.source_system
+    assert source_system is not None
+    source_bus = source_system.get_component(BusComponent, "bus_a")
+    original = source_system.get_time_series(source_bus, name="load_profile")
+    replacement = SingleTimeSeries.from_array(
+        data=original.data_array / 100.0,
+        name=original.name,
+        initial_timestamp=original.initial_timestamp,
+        resolution=original.resolution,
+    )
+    storage_directory = source_system.get_time_series_directory()
+    assert storage_directory is not None
+    unavailable_directory = tmp_path / "unavailable"
+    storage_directory.rename(unavailable_directory)
+
+    try:
+        with pytest.raises(OSError):
+            replace_single_time_series(source_system, source_bus, replacement)
+    finally:
+        unavailable_directory.rename(storage_directory)
+
+    restored = source_system.get_time_series(source_bus, name="load_profile")
+    np.testing.assert_allclose(restored.data_array, original.data_array)
+    assert restored.uuid == original.uuid
 
 
 def test_time_series_transfer_is_idempotent(context_example: PluginContext):

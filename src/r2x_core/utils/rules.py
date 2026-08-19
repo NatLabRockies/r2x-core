@@ -213,7 +213,9 @@ def create_rule_outputs(
             )
 
         supplemental_kwargs = fields_result.unwrap()
-        if supplemental_rule.optional and not has_output_values(supplemental_kwargs):
+        if supplemental_rule.optional and not any(
+            value is not None and value != "" for value in supplemental_kwargs.values()
+        ):
             continue
 
         try:
@@ -227,11 +229,6 @@ def create_rule_outputs(
             return Err(ValueError(f"supplemental target '{supplemental_rule.target_type}': {error}"))
 
     return Ok(RuleOutputs(primary=primary, supplemental_attributes=tuple(supplemental_attributes)))
-
-
-def has_output_values(values: Mapping[str, Any]) -> bool:
-    """Return whether an optional output contains a meaningful mapped value."""
-    return any(value is not None and value != "" for value in values.values())
 
 
 def evaluate_rule_filter(

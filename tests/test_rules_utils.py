@@ -17,7 +17,6 @@ from r2x_core.utils import (
     build_target_fields,
     create_rule_outputs,
     create_target_component,
-    has_output_values,
     resolve_component_type,
 )
 
@@ -330,12 +329,6 @@ def test_build_target_fields_getter_error_uses_default(context_example):
     assert result.is_ok()
     kwargs = result.unwrap()
     assert kwargs["computed"] == "fallback_value"
-
-
-def test_has_output_values_detects_meaningful_values():
-    """Empty optional mappings are distinguished from mappings with values."""
-    assert not has_output_values({"value": None, "other": ""})
-    assert has_output_values({"value": 0})
 
 
 def test_create_rule_outputs_reports_mismatched_output_classes(context_example):

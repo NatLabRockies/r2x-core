@@ -279,6 +279,44 @@ def test_rule_from_records_resolves_supplemental_getters():
     assert getter_func(None, context=None).unwrap() == "north"
 
 
+def test_duplicate_supplemental_outputs_fail_before_attachment():
+    """Duplicate supplemental UUIDs do not leave a primary component attached."""
+    source_system = System(name="source", system_base=100.0)
+    source_component = BusComponent(name="test_bus", zone="north")
+    source_system.add_component(source_component)
+    target_system = System(name="target", system_base=100.0)
+    rule = Rule(
+        source_type="BusComponent",
+        target_type="NodeComponent",
+        version=1,
+        field_map={"name": "name", "uuid": "uuid"},
+        supplemental_attributes=[
+            {
+                "target_type": "BusGeographicInfo",
+                "field_map": {"uuid": "uuid", "location_name": "zone"},
+            },
+            {
+                "target_type": "BusGeographicInfo",
+                "field_map": {"uuid": "uuid", "location_name": "zone"},
+            },
+        ],
+    )
+
+    result = apply_rules_to_context(
+        PluginContext(
+            source_system=source_system,
+            target_system=target_system,
+            config=_build_test_config(),
+            rules=(rule,),
+        )
+    )
+
+    assert result.failed_rules == 1
+    assert result.rule_results[0].error is not None
+    assert "duplicated" in result.rule_results[0].error
+    assert list(target_system.get_components(NodeComponent)) == []
+
+
 def test_empty_supplemental_output_is_not_attached():
     """Missing optional source fields do not create an empty supplemental attribute."""
     source_system = System(name="source", system_base=100.0)

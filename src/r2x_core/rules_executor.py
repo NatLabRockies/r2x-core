@@ -6,6 +6,7 @@ from typing import Any, cast
 from uuid import uuid4
 
 from infrasys import Component, SupplementalAttribute
+from infrasys.exceptions import ISNotStored
 from loguru import logger
 from rust_ok import Err, Ok, Result
 
@@ -15,6 +16,7 @@ from .result import RuleApplicationStats, RuleResult, TranslationResult
 from .rules import Rule
 from .time_series import transfer_time_series_metadata
 from .utils import (
+    RuleOutputs,
     build_target_fields,
     create_rule_outputs,
     create_target_component,
@@ -384,25 +386,100 @@ def _is_supplemental_attribute(component: Component) -> bool:
 
 
 def attach_rule_outputs(
-    outputs: Any,
+    outputs: RuleOutputs,
     source_component: Component,
     context: PluginContext,
 ) -> Result[None, ValueError]:
     """Attach a primary output and its supplemental attributes as one operation."""
-    attach_result = _attach_component(outputs.primary, source_component, context)
-    if attach_result.is_err():
-        return attach_result
+    target_system = context.target_system
+    if target_system is None:
+        return Err(ValueError("target_system must be set in context"))
+    if outputs.supplemental_attributes and not isinstance(outputs.primary, Component):
+        return Err(ValueError("A primary Component is required for supplemental outputs"))
 
+    seen_supplemental_uuids = set()
     for supplemental_attribute in outputs.supplemental_attributes:
-        attach_result = _attach_component(supplemental_attribute, outputs.primary, context)
-        if attach_result.is_err():
-            return attach_result
-        logger.trace(
-            "Attached supplemental attribute {} to {}",
-            type(supplemental_attribute).__name__,
-            outputs.primary.label,
+        if supplemental_attribute.uuid in seen_supplemental_uuids:
+            return Err(
+                ValueError(
+                    f"Supplemental output UUID {supplemental_attribute.uuid} is duplicated in rule outputs"
+                )
+            )
+        seen_supplemental_uuids.add(supplemental_attribute.uuid)
+        try:
+            target_system.get_supplemental_attribute_by_uuid(supplemental_attribute.uuid)
+        except ISNotStored:
+            continue
+        except Exception as error:
+            return Err(
+                ValueError(
+                    f"Failed to inspect supplemental output UUID {supplemental_attribute.uuid}: {error}"
+                )
+            )
+        return Err(
+            ValueError(
+                f"Supplemental output UUID {supplemental_attribute.uuid} is already stored in target system"
+            )
         )
 
+    attached_supplemental: list[SupplementalAttribute] = []
+    primary_attached = False
+
+    def fail_with_rollback(error: ValueError) -> Result[None, ValueError]:
+        """Return the attachment error after attempting to remove partial outputs."""
+        rollback_result = _rollback_rule_outputs(outputs, attached_supplemental, primary_attached, context)
+        if rollback_result.is_err():
+            return Err(ValueError(f"{error}; {rollback_result.err()}"))
+        return Err(error)
+
+    try:
+        attach_result = _attach_component(outputs.primary, source_component, context)
+        if attach_result.is_err():
+            return fail_with_rollback(attach_result.err())
+        primary_attached = isinstance(outputs.primary, Component)
+
+        for supplemental_attribute in outputs.supplemental_attributes:
+            attach_result = _attach_component(supplemental_attribute, outputs.primary, context)
+            if attach_result.is_err():
+                return fail_with_rollback(attach_result.err())
+            attached_supplemental.append(supplemental_attribute)
+            logger.trace(
+                "Attached supplemental attribute {} to {}",
+                type(supplemental_attribute).__name__,
+                outputs.primary.label,
+            )
+    except Exception as error:
+        return fail_with_rollback(ValueError(f"Failed to attach rule outputs: {error}"))
+
+    return Ok(None)
+
+
+def _rollback_rule_outputs(
+    outputs: RuleOutputs,
+    supplemental_attributes: list[SupplementalAttribute],
+    primary_attached: bool,
+    context: PluginContext,
+) -> Result[None, ValueError]:
+    """Remove outputs already attached before a later attachment failed."""
+    target_system = context.target_system
+    if target_system is None:
+        return Ok(None)
+
+    rollback_errors: list[str] = []
+    for supplemental_attribute in reversed(supplemental_attributes):
+        try:
+            target_system.remove_supplemental_attribute(supplemental_attribute)
+        except Exception as error:
+            rollback_errors.append(f"supplemental attribute: {error}")
+
+    if primary_attached:
+        try:
+            target_system.remove_component(cast(Component, outputs.primary))
+        except Exception as error:
+            rollback_errors.append(f"primary component: {error}")
+
+    if rollback_errors:
+        return Err(ValueError(f"Failed to roll back rule outputs: {'; '.join(rollback_errors)}"))
     return Ok(None)
 
 

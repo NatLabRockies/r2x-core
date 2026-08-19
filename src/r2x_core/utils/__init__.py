@@ -13,13 +13,13 @@ from .iteration import iter_components
 from .overrides import override_dictionary
 from .parser import create_component
 from .rules import (
+    RuleOutputs,
     build_attr_getter,
     build_component_kwargs,
     build_target_fields,
     create_rule_outputs,
     create_target_component,
     evaluate_rule_filter,
-    has_output_values,
     resolve_component_type,
     sort_rules_by_dependencies,
     to_attr_source,
@@ -41,6 +41,7 @@ from .version import UNKNOWN_VERSION, get_package_version, warn_if_persisted_ver
 
 __all__ = [
     "UNKNOWN_VERSION",
+    "RuleOutputs",
     "UpgradeCoordinator",
     "UpgradeStep",
     "UpgradeType",
@@ -60,7 +61,6 @@ __all__ = [
     "get_fpath",
     "get_package_version",
     "get_r2x_cache_path",
-    "has_output_values",
     "iter_components",
     "override_dictionary",
     "resolve_component_type",

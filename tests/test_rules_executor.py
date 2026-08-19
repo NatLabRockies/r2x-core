@@ -7,6 +7,7 @@ from uuid import uuid4
 import pytest
 from fixtures.context import FIXTURE_MODEL_MODULES
 from fixtures.source_system import BusComponent, BusGeographicInfo
+from infrasys.exceptions import ISNotStored
 from rust_ok import Err, Ok
 
 from r2x_core import (
@@ -351,6 +352,86 @@ def test_apply_single_rule_no_components(monkeypatch):
     assert result.is_ok()
 
 
+def test_attach_rule_outputs_rolls_back_primary_on_supplemental_failure(monkeypatch, source_system):
+    """Output attachment removes earlier outputs when a later output fails."""
+    from types import SimpleNamespace
+
+    calls = 0
+
+    def attach(_component, _source, _context):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return Ok(None)
+        return Err(ValueError("attachment failed"))
+
+    removed = []
+    context = cast(
+        PluginContext,
+        SimpleNamespace(
+            target_system=SimpleNamespace(
+                remove_supplemental_attribute=removed.append,
+                remove_component=removed.append,
+                get_supplemental_attribute_by_uuid=lambda _uuid: (_ for _ in ()).throw(
+                    ISNotStored("not stored")
+                ),
+            )
+        ),
+    )
+    monkeypatch.setattr("r2x_core.rules_executor._attach_component", attach)
+    primary = BusComponent(name="translated")
+    result = attach_rule_outputs(
+        SimpleNamespace(
+            primary=primary,
+            supplemental_attributes=(BusGeographicInfo(location_name="invalid"),),
+        ),
+        source_system.get_components(BusComponent).__next__(),
+        context,
+    )
+    assert result.is_err()
+    assert removed == [primary]
+
+
+def test_attach_rule_outputs_rolls_back_attached_supplemental(monkeypatch, source_system):
+    """Output attachment removes already-attached supplemental attributes."""
+    from types import SimpleNamespace
+
+    calls = 0
+    first = BusGeographicInfo(location_name="first")
+    second = BusGeographicInfo(location_name="second")
+
+    def attach(_component, _source, _context):
+        nonlocal calls
+        calls += 1
+        return Ok(None) if calls < 3 else Err(ValueError("attachment failed"))
+
+    removed = []
+    context = cast(
+        PluginContext,
+        SimpleNamespace(
+            target_system=SimpleNamespace(
+                remove_supplemental_attribute=removed.append,
+                remove_component=removed.append,
+                get_supplemental_attribute_by_uuid=lambda _uuid: (_ for _ in ()).throw(
+                    ISNotStored("not stored")
+                ),
+            )
+        ),
+    )
+    monkeypatch.setattr("r2x_core.rules_executor._attach_component", attach)
+    primary = BusComponent(name="translated")
+    result = attach_rule_outputs(
+        SimpleNamespace(
+            primary=primary,
+            supplemental_attributes=(first, second),
+        ),
+        source_system.get_components(BusComponent).__next__(),
+        context,
+    )
+    assert result.is_err()
+    assert removed == [first, primary]
+
+
 def test_attach_rule_outputs_propagates_supplemental_attachment_error(monkeypatch, source_system):
     """Output attachment stops when a supplemental attachment fails."""
     from types import SimpleNamespace
@@ -365,10 +446,23 @@ def test_attach_rule_outputs_propagates_supplemental_attachment_error(monkeypatc
         return Err(ValueError("attachment failed"))
 
     monkeypatch.setattr("r2x_core.rules_executor._attach_component", attach)
+    context = cast(
+        PluginContext,
+        SimpleNamespace(
+            target_system=SimpleNamespace(
+                get_supplemental_attribute_by_uuid=lambda _uuid: (_ for _ in ()).throw(
+                    ISNotStored("not stored")
+                )
+            )
+        ),
+    )
     result = attach_rule_outputs(
-        SimpleNamespace(primary=object(), supplemental_attributes=(object(),)),
+        SimpleNamespace(
+            primary=BusComponent(name="translated"),
+            supplemental_attributes=(BusGeographicInfo(location_name="invalid"),),
+        ),
         source_system.get_components(BusComponent).__next__(),
-        cast(PluginContext, object()),
+        context,
     )
     assert result.is_err()
     assert "attachment failed" in str(result.err())

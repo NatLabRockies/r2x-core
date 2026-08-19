@@ -274,7 +274,9 @@ def test_rule_from_records_resolves_supplemental_getters():
         ]
     )[0]
 
-    assert callable(rule.supplemental_attributes[0].getters["location_name"])
+    getter_func = rule.supplemental_attributes[0].getters["location_name"]
+    assert callable(getter_func)
+    assert getter_func(None, context=None).unwrap() == "north"
 
 
 def test_empty_supplemental_output_is_not_attached():

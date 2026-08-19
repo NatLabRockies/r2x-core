@@ -210,7 +210,11 @@ def test_build_component_kwargs_from_parser_record(context_example):
     )
 
     result = build_component_kwargs(record, rule=rule, context=context_example)
+    missing_region = build_component_kwargs(
+        {**record, "region_code": "missing"}, rule=rule, context=context_example
+    )
 
+    assert missing_region.is_err()
     assert result.is_ok()
     kwargs = result.unwrap()
     assert kwargs["component_name"] == "parser_component"
@@ -481,8 +485,11 @@ def test_evaluate_rule_filter_getter_uses_context(context_example):
 
     filt = RuleFilter(getter=select_fuel, op="eq", values=["gas"])
     ctx = context_example.evolve(metadata={"selected_name": "plant_alpha", "selected_fuel": "gas"})
+    other = Component()
+    other.name = "plant_beta"
 
     assert evaluate_rule_filter(Component(), rule_filter=filt, context=ctx)
+    assert not evaluate_rule_filter(other, rule_filter=filt, context=ctx)
 
 
 def test_evaluate_rule_filter_getter_failure_raises(context_example):

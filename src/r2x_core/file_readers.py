@@ -80,10 +80,12 @@ def _(file_type_class: H5Format, *, file_path: Path, **reader_kwargs: Any) -> La
     reader_kwargs: dict[str, Any]
         Configuration describing the H5 file structure. Common options:
 
-        - **data_key** (str): Key for main data array
-        - **columns_key** (str): Key for column names dataset
-        - **index_key** (str): Key for index data
-        - **datetime_key** (str): Key for datetime strings that need parsing
+        - **group_key** (str): Optional HDF5 group to read from.
+        - **data_key** (str): Key for main data array.
+        - **columns_key** (str): Key for column names dataset.
+        - **columns_as_datasets** (bool): Treat each column name as a dataset in the selected group.
+        - **index_key** (str): Key for index data.
+        - **datetime_key** (str): Key for datetime strings that need parsing.
         - **additional_keys** (list[str]): Additional datasets to include as columns
         - **decode_bytes** (bool): Whether to decode byte strings (default: True)
         - **strip_timezone** (bool): Whether to strip timezone info (default: True)

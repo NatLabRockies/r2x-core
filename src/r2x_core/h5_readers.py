@@ -106,6 +106,11 @@ def configurable_h5_reader(h5_file: h5py.File, **reader_kwargs: object) -> H5Res
                     )
                 result = {column: data[:, i] for i, column in enumerate(column_names)}
             else:
+                if len(column_names) != 1:
+                    raise ValueError(
+                        f"columns_key '{columns_key}' must contain exactly 1 name "
+                        f"for 1D data, found {len(column_names)}"
+                    )
                 result[column_names[0]] = data
         elif data.ndim == 1:
             result[data_key] = data
@@ -220,7 +225,7 @@ def read_columnar_group(
             raise KeyError(f"HDF5 column dataset '{column}' not found")
         values: np.ndarray = np.atleast_1d(np.asarray(dataset[()]))
         if decode_bytes and values.dtype.kind in HDF5_STRING_KINDS:
-            result[column] = [str(value) for value in dataset.asstr()[()]]
+            result[column] = [str(value) for value in np.atleast_1d(dataset.asstr()[()])]
         else:
             result[column] = values
     return result

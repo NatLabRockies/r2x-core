@@ -584,6 +584,30 @@ def test_h5_reader_columnar_group_reads_scalar_dataset():
         tmp_path.unlink()
 
 
+def test_h5_reader_columnar_group_reads_scalar_string_dataset():
+    """Normalize decoded scalar string column datasets to one-row lists."""
+    with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+
+    try:
+        with h5py.File(str(tmp_path), "w") as f:
+            group = f.create_group("group")
+            group.create_dataset("columns", data=np.array([b"i"]))
+            group.create_dataset("i", data=np.bytes_("gas"))
+
+        with h5py.File(str(tmp_path), "r") as f:
+            result = configurable_h5_reader(
+                f,
+                group_key="group",
+                columns_key="columns",
+                columns_as_datasets=True,
+            )
+
+        assert result["i"] == ["gas"]
+    finally:
+        tmp_path.unlink()
+
+
 def test_h5_reader_rejects_invalid_reader_keys(tmp_path):
     """Reject invalid key types before opening configured datasets."""
     h5_path = tmp_path / "data.h5"
@@ -643,12 +667,16 @@ def test_h5_reader_validates_column_shape_and_group_columns(tmp_path):
     with h5py.File(h5_path, "w") as h5_file:
         h5_file.create_dataset("data", data=np.ones((2, 2)))
         h5_file.create_dataset("columns", data=np.array([b"one"]))
+        h5_file.create_dataset("data_1d", data=np.array([1.0, 2.0]))
+        h5_file.create_dataset("empty_columns", data=np.array([], dtype="S"))
         group = h5_file.create_group("group")
         group.create_group("columns")
 
     with h5py.File(h5_path, "r") as h5_file:
         with pytest.raises(ValueError, match="contains 1 names"):
             configurable_h5_reader(h5_file, data_key="data", columns_key="columns")
+        with pytest.raises(ValueError, match="must contain exactly 1 name"):
+            configurable_h5_reader(h5_file, data_key="data_1d", columns_key="empty_columns")
         with pytest.raises(TypeError, match="columns path"):
             configurable_h5_reader(
                 h5_file,

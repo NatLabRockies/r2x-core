@@ -27,7 +27,7 @@ from loguru import logger
 from rust_ok import Ok
 
 from .datafile import DataFile
-from .exceptions import ReaderError
+from .exceptions import HDF5GroupNotFoundError, ReaderError
 from .file_readers import read_file_by_type
 from .file_types import EXTENSION_MAPPING
 from .processors import apply_processing, register_transformation
@@ -138,7 +138,13 @@ class DataReader:
         logger.trace(
             "Attempting to read data_file={} with {}", data_file.name, type(file_type_instance).__name__
         )
-        raw_data = read_file_by_type(file_type_instance, file_path=fpath, **reader_kwargs)
+        try:
+            raw_data = read_file_by_type(file_type_instance, file_path=fpath, **reader_kwargs)
+        except HDF5GroupNotFoundError:
+            if is_optional:
+                logger.debug("Skipping optional file with missing HDF5 group: {}", data_file.name)
+                return None
+            raise
         if data_file.proc_spec is not None:
             processed_data = apply_processing(
                 raw_data, data_file=data_file, proc_spec=data_file.proc_spec, placeholders=placeholders

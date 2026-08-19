@@ -21,6 +21,10 @@ class ReaderError(R2XCoreError):
     """Exception raised for data reading related errors."""
 
 
+class HDF5GroupNotFoundError(KeyError):
+    """Exception raised when a configured HDF5 group is missing."""
+
+
 class MultipleFileError(ValueError):
     """Exception raised when a glob pattern matches multiple files."""
 

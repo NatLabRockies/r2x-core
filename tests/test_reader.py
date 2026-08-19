@@ -172,6 +172,27 @@ def test_read_data_file_relative_path(reader_example, tmp_path):
     assert result is not None
 
 
+def test_read_optional_data_file_missing_h5_group(reader_example, tmp_path):
+    """Optional HDF5 files return None when their configured group is absent."""
+    import h5py
+
+    from r2x_core import DataFile
+    from r2x_core.datafile import FileInfo, ReaderConfig
+
+    h5_path = tmp_path / "outputs.h5"
+    with h5py.File(h5_path, "w"):
+        pass
+
+    data_file = DataFile(
+        name="fuel_price",
+        fpath=h5_path,
+        info=FileInfo(is_optional=True),
+        reader=ReaderConfig(kwargs={"group_key": "fuel_price"}),
+    )
+
+    assert reader_example.read_data_file(data_file, folder_path=tmp_path) is None
+
+
 def test_read_data_file_h5_group(reader_example, tmp_path):
     """DataFile reader kwargs can select a columnar HDF5 group."""
     import h5py

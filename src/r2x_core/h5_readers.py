@@ -6,6 +6,8 @@ from datetime import UTC, datetime
 import h5py
 import numpy as np
 
+from .exceptions import HDF5GroupNotFoundError
+
 H5Value = np.ndarray | list[str]
 H5Result = dict[str, H5Value]
 DEFAULT_DATETIME_COLUMN_NAME = "datetime"
@@ -32,7 +34,7 @@ def configurable_h5_reader(h5_file: h5py.File, **reader_kwargs: object) -> H5Res
     if isinstance(group_key, str):
         selected = h5_file.get(group_key)
         if selected is None:
-            raise KeyError(f"HDF5 group '{group_key}' not found")
+            raise HDF5GroupNotFoundError(f"HDF5 group '{group_key}' not found")
         if not isinstance(selected, h5py.Group):
             raise TypeError(f"HDF5 path '{group_key}' is not a group")
         scope = selected

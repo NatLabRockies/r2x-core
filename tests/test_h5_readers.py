@@ -556,6 +556,13 @@ def test_h5_reader_group_validation_errors():
                 )
             with pytest.raises(ValueError, match="columns_key is required"):
                 configurable_h5_reader(f, group_key="group", columns_as_datasets=True)
+            with pytest.raises(ValueError, match="columns path 'missing/columns' not found"):
+                configurable_h5_reader(
+                    f,
+                    group_key="group",
+                    columns_key="missing/columns",
+                    columns_as_datasets=True,
+                )
     finally:
         tmp_path.unlink()
 
@@ -686,6 +693,108 @@ def test_h5_reader_validates_column_shape_and_group_columns(tmp_path):
             )
 
 
+def test_h5_reader_decodes_or_preserves_column_labels(tmp_path):
+    """Honor decode_bytes for row-oriented column labels."""
+    h5_path = tmp_path / "data.h5"
+    with h5py.File(h5_path, "w") as h5_file:
+        h5_file.create_dataset("data", data=np.array([[1.0, 2.0]]))
+        h5_file.create_dataset("columns", data=np.array([b"one", b"two"]))
+
+    with h5py.File(h5_path, "r") as h5_file:
+        decoded = configurable_h5_reader(h5_file, data_key="data", columns_key="columns")
+        preserved = configurable_h5_reader(
+            h5_file,
+            data_key="data",
+            columns_key="columns",
+            decode_bytes=False,
+        )
+
+    assert set(decoded) == {"one", "two"}
+    assert set(preserved) == {"one", "two"}
+
+
+def test_h5_reader_honors_decode_bytes_for_index_names(tmp_path):
+    """Use byte index labels to resolve datasets when decoding is disabled."""
+    h5_path = tmp_path / "data.h5"
+    with h5py.File(h5_path, "w") as h5_file:
+        h5_file.create_dataset("data", data=np.array([[1.0]]))
+        h5_file.create_dataset("columns", data=np.array([b"value"]))
+        h5_file.create_dataset("index_names", data=np.array([b"index_year"]))
+        h5_file.create_dataset("index_0", data=np.array([2030]))
+
+    with h5py.File(h5_path, "r") as h5_file:
+        result = configurable_h5_reader(
+            h5_file,
+            data_key="data",
+            columns_key="columns",
+            additional_keys=["index_0"],
+            decode_bytes=False,
+        )
+
+    np.testing.assert_array_equal(result["solve_year"], np.array([2030]))
+
+
+def test_h5_reader_supports_nested_column_metadata_path(tmp_path):
+    """Resolve column metadata through a nested HDF5 path."""
+    h5_path = tmp_path / "data.h5"
+    with h5py.File(h5_path, "w") as h5_file:
+        group = h5_file.create_group("group")
+        metadata = group.create_group("metadata")
+        metadata.create_dataset("columns", data=np.array([b"Value"]))
+        group.create_dataset("Value", data=np.array([3.0]))
+
+    with h5py.File(h5_path, "r") as h5_file:
+        result = configurable_h5_reader(
+            h5_file,
+            group_key="group",
+            columns_key="metadata/columns",
+            columns_as_datasets=True,
+        )
+
+    np.testing.assert_array_equal(result["Value"], np.array([3.0]))
+
+
+def test_h5_reader_handles_scalar_datetime_dataset(tmp_path):
+    """Normalize a scalar datetime dataset before parsing it."""
+    h5_path = tmp_path / "data.h5"
+    with h5py.File(h5_path, "w") as h5_file:
+        h5_file.create_dataset("data", data=np.array([1.0]))
+        h5_file.create_dataset("time", data=np.bytes_("2024-01-01T00:00:00Z"))
+
+    with h5py.File(h5_path, "r") as h5_file:
+        result = configurable_h5_reader(h5_file, data_key="data", datetime_key="time")
+
+    np.testing.assert_array_equal(
+        result["datetime"], np.array(["2024-01-01T00:00:00"], dtype="datetime64[us]")
+    )
+
+
+@pytest.mark.parametrize("scope_key", [None, "empty"])
+def test_h5_reader_rejects_empty_default_scope(tmp_path, scope_key):
+    """Raise a clear error when default reading has no HDF5 entries."""
+    h5_path = tmp_path / "empty.h5"
+    with h5py.File(h5_path, "w") as h5_file:
+        if scope_key is not None:
+            h5_file.create_group(scope_key)
+
+    with h5py.File(h5_path, "r") as h5_file, pytest.raises(ValueError, match="contains no datasets"):
+        configurable_h5_reader(h5_file, group_key=scope_key)
+
+
+def test_h5_reader_reads_non_string_column_metadata(tmp_path):
+    """Read numeric column metadata without calling HDF5 string decoding."""
+    h5_path = tmp_path / "data.h5"
+    with h5py.File(h5_path, "w") as h5_file:
+        h5_file.create_dataset("data", data=np.array([[1.0, 2.0]]))
+        h5_file.create_dataset("columns", data=np.array([10, 20]))
+
+    with h5py.File(h5_path, "r") as h5_file:
+        result = configurable_h5_reader(h5_file, data_key="data", columns_key="columns")
+
+    np.testing.assert_array_equal(result["10"], np.array([1.0]))
+    np.testing.assert_array_equal(result["20"], np.array([2.0]))
+
+
 def test_h5_reader_reads_custom_index_names_key(tmp_path):
     """Use a configured dataset name for generic index metadata."""
     h5_path = tmp_path / "data.h5"
@@ -705,6 +814,26 @@ def test_h5_reader_reads_custom_index_names_key(tmp_path):
         )
 
     assert result["solve_year"].tolist() == [2030]
+
+
+def test_h5_reader_preserves_columnar_bytes_when_decoding_disabled(tmp_path):
+    """Honor decode_bytes for columnar string datasets and labels."""
+    h5_path = tmp_path / "data.h5"
+    with h5py.File(h5_path, "w") as h5_file:
+        group = h5_file.create_group("group")
+        group.create_dataset("columns", data=np.array([b"label"]))
+        group.create_dataset("label", data=np.array([b"gas"]))
+
+    with h5py.File(h5_path, "r") as h5_file:
+        result = configurable_h5_reader(
+            h5_file,
+            group_key="group",
+            columns_key="columns",
+            columns_as_datasets=True,
+            decode_bytes=False,
+        )
+
+    assert result["label"] == [b"gas"]
 
 
 def test_h5_reader_skips_missing_additional_dataset(tmp_path):

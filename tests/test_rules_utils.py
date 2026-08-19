@@ -43,7 +43,9 @@ def test_resolve_component_type_skips_import_errors(monkeypatch, context_example
 
     monkeypatch.setattr(rules_utils.importlib, "import_module", import_module)
     context = context_example.evolve(
-        config=context_example.config.model_copy(update={"models": ("missing.module",)})
+        config=context_example.config.model_copy(
+            update={"models": ("missing.module", "fixtures.source_system")}
+        )
     )
     result = resolve_component_type("NotAComponent", context=context)
     assert result.is_err()

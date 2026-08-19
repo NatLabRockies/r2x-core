@@ -4,14 +4,26 @@ from __future__ import annotations
 
 import importlib
 from collections import deque
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
+from uuid import uuid4
 
+from pydantic import ValidationError as PydanticValidationError
 from rust_ok import Err, Ok, Result
 
 from ..plugin_context import PluginContext
 from ..rules import RuleGetter
+
+
+@dataclass(frozen=True, slots=True)
+class RuleOutputs:
+    """Primary component and supplemental attributes built from one rule."""
+
+    primary: Any
+    supplemental_attributes: tuple[Any, ...] = ()
+
 
 if TYPE_CHECKING:
     from ..rules import Rule, RuleFilter, RuleLike
@@ -87,7 +99,11 @@ def to_attr_source(source_component: Any) -> Any:
 
 
 def build_component_kwargs(
-    source_component: Any, *, rule: RuleLike, context: PluginContext
+    source_component: Any,
+    *,
+    rule: RuleLike,
+    context: PluginContext,
+    allow_missing: bool = False,
 ) -> Result[dict[str, Any], ValueError]:
     """Construct kwargs for instantiating a target component.
 
@@ -99,6 +115,9 @@ def build_component_kwargs(
         Object exposing field_map, getters, and defaults.
     context : PluginContext
         Active context passed to getters.
+    allow_missing : bool, default False
+        Skip missing fields and failed getters instead of returning an error.
+        This is used for optional supplemental outputs.
     """
     source_obj = to_attr_source(source_component)
     field_map = getattr(rule, "field_map", {})
@@ -114,7 +133,7 @@ def build_component_kwargs(
             kwargs[target_field] = value
         elif target_field in defaults:
             kwargs[target_field] = defaults[target_field]
-        else:
+        elif not allow_missing:
             return Err(
                 ValueError(
                     f"No attribute '{source_field}' on source component and no default for '{target_field}'"
@@ -134,7 +153,7 @@ def build_component_kwargs(
             case Err(e):
                 if target_field in defaults:
                     kwargs[target_field] = defaults[target_field]
-                else:
+                elif not allow_missing:
                     return Err(ValueError(f"Getter for '{target_field}' failed: {e}"))
 
     for target_field, default_value in defaults.items():
@@ -142,6 +161,71 @@ def build_component_kwargs(
             kwargs[target_field] = default_value
 
     return Ok(kwargs)
+
+
+def create_rule_outputs(
+    source_component: Any,
+    *,
+    rule: Rule,
+    target_class: type,
+    supplemental_classes: Sequence[type],
+    context: PluginContext,
+    regenerate_uuid: bool = False,
+) -> Result[RuleOutputs, ValueError]:
+    """Construct a primary target and all supplemental outputs for a rule."""
+    supplemental_rules = getattr(rule, "supplemental_attributes", ())
+    if len(supplemental_rules) != len(supplemental_classes):
+        return Err(
+            ValueError(
+                f"Rule '{rule}' has {len(supplemental_rules)} supplemental outputs but "
+                f"{len(supplemental_classes)} resolved supplemental target types"
+            )
+        )
+
+    fields_result = build_target_fields(source_component, rule=rule, context=context)
+    if fields_result.is_err():
+        return Err(ValueError(f"primary target: {fields_result.err()}"))
+
+    primary_kwargs = fields_result.unwrap()
+    if regenerate_uuid and "uuid" in primary_kwargs:
+        primary_kwargs = dict(primary_kwargs)
+        primary_kwargs["uuid"] = str(uuid4())
+
+    try:
+        primary = create_target_component(target_class, kwargs=primary_kwargs)
+    except (PydanticValidationError, TypeError, ValueError) as error:
+        return Err(ValueError(f"primary target '{target_class.__name__}': {error}"))
+
+    supplemental_attributes: list[Any] = []
+    for supplemental_rule, supplemental_class in zip(supplemental_rules, supplemental_classes, strict=True):
+        fields_result = build_component_kwargs(
+            source_component,
+            rule=supplemental_rule,
+            context=context,
+            allow_missing=supplemental_rule.optional,
+        )
+        if fields_result.is_err():
+            return Err(
+                ValueError(f"supplemental target '{supplemental_rule.target_type}': {fields_result.err()}")
+            )
+
+        supplemental_kwargs = fields_result.unwrap()
+        if supplemental_rule.optional and not _has_output_values(supplemental_kwargs):
+            continue
+
+        try:
+            supplemental_attributes.append(
+                create_target_component(supplemental_class, kwargs=supplemental_kwargs)
+            )
+        except (PydanticValidationError, TypeError, ValueError) as error:
+            return Err(ValueError(f"supplemental target '{supplemental_rule.target_type}': {error}"))
+
+    return Ok(RuleOutputs(primary=primary, supplemental_attributes=tuple(supplemental_attributes)))
+
+
+def _has_output_values(values: Mapping[str, Any]) -> bool:
+    """Return whether an optional output contains a meaningful mapped value."""
+    return any(value is not None and value != "" for value in values.values())
 
 
 def evaluate_rule_filter(

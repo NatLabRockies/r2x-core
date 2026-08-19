@@ -103,6 +103,33 @@ class RuleFilter(BaseModel):
 RuleGetter: TypeAlias = Callable[..., Result[Any, ValueError]]
 
 
+@dataclass(frozen=True, slots=True)
+class SupplementalAttributeRule:
+    """Declarative output specification for a supplemental attribute.
+
+    Supplemental attributes are built from the same source object as their
+    primary component. Optional outputs are omitted when their mapping produces
+    no values, while provided values are always validated by the target model.
+    """
+
+    target_type: str
+    field_map: dict[str, str | list[str]] = field(default_factory=dict)
+    getters: dict[str, RuleGetter | str] = field(default_factory=dict)
+    defaults: dict[str, Any] = field(default_factory=dict)
+    optional: bool = True
+
+    def __post_init__(self) -> None:
+        """Validate multi-field mappings and the target type."""
+        if not isinstance(self.target_type, str) or not self.target_type:
+            raise ValueError("SupplementalAttributeRule.target_type must be a non-empty string")
+        if self.optional is not True and self.optional is not False:
+            raise TypeError("SupplementalAttributeRule.optional must be a bool")
+        for target_field, source_fields in self.field_map.items():
+            if isinstance(source_fields, list) and target_field not in self.getters:
+                msg = f"Multi-field mapping for '{target_field}' requires a getter function"
+                raise ValueError(msg)
+
+
 class RuleLike(Protocol):
     """Minimal interface required to build kwargs for a target component."""
 
@@ -136,6 +163,7 @@ class Rule:
     system: Literal["source", "target"] = "source"
     name: str | None = None
     depends_on: list[str] | None = None
+    supplemental_attributes: list[SupplementalAttributeRule | dict[str, Any]] = field(default_factory=list)
 
     def __str__(self) -> str:
         """Represent string."""
@@ -153,6 +181,11 @@ class Rule:
             if isinstance(source_fields, list) and target_field not in self.getters:
                 msg = f"Multi-field mapping for '{target_field}' requires a getter function"
                 raise ValueError(msg)
+        supplemental_attributes = [
+            output if isinstance(output, SupplementalAttributeRule) else SupplementalAttributeRule(**output)
+            for output in self.supplemental_attributes
+        ]
+        object.__setattr__(self, "supplemental_attributes", supplemental_attributes)
         if self.filter is not None and not isinstance(self.filter, RuleFilter):
             raise TypeError(f"Rule.filter must be a RuleFilter, not {type(self.filter).__name__}")
 
@@ -194,13 +227,21 @@ class Rule:
         from .getters import _preprocess_rule_getters
 
         rules_list = []
-        for rule in records:
+        for record in records:
+            rule = dict(record)
             if getters := rule.get("getters"):
                 rule["getters"] = _preprocess_rule_getters(getters).unwrap_or_raise()
             if "filter" in rule:
                 rule["filter"] = (
                     RuleFilter.model_validate(rule["filter"]) if rule["filter"] is not None else None
                 )
+            outputs = []
+            for output_record in rule.get("supplemental_attributes", []):
+                output = dict(output_record)
+                if getters := output.get("getters"):
+                    output["getters"] = _preprocess_rule_getters(getters).unwrap_or_raise()
+                outputs.append(output)
+            rule["supplemental_attributes"] = outputs
             rules_list.append(cls(**rule))
         return rules_list
 

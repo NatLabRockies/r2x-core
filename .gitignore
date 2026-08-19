@@ -352,6 +352,7 @@ celerybeat.pid
 
 # Environments
 .venv
+PAPERCUTS.md
 env/
 venv/
 ENV/

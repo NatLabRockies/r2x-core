@@ -16,6 +16,7 @@ from .rules import Rule
 from .time_series import transfer_time_series_metadata
 from .utils import (
     build_target_fields,
+    create_rule_outputs,
     create_target_component,
     evaluate_rule_filter,
     iter_components,
@@ -152,6 +153,30 @@ def apply_single_rule(
         assert resolved_class is not None
         resolved_targets.append(resolved_class)
 
+    supplemental_rules = getattr(rule, "supplemental_attributes", ())
+    supplemental_classes: list[type] = []
+    for supplemental_rule in supplemental_rules:
+        supplemental_class_result = _resolve_supplemental_class(
+            supplemental_rule.target_type, context=context
+        )
+        if supplemental_class_result.is_err():
+            return Err(
+                ValueError(
+                    f"Rule '{rule.name or rule}', supplemental target "
+                    f"'{supplemental_rule.target_type}': {supplemental_class_result.err()}"
+                )
+            )
+        supplemental_class = supplemental_class_result.ok()
+        assert supplemental_class is not None
+        supplemental_classes.append(supplemental_class)
+
+    if supplemental_rules:
+        for target_class in resolved_targets:
+            if issubclass(target_class, SupplementalAttribute):
+                return Err(
+                    ValueError("A rule with supplemental outputs must have a Component primary target")
+                )
+
     found_component = False
 
     for src_component in iter_components(read_system, class_type=source_class):
@@ -163,34 +188,32 @@ def apply_single_rule(
                 return Err(ValueError(f"Failed to evaluate filter for {src_component.label}: {exc}"))
         found_component = True
         for target_class in resolved_targets:
-            fields_result = build_target_fields(src_component, rule=rule, context=context).map_err(
-                lambda e: ValueError(f"Failed to build fields for {src_component.label}: {e}")  # noqa: B023
-            )
-
-            if fields_result.is_err():
-                return fields_result.map(lambda _: RuleApplicationStats(converted=0, skipped=0))
-
-            kwargs = cast(dict[str, Any], fields_result.ok())
-            if should_regenerate_uuid and "uuid" in kwargs:
-                kwargs = dict(kwargs)
-                kwargs["uuid"] = str(uuid4())
-            component = create_target_component(target_class, kwargs=kwargs)
-
-            attach_result = _attach_component(component, src_component, context)
-
-            if attach_result.is_err():
-                return attach_result.map(lambda _: RuleApplicationStats(converted=0, skipped=0))
-
-            if _is_supplemental_attribute(component):
-                logger.trace(
-                    "Rule {}: attached SA {} to {}",
-                    rule,
-                    type(component).__name__,
-                    src_component.label,
+            outputs_result = create_rule_outputs(
+                src_component,
+                rule=rule,
+                target_class=target_class,
+                supplemental_classes=supplemental_classes,
+                context=context,
+                regenerate_uuid=should_regenerate_uuid,
+            ).map_err(
+                lambda error, source_label=src_component.label: ValueError(
+                    f"Rule '{rule.name or rule}', source '{source_label}': {error}"
                 )
+            )
+            if outputs_result.is_err():
+                return outputs_result.map(lambda _: RuleApplicationStats(converted=0, skipped=0))
+
+            outputs = outputs_result.unwrap()
+            attach_result = _attach_rule_outputs(outputs, src_component, context)
+            if attach_result.is_err():
+                return attach_result.map_err(
+                    lambda error, source_label=src_component.label: ValueError(
+                        f"Rule '{rule.name or rule}', source '{source_label}': {error}"
+                    )
+                ).map(lambda _: RuleApplicationStats(converted=0, skipped=0))
 
             if builder is not None and rule.system == "source" and context.target_system is not None:
-                builder.record_translation(src_component, component, context.target_system)
+                builder.record_translation(src_component, outputs.primary, context.target_system)
 
             converted += 1
 
@@ -322,6 +345,26 @@ def _resolve_source_class(rule: Rule, *, context: PluginContext) -> Result[type[
     )
 
 
+def _resolve_supplemental_class(
+    type_name: str, *, context: PluginContext
+) -> Result[type[SupplementalAttribute], ValueError]:
+    """Resolve and validate a supplemental-attribute output type."""
+    class_result = _resolve_component_class(
+        type_name, context=context, label="supplemental target", allow_supplemental=True
+    )
+    if class_result.is_err():
+        return class_result.map(lambda _: SupplementalAttribute)
+    resolved_class = class_result.ok()
+    assert resolved_class is not None
+    if not issubclass(resolved_class, SupplementalAttribute):
+        return Err(
+            ValueError(
+                f"Resolved supplemental target type '{type_name}' is not a SupplementalAttribute subclass"
+            )
+        )
+    return Ok(resolved_class)
+
+
 def _is_supplemental_attribute(component: Component) -> bool:
     """Check if a component is a supplemental attribute.
 
@@ -336,6 +379,29 @@ def _is_supplemental_attribute(component: Component) -> bool:
         True if the component is a supplemental attribute, False otherwise
     """
     return isinstance(component, SupplementalAttribute)
+
+
+def _attach_rule_outputs(
+    outputs: Any,
+    source_component: Any,
+    context: PluginContext,
+) -> Result[None, ValueError]:
+    """Attach a primary output and its supplemental attributes as one operation."""
+    attach_result = _attach_component(outputs.primary, source_component, context)
+    if attach_result.is_err():
+        return attach_result
+
+    for supplemental_attribute in outputs.supplemental_attributes:
+        attach_result = _attach_component(supplemental_attribute, outputs.primary, context)
+        if attach_result.is_err():
+            return attach_result
+        logger.trace(
+            "Attached supplemental attribute {} to {}",
+            type(supplemental_attribute).__name__,
+            outputs.primary.label,
+        )
+
+    return Ok(None)
 
 
 def _attach_component(

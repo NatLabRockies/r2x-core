@@ -40,7 +40,7 @@ if TYPE_CHECKING:
     from .plugin_expose import expose_plugin
     from .reader import DataReader
     from .result import RuleResult, TranslationResult
-    from .rules import Rule, RuleFilter
+    from .rules import Rule, RuleFilter, SupplementalAttributeRule
     from .rules_executor import apply_rules_to_context, apply_single_rule
     from .store import DataStore
     from .system import System
@@ -89,6 +89,7 @@ _LAZY_IMPORTS: dict[str, str] = {
     "TranslationResult": ".result",
     "Rule": ".rules",
     "RuleFilter": ".rules",
+    "SupplementalAttributeRule": ".rules",
     "apply_rules_to_context": ".rules_executor",
     "apply_single_rule": ".rules_executor",
     "DataStore": ".store",
@@ -157,6 +158,7 @@ __all__ = [
     "RuleFilter",
     "RuleResult",
     "SemanticVersioningStrategy",
+    "SupplementalAttributeRule",
     "System",
     "TabularProcessing",
     "TranslationResult",

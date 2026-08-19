@@ -223,11 +223,10 @@ def read_columnar_group(
         dataset = scope.get(column)
         if not isinstance(dataset, h5py.Dataset):
             raise KeyError(f"HDF5 column dataset '{column}' not found")
-        values: np.ndarray = np.atleast_1d(np.asarray(dataset[()]))
-        if decode_bytes and values.dtype.kind in HDF5_STRING_KINDS:
+        if decode_bytes and dataset.dtype.kind in HDF5_STRING_KINDS:
             result[column] = [str(value) for value in np.atleast_1d(dataset.asstr()[()])]
         else:
-            result[column] = values
+            result[column] = np.atleast_1d(np.asarray(dataset[()]))
     return result
 
 

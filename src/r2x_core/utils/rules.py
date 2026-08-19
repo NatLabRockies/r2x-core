@@ -7,9 +7,10 @@ from collections import deque
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
+from infrasys import Component, SupplementalAttribute
 from pydantic import ValidationError as PydanticValidationError
 from rust_ok import Err, Ok, Result
 
@@ -19,10 +20,10 @@ from ..rules import RuleGetter
 
 @dataclass(frozen=True, slots=True)
 class RuleOutputs:
-    """Primary component and supplemental attributes built from one rule."""
+    """Primary output and supplemental attributes built from one rule."""
 
-    primary: Any
-    supplemental_attributes: tuple[Any, ...] = ()
+    primary: Component | SupplementalAttribute
+    supplemental_attributes: tuple[SupplementalAttribute, ...] = ()
 
 
 if TYPE_CHECKING:
@@ -56,8 +57,10 @@ def resolve_component_type(type_name: str, *, context: PluginContext) -> Result[
     return Err(TypeError(f"Component type '{type_name}' not found in modules: {modules_to_search}"))
 
 
-def create_target_component(target_class: type, *, kwargs: dict[str, Any]) -> Any:
-    """Instantiate a target component object."""
+def create_target_component(
+    target_class: type[Component] | type[SupplementalAttribute], *, kwargs: dict[str, Any]
+) -> Component | SupplementalAttribute:
+    """Instantiate a component or supplemental attribute with the provided fields."""
     return target_class(**kwargs)
 
 
@@ -78,7 +81,7 @@ def build_attr_getter(chain: list[str]) -> RuleGetter:
 
 
 def build_target_fields(
-    source_component: Any,
+    source_component: Component | Mapping[str, Any],
     *,
     rule: Rule,
     context: PluginContext,
@@ -87,19 +90,19 @@ def build_target_fields(
     return build_component_kwargs(source_component, rule=rule, context=context)
 
 
-def to_attr_source(source_component: Any) -> Any:
+def to_attr_source(source_component: Component | Mapping[str, Any]) -> Component | SimpleNamespace:
     """Return an object that supports attribute access for the provided record.
 
     When source_component is a Mapping, wraps it in a SimpleNamespace so
     field_map can use dotted attribute access. Otherwise returns unchanged.
     """
     if isinstance(source_component, Mapping):
-        return SimpleNamespace(**source_component)
+        return SimpleNamespace(**dict(source_component))
     return source_component
 
 
 def build_component_kwargs(
-    source_component: Any,
+    source_component: Component | Mapping[str, Any],
     *,
     rule: RuleLike,
     context: PluginContext,
@@ -164,11 +167,11 @@ def build_component_kwargs(
 
 
 def create_rule_outputs(
-    source_component: Any,
+    source_component: Component,
     *,
     rule: Rule,
-    target_class: type,
-    supplemental_classes: Sequence[type],
+    target_class: type[Component] | type[SupplementalAttribute],
+    supplemental_classes: Sequence[type[SupplementalAttribute]],
     context: PluginContext,
     regenerate_uuid: bool = False,
 ) -> Result[RuleOutputs, ValueError]:
@@ -196,7 +199,7 @@ def create_rule_outputs(
     except (PydanticValidationError, TypeError, ValueError) as error:
         return Err(ValueError(f"primary target '{target_class.__name__}': {error}"))
 
-    supplemental_attributes: list[Any] = []
+    supplemental_attributes: list[SupplementalAttribute] = []
     for supplemental_rule, supplemental_class in zip(supplemental_rules, supplemental_classes, strict=True):
         fields_result = build_component_kwargs(
             source_component,
@@ -210,12 +213,15 @@ def create_rule_outputs(
             )
 
         supplemental_kwargs = fields_result.unwrap()
-        if supplemental_rule.optional and not _has_output_values(supplemental_kwargs):
+        if supplemental_rule.optional and not has_output_values(supplemental_kwargs):
             continue
 
         try:
             supplemental_attributes.append(
-                create_target_component(supplemental_class, kwargs=supplemental_kwargs)
+                cast(
+                    SupplementalAttribute,
+                    create_target_component(supplemental_class, kwargs=supplemental_kwargs),
+                )
             )
         except (PydanticValidationError, TypeError, ValueError) as error:
             return Err(ValueError(f"supplemental target '{supplemental_rule.target_type}': {error}"))
@@ -223,7 +229,7 @@ def create_rule_outputs(
     return Ok(RuleOutputs(primary=primary, supplemental_attributes=tuple(supplemental_attributes)))
 
 
-def _has_output_values(values: Mapping[str, Any]) -> bool:
+def has_output_values(values: Mapping[str, Any]) -> bool:
     """Return whether an optional output contains a meaningful mapped value."""
     return any(value is not None and value != "" for value in values.values())
 

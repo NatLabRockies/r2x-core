@@ -18,6 +18,30 @@ def test_simple_rule_creation(rules_simple):
     assert rule_simple.defaults == {"area": "unspecified"}
 
 
+def test_supplemental_attribute_rule_accepts_callable_getter():
+    """Supplemental mappings accept a callable for multi-field derivation."""
+    from r2x_core import SupplementalAttributeRule
+
+    output = SupplementalAttributeRule(
+        target_type="Output",
+        field_map={"value": ["first", "second"]},
+        getters={"value": lambda _source, *, context: None},
+    )
+    assert output.target_type == "Output"
+
+
+def test_supplemental_attribute_rule_validates_configuration():
+    """Supplemental output configuration rejects invalid target and mappings."""
+    from r2x_core import SupplementalAttributeRule
+
+    with pytest.raises(ValueError, match="non-empty string"):
+        SupplementalAttributeRule(target_type="")
+    with pytest.raises(TypeError, match="optional must be a bool"):
+        SupplementalAttributeRule(target_type="Output", optional=1)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="Multi-field mapping"):
+        SupplementalAttributeRule(target_type="Output", field_map={"value": ["a", "b"]})
+
+
 def test_multifield_rule_requires_getter():
     """Multi-field mapping without getter raises ValueError."""
     from r2x_core import Rule

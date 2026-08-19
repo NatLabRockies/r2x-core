@@ -142,7 +142,7 @@ def apply_single_rule(
         return source_class_result.map(lambda _: RuleApplicationStats(converted=0, skipped=0))
     source_class = cast(type[Component], source_class_result.ok())
 
-    resolved_targets: list[type] = []
+    resolved_targets: list[type[Component | SupplementalAttribute]] = []
     for target_type in target_types:
         target_class_result = _resolve_component_class(
             target_type, context=context, label="target", allow_supplemental=True
@@ -154,11 +154,9 @@ def apply_single_rule(
         resolved_targets.append(resolved_class)
 
     supplemental_rules = getattr(rule, "supplemental_attributes", ())
-    supplemental_classes: list[type] = []
+    supplemental_classes: list[type[SupplementalAttribute]] = []
     for supplemental_rule in supplemental_rules:
-        supplemental_class_result = _resolve_supplemental_class(
-            supplemental_rule.target_type, context=context
-        )
+        supplemental_class_result = resolve_supplemental_class(supplemental_rule.target_type, context=context)
         if supplemental_class_result.is_err():
             return Err(
                 ValueError(
@@ -191,7 +189,7 @@ def apply_single_rule(
             outputs_result = create_rule_outputs(
                 src_component,
                 rule=rule,
-                target_class=target_class,
+                target_class=cast(type[Component], target_class),
                 supplemental_classes=supplemental_classes,
                 context=context,
                 regenerate_uuid=should_regenerate_uuid,
@@ -204,7 +202,7 @@ def apply_single_rule(
                 return outputs_result.map(lambda _: RuleApplicationStats(converted=0, skipped=0))
 
             outputs = outputs_result.unwrap()
-            attach_result = _attach_rule_outputs(outputs, src_component, context)
+            attach_result = attach_rule_outputs(outputs, src_component, context)
             if attach_result.is_err():
                 return attach_result.map_err(
                     lambda error, source_label=src_component.label: ValueError(
@@ -240,11 +238,11 @@ def _build_provenance_builder(context: PluginContext) -> ProvenanceBuilder | Non
 
 def _convert_component_with_class(
     rule: Rule,
-    source_component: Any,
-    target_class: type,
+    source_component: Component,
+    target_class: type[Component] | type[SupplementalAttribute],
     context: PluginContext,
     regenerate_uuid: bool,
-) -> Result[Any, ValueError]:
+) -> Result[Component | SupplementalAttribute, ValueError]:
     """Convert a single source component to a pre-resolved target class.
 
     Separated from type resolution so callers can resolve once and reuse.
@@ -253,7 +251,7 @@ def _convert_component_with_class(
         lambda e: ValueError(f"Failed to build fields for {source_component.label}: {e}")
     )
 
-    def create_component(kwargs: dict[str, Any]) -> Result[Any, ValueError]:
+    def create_component(kwargs: dict[str, Any]) -> Result[Component | SupplementalAttribute, ValueError]:
         """
         Create a target component instance with the given keyword arguments.
 
@@ -280,7 +278,7 @@ def _convert_component_with_class(
 
 def _convert_component(
     rule: Rule,
-    source_component: Any,
+    source_component: Component,
     target_type: str,
     context: PluginContext,
     regenerate_uuid: bool,
@@ -301,8 +299,12 @@ def _convert_component(
 
 
 def _resolve_component_class(
-    type_name: str, *, context: PluginContext, label: str, allow_supplemental: bool = False
-) -> Result[type, ValueError]:
+    type_name: str,
+    *,
+    context: PluginContext,
+    label: str,
+    allow_supplemental: bool = False,
+) -> Result[type[Component | SupplementalAttribute], ValueError]:
     """Resolve a named type and verify it is an infrasys component-compatible class."""
     class_result = resolve_component_type(type_name, context=context).map_err(
         lambda e: ValueError(f"Failed to resolve {label} type '{type_name}': {e}")
@@ -322,7 +324,7 @@ def _resolve_component_class(
         return Err(ValueError(f"Resolved {label} type '{type_name}' is not a {expected} subclass"))
 
     assert resolved_class is not None
-    return Ok(resolved_class)
+    return Ok(cast(type[Component] | type[SupplementalAttribute], resolved_class))
 
 
 def _resolve_source_class(rule: Rule, *, context: PluginContext) -> Result[type[Component], ValueError]:
@@ -345,7 +347,7 @@ def _resolve_source_class(rule: Rule, *, context: PluginContext) -> Result[type[
     )
 
 
-def _resolve_supplemental_class(
+def resolve_supplemental_class(
     type_name: str, *, context: PluginContext
 ) -> Result[type[SupplementalAttribute], ValueError]:
     """Resolve and validate a supplemental-attribute output type."""
@@ -381,9 +383,9 @@ def _is_supplemental_attribute(component: Component) -> bool:
     return isinstance(component, SupplementalAttribute)
 
 
-def _attach_rule_outputs(
+def attach_rule_outputs(
     outputs: Any,
-    source_component: Any,
+    source_component: Component,
     context: PluginContext,
 ) -> Result[None, ValueError]:
     """Attach a primary output and its supplemental attributes as one operation."""

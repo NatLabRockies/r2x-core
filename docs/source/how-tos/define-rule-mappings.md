@@ -50,7 +50,7 @@ Defaults are applied only when the source component lacks the specified field. I
 A rule can create a primary component and supplemental attributes from the same source component. Declare each supplemental output with its target type and its own field mappings, getters, and defaults:
 
 ```python doctest
->>> from r2x_core import Rule, SupplementalAttributeRule
+>>> from r2x_core import Rule, SupplementalAttributeRule, attach_rule_outputs, resolve_supplemental_class
 >>>
 >>> output = SupplementalAttributeRule(
 ...     target_type="BusGeographicInfo",

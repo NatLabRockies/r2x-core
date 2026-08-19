@@ -34,13 +34,17 @@ function transforms.
   user-facing boundary requires it.
 - Do not add compatibility import fallbacks around `r2x_core` APIs unless the
   user explicitly asks for multi-version support.
+- Do not call `setup_logging()` from plugin/library import code. Configure sinks
+  at the application boundary and use the level policy in [LOGGING.md](./LOGGING.md).
+- Applications built on top of r2x-core should disable their package namespace
+  in `__init__.py` and enable it in the application entry point.
 
 ## Class plugin lifecycle
 
 A class plugin binds a translator to a typed `PluginConfig`.
 
 ```python
-from r2x_core import Ok, Plugin, PluginConfig, System
+from r2x_core import Ok, Plugin, PluginConfig, Result, System
 
 
 class MyConfig(PluginConfig):
@@ -49,11 +53,11 @@ class MyConfig(PluginConfig):
 
 
 class MyTranslator(Plugin[MyConfig]):
-    def on_prepare(self):
+    def on_prepare(self) -> Result[None, str]:
         self.ctx.metadata["prepared"] = True
         return Ok(None)
 
-    def on_build(self):
+    def on_build(self) -> Result[System, str]:
         return Ok(System(name=f"model_{self.config.model_year}"))
 ```
 
@@ -115,6 +119,7 @@ best for focused system transformations without a class lifecycle.
 
 ```python
 from rust_ok import Err, Ok, Result
+
 from r2x_core import PluginConfig, System, expose_plugin
 
 
@@ -138,6 +143,29 @@ Function transform guidance:
 - Surface validation or domain failures as `Err(...)`, not exceptions.
 - Direct Python calls should work; entry-point discovery is an integration
   layer, not the only execution path.
+
+## Logging in plugins
+
+Use the logger level that matches the event, and keep plugin context in bound
+fields rather than embedding large values in messages:
+
+```python
+from r2x_core.logger import get_logger
+
+logger = get_logger("plugins.reeds").bind(plugin="ReEDS")
+# Keep this module under the `my_translator.*` package namespace so the
+# application-level logger.enable("my_translator") opt-in covers its records.
+logger.info("Plugin preparation started: input_folder={}", self.config.input_folder)
+logger.debug("Resolved input files: file_count={}", len(self.store.list_data()))
+logger.warning("Optional input skipped: file_name={}", "overrides")
+```
+
+Use `TRACE` for per-component or path-resolution detail, `DEBUG` for decisions,
+`INFO` for lifecycle milestones, `WARNING` for recoverable degradation, and
+`ERROR` for an operation failure. Let `Plugin.run()` own the final
+`PluginError` boundary instead of logging and re-raising the same hook failure
+at every layer. See [LOGGING.md](./LOGGING.md) for sink, verbosity, and
+sensitive-data rules.
 
 ## Entry points
 

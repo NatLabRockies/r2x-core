@@ -10,7 +10,7 @@ and `DataStore`.
 - `DataFile` must set exactly one path source: `fpath`, `relative_fpath`, or
   `glob`.
 - `FileInfo(description=None, is_input=True, is_optional=False, is_timeseries=False, units=None)`
-- `ReaderConfig(kwargs: dict[str, Any] = ..., function: Callable[[Path], Any] | None = None)`
+- `ReaderConfig(kwargs: dict[str, Any] = ..., function: Callable[..., Any] | None = None)`
 - `TabularProcessing(...)` declares many fields, but current tabular execution
   applies only lowercase, drop, rename, pivot, cast, filter, and select unless
   source has added more transformations.

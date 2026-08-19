@@ -27,6 +27,9 @@ unfamiliar symbol, or docs and runtime behavior disagree.
 - `r2x_core.utils`: `UpgradeStep`, `UpgradeType`, `run_upgrade_step`
 - `r2x_core.result`: `RuleResult`, `TranslationResult`
 - `r2x_core.exceptions`: framework exceptions
+- `r2x_core.logger`: `setup_logging`, `get_logger`, sink and verbosity behavior
+- `R2X_CLI.md`: current `r2x` install, discovery, direct-run, pipeline, and
+  validation workflow
 
 ## Fast verification
 
@@ -53,6 +56,9 @@ package instead of this checkout.
 3. Use docs/examples only for intent and worked usage.
 4. If docs and source disagree, trust source and report the mismatch.
 5. In the handoff, name the decisive module or reference consulted.
+6. For logging work, inspect `src/r2x_core/logger.py` and
+   `tests/test_logger.py`; do not infer levels or sink behavior from generic
+   Loguru knowledge.
 
 ## Boundary rule
 

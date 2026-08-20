@@ -74,7 +74,7 @@ A rule can create a primary component and supplemental attributes from the same 
 ... )
 ```
 
-Supplemental outputs are optional by default. If an optional output has no mapped or default values, the executor does not create or attach it. Set `optional=False` when a supplemental output is required, so missing mapped values fail the rule instead. The executor resolves each `target_type` through the modules in `PluginConfig.models`, validates every output, adds the primary component to the target system, and attaches each supplemental attribute to that newly created component before reporting the rule as converted.
+Supplemental outputs are optional by default. If an optional output has no mapped or default values, the executor does not create or attach it. Set `optional=False` when a supplemental output is required, so missing mapped values fail the rule instead. A rule with supplemental outputs must declare exactly one primary target type. The executor resolves each `target_type` through the modules in `PluginConfig.models`, validates every output, adds the primary component to the target system, and attaches each supplemental attribute to that newly created component before reporting the rule as converted.
 
 When loading JSON records, use the same shape. Getter names are resolved through the getter registry:
 
@@ -104,7 +104,7 @@ When loading JSON records, use the same shape. Getter names are resolved through
 }
 ```
 
-Construction errors include the rule, source component, and supplemental output type. No primary component is attached when validation of one of its supplemental outputs fails.
+Construction errors include the rule, source component, and supplemental output type. No primary component is attached when validation of one of its supplemental outputs fails. Multi-target rules cannot declare supplemental outputs, because a shared supplemental UUID cannot be attached atomically to multiple primary components.
 
 ## Filter Components Before Translation
 

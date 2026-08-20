@@ -133,6 +133,9 @@ def apply_single_rule(
     """
     converted = 0
     target_types = rule.get_target_types()
+    supplemental_rules = getattr(rule, "supplemental_attributes", ())
+    if len(target_types) > 1 and supplemental_rules:
+        return Err(ValueError("Rules with supplemental outputs must have exactly one primary target"))
     should_regenerate_uuid = len(target_types) > 1
 
     read_system = context.target_system if rule.system == "target" else context.source_system
@@ -155,7 +158,6 @@ def apply_single_rule(
         assert resolved_class is not None
         resolved_targets.append(resolved_class)
 
-    supplemental_rules = getattr(rule, "supplemental_attributes", ())
     supplemental_classes: list[type[SupplementalAttribute]] = []
     for supplemental_rule in supplemental_rules:
         supplemental_class_result = resolve_supplemental_class(supplemental_rule.target_type, context=context)

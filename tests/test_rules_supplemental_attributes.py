@@ -5,7 +5,7 @@ from __future__ import annotations
 from uuid import uuid4
 
 from fixtures.source_system import BusComponent, BusGeographicInfo
-from fixtures.target_system import NodeComponent
+from fixtures.target_system import CircuitComponent, NodeComponent
 
 from r2x_core import PluginConfig, PluginContext
 from r2x_core.rules import Rule
@@ -420,6 +420,43 @@ def test_invalid_supplemental_data_reports_rule_source_and_output():
     assert "test_bus" in error
     assert "BusGeographicInfo" in error
     assert list(target_system.get_components(NodeComponent)) == []
+
+
+def test_multi_target_supplemental_failure_leaves_target_unchanged():
+    """A failed multi-target supplemental rule does not leave an earlier target behind."""
+    source_system = System(name="source", system_base=100.0)
+    source_component = BusComponent(name="test_bus", zone="north")
+    source_system.add_component(source_component)
+    target_system = System(name="target", system_base=100.0)
+    rule = Rule(
+        source_type="BusComponent",
+        target_type=["NodeComponent", "CircuitComponent"],
+        version=1,
+        field_map={"name": "name", "uuid": "uuid"},
+        supplemental_attributes=[
+            {
+                "target_type": "BusGeographicInfo",
+                "field_map": {"uuid": "uuid", "location_name": "zone"},
+            }
+        ],
+    )
+
+    result = apply_rules_to_context(
+        PluginContext(
+            source_system=source_system,
+            target_system=target_system,
+            config=_build_test_config(),
+            rules=(rule,),
+        )
+    )
+
+    assert result.successful_rules == 0
+    assert result.failed_rules == 1
+    assert result.rule_results[0].error is not None
+    assert "exactly one primary target" in result.rule_results[0].error
+    assert list(target_system.get_components(NodeComponent)) == []
+    assert list(target_system.get_components(CircuitComponent)) == []
+    assert list(target_system.get_supplemental_attributes(BusGeographicInfo)) == []
 
 
 def test_missing_supplemental_target_type_reports_output():

@@ -170,3 +170,55 @@ def test_read_data_file_relative_path(reader_example, tmp_path):
     data_file = DataFile(name="test", relative_fpath="data.csv")
     result = reader_example.read_data_file(data_file, folder_path=tmp_path)
     assert result is not None
+
+
+def test_read_optional_data_file_missing_h5_group(reader_example, tmp_path):
+    """Optional HDF5 files return None when their configured group is absent."""
+    import h5py
+
+    from r2x_core import DataFile
+    from r2x_core.datafile import FileInfo, ReaderConfig
+
+    h5_path = tmp_path / "outputs.h5"
+    with h5py.File(h5_path, "w"):
+        pass
+
+    data_file = DataFile(
+        name="fuel_price",
+        fpath=h5_path,
+        info=FileInfo(is_optional=True),
+        reader=ReaderConfig(kwargs={"group_key": "fuel_price"}),
+    )
+
+    assert reader_example.read_data_file(data_file, folder_path=tmp_path) is None
+
+
+def test_read_data_file_h5_group(reader_example, tmp_path):
+    """DataFile reader kwargs can select a columnar HDF5 group."""
+    import h5py
+    import numpy as np
+
+    from r2x_core import DataFile
+    from r2x_core.datafile import ReaderConfig
+
+    h5_path = tmp_path / "outputs.h5"
+    with h5py.File(h5_path, "w") as h5_file:
+        group = h5_file.create_group("fuel_price")
+        group.create_dataset("columns", data=np.array([b"i", b"Value"]))
+        group.create_dataset("i", data=np.array([b"gas"]))
+        group.create_dataset("Value", data=np.array([3.0]))
+
+    data_file = DataFile(
+        name="fuel_price",
+        fpath=h5_path,
+        reader=ReaderConfig(
+            kwargs={
+                "group_key": "fuel_price",
+                "columns_key": "columns",
+                "columns_as_datasets": True,
+            }
+        ),
+    )
+    result = reader_example.read_data_file(data_file, folder_path=tmp_path).collect()
+
+    assert result.to_dict(as_series=False) == {"i": ["gas"], "Value": [3.0]}

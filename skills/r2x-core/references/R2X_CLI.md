@@ -102,12 +102,19 @@ create an entry point.
 
 ## Validate discovery before running
 
-Use the repository-local API probe and plugin probe first:
+Use the repository-local API probe first, then run the plugin probe from the
+Python environment that contains the translator package:
 
 ```bash
 uv run python skills/r2x-core/tools/check_api_symbols.py --repo src/r2x_core
 uv run python skills/r2x-core/tools/inspect_plugins.py --group r2x_plugin
 ```
+
+The plugin probe reads installed entry points from the active Python environment.
+The r2x-core checkout itself does not define an `r2x_plugin` entry point, so
+`No entry points found for group 'r2x_plugin'.` is expected when the probe is
+run here without an installed translator. Run it from the translator checkout or
+its r2x-managed environment to inspect actual plugins.
 
 Then use the CLI to refresh its manifest and inspect installed plugins:
 

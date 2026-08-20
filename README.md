@@ -49,8 +49,7 @@ R2X Core supports Python 3.11, 3.12, and 3.13.
 
 This repository includes the `r2x-core` agent skill at
 `skills/r2x-core/`. Install it for Pi with either supported skill manager.
-Replace `NatLabRockies/r2x-core` with the canonical published repository if
-this skill is distributed from another fork.
+The commands below use the canonical repository, `NatLabRockies/r2x-core`.
 
 ### Skills CLI (`npx skills`)
 

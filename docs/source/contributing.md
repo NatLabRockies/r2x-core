@@ -10,7 +10,7 @@ Set up a development environment for contributing to R2X Core:
 
 ```console
 # Clone the repository
-git clone https://github.com/NREL/r2x-core.git
+git clone https://github.com/NatLabRockies/r2x-core.git
 cd r2x-core
 
 # Install with development dependencies

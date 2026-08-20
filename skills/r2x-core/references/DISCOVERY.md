@@ -7,8 +7,8 @@ unfamiliar symbol, or docs and runtime behavior disagree.
 
 1. Installed/project source, source of truth for signatures and behavior.
 2. Local skill references in this directory for workflow intent.
-3. Project docs: <https://nrel.github.io/r2x-core/>
-4. Source repo: <https://github.com/NREL/r2x-core>
+3. Project docs: <https://natlabrockies.github.io/r2x-core/>
+4. Source repo: <https://github.com/NatLabRockies/r2x-core>
 5. infrasys docs/source for pure `System` / `Component` semantics.
 
 ## Key modules

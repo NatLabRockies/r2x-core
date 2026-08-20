@@ -171,9 +171,13 @@ uv run python skills/r2x-core/tools/inspect_plugins.py --group r2x_plugin
 uv run python skills/r2x-core/tools/check_data_store.py <data-root> --list-unknown
 ```
 
-The API probe checks symbol presence, not semantics. The plugin probe checks
-installed entry points and import failures. The datastore probe classifies files;
-it cannot prove reader options or schema correctness.
+The API probe checks symbol presence, not semantics. The plugin probe inspects
+entry points in the active Python environment, not the repository source tree.
+This r2x-core checkout does not define an `r2x_plugin` entry point, so running the
+probe here without an installed translator should report no entries. Run it in
+the environment that contains the plugin package you want to inspect; otherwise
+that result is expected and not a discovery failure. The datastore probe
+classifies files; it cannot prove reader options or schema correctness.
 
 ## Handoff
 

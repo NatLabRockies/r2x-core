@@ -15,6 +15,7 @@ from r2x_core.utils import (
     build_attr_getter,
     build_component_kwargs,
     build_target_fields,
+    create_rule_outputs,
     create_target_component,
     resolve_component_type,
 )
@@ -26,6 +27,27 @@ def test_resolve_component_type_success(context_example):
 
     assert result.is_ok()
     assert result.unwrap() is BusComponent
+
+
+def test_resolve_component_type_skips_import_errors(monkeypatch, context_example):
+    """Type resolution continues when a configured module cannot be imported."""
+    import r2x_core.utils.rules as rules_utils
+
+    original_import_module = rules_utils.importlib.import_module
+
+    def import_module(module_name):
+        if module_name == "missing.module":
+            raise ImportError("module unavailable")
+        return original_import_module(module_name)
+
+    monkeypatch.setattr(rules_utils.importlib, "import_module", import_module)
+    context = context_example.evolve(
+        config=context_example.config.model_copy(
+            update={"models": ("missing.module", "fixtures.source_system")}
+        )
+    )
+    result = resolve_component_type("NotAComponent", context=context)
+    assert result.is_err()
 
 
 def test_resolve_component_type_missing_returns_error(context_example):
@@ -189,7 +211,11 @@ def test_build_component_kwargs_from_parser_record(context_example):
     )
 
     result = build_component_kwargs(record, rule=rule, context=context_example)
+    missing_region = build_component_kwargs(
+        {**record, "region_code": "missing"}, rule=rule, context=context_example
+    )
 
+    assert missing_region.is_err()
     assert result.is_ok()
     kwargs = result.unwrap()
     assert kwargs["component_name"] == "parser_component"
@@ -239,6 +265,46 @@ def test_build_target_fields_skips_multifield_mappings(context_example):
     assert kwargs["coords"] == (10.0, 20.0)
 
 
+def test_build_component_kwargs_optional_missing_and_getter_values(context_example):
+    """Optional output mappings skip missing fields and values returned as None."""
+
+    class Source:
+        value = "present"
+
+    def none_getter(_source: Any, *, context: Any) -> Result[Any, ValueError]:
+        _ = context
+        return Ok(None)
+
+    rule = Rule(
+        source_type="SourceType",
+        target_type="TargetType",
+        version=1,
+        field_map={"missing": "missing"},
+        getters={"computed": none_getter},
+    )
+    result = build_component_kwargs(Source(), rule=rule, context=context_example, allow_missing=True)
+    assert result.is_ok()
+    assert result.unwrap() == {}
+
+
+def test_build_component_kwargs_getter_error_optional(context_example):
+    """Optional output mappings skip getter failures without defaults."""
+
+    def faulty_getter(_source: Any, *, context: Any) -> Result[Any, ValueError]:
+        _ = context
+        return Err(ValueError("boom"))
+
+    rule = Rule(
+        source_type="SourceType",
+        target_type="TargetType",
+        version=1,
+        getters={"computed": faulty_getter},
+    )
+    result = build_component_kwargs(object(), rule=rule, context=context_example, allow_missing=True)
+    assert result.is_ok()
+    assert result.unwrap() == {}
+
+
 def test_build_target_fields_getter_error_uses_default(context_example):
     """Getter failures fall back to defaults when defined."""
 
@@ -263,6 +329,112 @@ def test_build_target_fields_getter_error_uses_default(context_example):
     assert result.is_ok()
     kwargs = result.unwrap()
     assert kwargs["computed"] == "fallback_value"
+
+
+def test_create_rule_outputs_reports_mismatched_output_classes(context_example):
+    """Output construction rejects a mismatched resolved output list."""
+    rule = Rule(source_type="Source", target_type="Target", version=1)
+    result = create_rule_outputs(
+        object(),
+        rule=rule,
+        target_class=NodeComponent,
+        supplemental_classes=[NodeComponent],
+        context=context_example,
+    )
+    assert result.is_err()
+    assert "supplemental outputs" in str(result.err())
+
+
+def test_create_rule_outputs_regenerates_primary_uuid(context_example):
+    """Fan-out output construction regenerates an explicitly mapped UUID."""
+    source = type("Source", (), {"name": "node", "uuid": "source-uuid"})()
+    rule = Rule(
+        source_type="Source",
+        target_type="Target",
+        version=1,
+        field_map={"name": "name", "uuid": "uuid"},
+    )
+    result = create_rule_outputs(
+        source,
+        rule=rule,
+        target_class=NodeComponent,
+        supplemental_classes=[],
+        context=context_example,
+        regenerate_uuid=True,
+    )
+    assert result.is_ok()
+    assert result.unwrap().primary.uuid != "source-uuid"
+
+
+def test_create_rule_outputs_reports_primary_validation_error(context_example):
+    """Output construction reports validation failures from the primary target."""
+    source = type("Source", (), {"name": "node", "voltage": "not-a-number"})()
+    rule = Rule(
+        source_type="Source",
+        target_type="Target",
+        version=1,
+        field_map={"name": "name", "kv_rating": "voltage"},
+    )
+    result = create_rule_outputs(
+        source,
+        rule=rule,
+        target_class=NodeComponent,
+        supplemental_classes=[],
+        context=context_example,
+    )
+    assert result.is_err()
+    assert "primary target" in str(result.err())
+
+
+def test_evaluate_rule_filter_missing_getter_candidate(context_example):
+    """Getter-backed filters honor on_missing when a getter returns None."""
+    from r2x_core import RuleFilter
+    from r2x_core.utils import evaluate_rule_filter
+
+    def none_getter(_source, *, context):
+        _ = context
+        return Ok(None)
+
+    component = object()
+    included = RuleFilter(getter=none_getter, op="eq", values=["gas"], on_missing="include")
+    excluded = RuleFilter(getter=none_getter, op="eq", values=["gas"], on_missing="exclude")
+    assert evaluate_rule_filter(component, rule_filter=included, context=context_example)
+    assert not evaluate_rule_filter(component, rule_filter=excluded, context=context_example)
+
+
+def test_evaluate_rule_filter_missing_field_requires_field():
+    """Malformed leaf filters report a missing field or getter."""
+    from r2x_core import RuleFilter
+    from r2x_core.utils import evaluate_rule_filter
+
+    filt = RuleFilter.__new__(RuleFilter)
+    object.__setattr__(filt, "any_of", None)
+    object.__setattr__(filt, "all_of", None)
+    object.__setattr__(filt, "field", None)
+    object.__setattr__(filt, "getter", None)
+    object.__setattr__(filt, "op", "eq")
+    object.__setattr__(filt, "values", ["gas"])
+    object.__setattr__(filt, "_normalized_values", ["gas"])
+    with pytest.raises(ValueError, match="field or getter"):
+        evaluate_rule_filter(object(), rule_filter=filt)
+
+
+def test_evaluate_rule_filter_unknown_operation_returns_false():
+    """Unsupported filter operations do not match."""
+    from r2x_core import RuleFilter
+    from r2x_core.utils import evaluate_rule_filter
+
+    filt = RuleFilter.__new__(RuleFilter)
+    object.__setattr__(filt, "any_of", None)
+    object.__setattr__(filt, "all_of", None)
+    object.__setattr__(filt, "field", "name")
+    object.__setattr__(filt, "getter", None)
+    object.__setattr__(filt, "op", "unknown")
+    object.__setattr__(filt, "values", ["gas"])
+    object.__setattr__(filt, "_normalized_values", ["gas"])
+    object.__setattr__(filt, "casefold", True)
+    object.__setattr__(filt, "on_missing", "exclude")
+    assert not evaluate_rule_filter(type("Component", (), {"name": "gas"})(), rule_filter=filt)
 
 
 def test_evaluate_rule_filter_all_of():
@@ -308,8 +480,11 @@ def test_evaluate_rule_filter_getter_uses_context(context_example):
 
     filt = RuleFilter(getter=select_fuel, op="eq", values=["gas"])
     ctx = context_example.evolve(metadata={"selected_name": "plant_alpha", "selected_fuel": "gas"})
+    other = Component()
+    other.name = "plant_beta"
 
     assert evaluate_rule_filter(Component(), rule_filter=filt, context=ctx)
+    assert not evaluate_rule_filter(other, rule_filter=filt, context=ctx)
 
 
 def test_evaluate_rule_filter_getter_failure_raises(context_example):

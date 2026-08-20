@@ -13,9 +13,11 @@ from .iteration import iter_components
 from .overrides import override_dictionary
 from .parser import create_component
 from .rules import (
+    RuleOutputs,
     build_attr_getter,
     build_component_kwargs,
     build_target_fields,
+    create_rule_outputs,
     create_target_component,
     evaluate_rule_filter,
     resolve_component_type,
@@ -39,6 +41,7 @@ from .version import UNKNOWN_VERSION, get_package_version, warn_if_persisted_ver
 
 __all__ = [
     "UNKNOWN_VERSION",
+    "RuleOutputs",
     "UpgradeCoordinator",
     "UpgradeStep",
     "UpgradeType",
@@ -49,6 +52,7 @@ __all__ = [
     "build_target_fields",
     "components_to_records",
     "create_component",
+    "create_rule_outputs",
     "create_target_component",
     "evaluate_rule_filter",
     "export_components_to_csv",

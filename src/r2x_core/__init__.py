@@ -40,8 +40,13 @@ if TYPE_CHECKING:
     from .plugin_expose import expose_plugin
     from .reader import DataReader
     from .result import RuleResult, TranslationResult
-    from .rules import Rule, RuleFilter
-    from .rules_executor import apply_rules_to_context, apply_single_rule
+    from .rules import Rule, RuleFilter, SupplementalAttributeRule
+    from .rules_executor import (
+        apply_rules_to_context,
+        apply_single_rule,
+        attach_rule_outputs,
+        resolve_supplemental_class,
+    )
     from .store import DataStore
     from .system import System
     from .time_series import replace_single_time_series, transfer_time_series_metadata
@@ -89,8 +94,11 @@ _LAZY_IMPORTS: dict[str, str] = {
     "TranslationResult": ".result",
     "Rule": ".rules",
     "RuleFilter": ".rules",
+    "SupplementalAttributeRule": ".rules",
     "apply_rules_to_context": ".rules_executor",
     "apply_single_rule": ".rules_executor",
+    "attach_rule_outputs": ".rules_executor",
+    "resolve_supplemental_class": ".rules_executor",
     "DataStore": ".store",
     "System": ".system",
     "replace_single_time_series": ".time_series",
@@ -157,6 +165,7 @@ __all__ = [
     "RuleFilter",
     "RuleResult",
     "SemanticVersioningStrategy",
+    "SupplementalAttributeRule",
     "System",
     "TabularProcessing",
     "TranslationResult",
@@ -170,6 +179,7 @@ __all__ = [
     "VersionStrategy",
     "apply_rules_to_context",
     "apply_single_rule",
+    "attach_rule_outputs",
     "components_to_records",
     "create_component",
     "export_components_to_csv",
@@ -181,6 +191,7 @@ __all__ = [
     "is_ok",
     "replace_single_time_series",
     "resolve_getter",
+    "resolve_supplemental_class",
     "run_upgrade_step",
     "set_unit_system",
     "transfer_time_series_metadata",

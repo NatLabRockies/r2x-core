@@ -45,6 +45,67 @@ When source components may be missing certain fields, the `defaults` parameter p
 
 Defaults are applied only when the source component lacks the specified field. If the source has a value, it takes precedence over the default.
 
+## Create Supplemental Attributes
+
+A rule can create a primary component and supplemental attributes from the same source component. Declare each supplemental output with its target type and its own field mappings, getters, and defaults:
+
+```python doctest
+>>> from r2x_core import Rule, SupplementalAttributeRule, attach_rule_outputs, resolve_supplemental_class
+>>>
+>>> output = SupplementalAttributeRule(
+...     target_type="BusGeographicInfo",
+...     field_map={"location_name": "zone"},
+... )
+>>> output.target_type
+'BusGeographicInfo'
+
+>>> rule = Rule(
+...     source_type="BusComponent",
+...     target_type="NodeComponent",
+...     version=1,
+...     field_map={"name": "name", "uuid": "uuid", "kv_rating": "voltage_kv"},
+...     supplemental_attributes=[
+...         {
+...             "target_type": "BusGeographicInfo",
+...             "field_map": {"location_name": "zone"},
+...             "defaults": {"latitude": 0.0, "longitude": 0.0},
+...         },
+...     ],
+... )
+```
+
+Supplemental outputs are optional by default. If an optional output has no mapped or default values, the executor does not create or attach it. Set `optional=False` when a supplemental output is required, so missing mapped values fail the rule instead. A rule with supplemental outputs must declare exactly one primary target type. The executor resolves each `target_type` through the modules in `PluginConfig.models`, validates every output, adds the primary component to the target system, and attaches each supplemental attribute to that newly created component before reporting the rule as converted.
+
+When loading JSON records, use the same shape. Getter names are resolved through the getter registry:
+
+```json
+{
+  "source_type": "BusComponent",
+  "target_type": "NodeComponent",
+  "version": 1,
+  "field_map": {
+    "name": "name",
+    "uuid": "uuid"
+  },
+  "supplemental_attributes": [
+    {
+      "target_type": "BusGeographicInfo",
+      "field_map": {
+        "location_name": "zone"
+      },
+      "getters": {
+        "latitude": "lookup_latitude"
+      },
+      "defaults": {
+        "longitude": 0.0
+      }
+    }
+  ]
+}
+```
+
+Construction errors include the rule, source component, and supplemental output type. No primary component is attached when validation of one of its supplemental outputs fails. Multi-target rules cannot declare supplemental outputs, because a shared supplemental UUID cannot be attached atomically to multiple primary components.
+
 ## Filter Components Before Translation
 
 The {py:class}`~r2x_core.RuleFilter` class restricts which components a rule processes. Rather than embedding conditional logic in procedural code, you declare predicates that the rule executor evaluates.

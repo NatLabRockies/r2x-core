@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.8.0](https://github.com/NatLabRockies/r2x-core/compare/v0.7.0...v0.8.0) (2026-08-20)
+
+
+### Features
+
+* support columnar HDF5 groups ([#121](https://github.com/NatLabRockies/r2x-core/issues/121)) ([f84eaab](https://github.com/NatLabRockies/r2x-core/commit/f84eaab3be51174a4eca216af147a5642079e493))
+* support supplemental outputs in declarative rules ([#124](https://github.com/NatLabRockies/r2x-core/issues/124)) ([6d3a854](https://github.com/NatLabRockies/r2x-core/commit/6d3a85442ba2cc8480a80e1db4972acfaf9a56de))
+
+
+### Documentation
+
+* revamp r2x-core agent skill ([#122](https://github.com/NatLabRockies/r2x-core/issues/122)) ([63d4866](https://github.com/NatLabRockies/r2x-core/commit/63d4866087b65c1feac310807769522689d275ce))
+
 ## [0.7.0](https://github.com/NatLabRockies/r2x-core/compare/v0.6.0...v0.7.0) (2026-08-10)
 
 

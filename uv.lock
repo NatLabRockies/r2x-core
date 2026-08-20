@@ -1344,7 +1344,7 @@ wheels = [
 
 [[package]]
 name = "r2x-core"
-version = "0.7.0"
+version = "0.8.0"
 source = { editable = "." }
 dependencies = [
     { name = "h5py" },

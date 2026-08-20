@@ -61,11 +61,11 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/NREL/r2x-core"
-Documentation = "https://nrel.github.io/r2x-core/"
-Repository = "https://github.com/NREL/r2x-core"
-Issues = "https://github.com/NREL/r2x-core/issues"
-Changelog = "https://nrel.github.io/r2x-core/CHANGELOG.html"
+Homepage = "https://github.com/NatLabRockies/r2x-core"
+Documentation = "https://natlabrockies.github.io/r2x-core/"
+Repository = "https://github.com/NatLabRockies/r2x-core"
+Issues = "https://github.com/NatLabRockies/r2x-core/issues"
+Changelog = "https://natlabrockies.github.io/r2x-core/CHANGELOG.html"
 
 [dependency-groups]
 dev = [

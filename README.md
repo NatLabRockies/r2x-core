@@ -20,7 +20,9 @@ PLEXOS, SWITCH, Sienna, or other infrasys-backed power-system workflows.
 
 <p align="center">
   <a href="#install">Install</a> ·
+  <a href="#skill-installation">Skills</a> ·
   <a href="#quickstart">Quickstart</a> ·
+  <a href="#r2x-cli">r2x CLI</a> ·
   <a href="#core-concepts">Core concepts</a> ·
   <a href="#documentation">Documentation</a> ·
   <a href="#development">Development</a> ·
@@ -42,6 +44,64 @@ uv add r2x-core
 ```
 
 R2X Core supports Python 3.11, 3.12, and 3.13.
+
+## Skill installation
+
+This repository includes the `r2x-core` agent skill at
+`skills/r2x-core/`. Install it for Pi with either supported skill manager.
+The commands below use the canonical repository, `NatLabRockies/r2x-core`.
+
+### Skills CLI (`npx skills`)
+
+Install globally:
+
+```console
+npx skills add NatLabRockies/r2x-core --skill r2x-core --agent pi --global --yes
+```
+
+Install for the current project by omitting `--global`:
+
+```console
+npx skills add NatLabRockies/r2x-core --skill r2x-core --agent pi --yes
+```
+
+Update one installed copy:
+
+```console
+npx skills update r2x-core --global --yes
+# For a project-scoped installation, use --project instead of --global.
+```
+
+List installed skills with `npx skills list --global` or `npx skills list`.
+The updater uses source metadata recorded by the installer; manually copied
+skills must be reinstalled before automatic updates can work.
+
+### GitHub CLI (`gh skill`)
+
+Install globally or for the current project:
+
+```console
+gh skill install NatLabRockies/r2x-core r2x-core --agent pi --scope user
+gh skill install NatLabRockies/r2x-core r2x-core --agent pi --scope project
+```
+
+Check for updates, then update one skill or all managed skills:
+
+```console
+gh skill update r2x-core --dry-run
+gh skill update r2x-core
+gh skill update --all
+```
+
+Pin a reproducible release when needed:
+
+```console
+gh skill install NatLabRockies/r2x-core r2x-core@v0.7.0 \
+  --agent pi --scope user
+```
+
+Edit the repository copy under `skills/r2x-core/` when contributing changes.
+Do not patch an installed copy and expect those changes to flow back here.
 
 ## Quickstart
 
@@ -105,6 +165,88 @@ result = plugin.run()
 
 print(result.system.name)
 ```
+
+## r2x CLI
+
+The Rust `r2x` CLI is the recommended orchestration layer for installed
+r2x-core plugins. It installs plugin packages, discovers `r2x_plugin` and
+`r2x.transforms` entry points, refreshes plugin metadata, and runs direct
+plugins or YAML pipelines. The binary is maintained in the
+[`r2x-cli`](https://github.com/NatLabRockies/r2x-cli) repository.
+
+Install the latest release on macOS/Linux:
+
+```console
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://github.com/NatLabRockies/r2x-cli/releases/latest/download/r2x-installer.sh | sh
+```
+
+On Windows PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/NatLabRockies/r2x-cli/releases/latest/download/r2x-installer.ps1 | iex"
+```
+
+Verify the binary and its command surface:
+
+```console
+r2x --version
+r2x --help
+```
+
+The published binary requires Python shared libraries at runtime. If it
+reports missing `libpython`, install a supported shared Python with
+`uv python install 3.12`. Use the published release installers or binaries
+only; do not build `r2x` from source as part of the r2x-core workflow.
+
+### Install and discover an r2x-core plugin
+
+```console
+r2x install r2x-reeds
+r2x list
+r2x sync
+r2x run plugin
+```
+
+For a local plugin package under development, run the command from that
+plugin's checkout. `r2x-core` itself is a framework package and does not expose
+an installable plugin entry point:
+
+```console
+cd /path/to/my-translator
+r2x install -e .
+r2x sync
+r2x list
+```
+
+Check a plugin's generated public CLI contract before running it:
+
+```console
+r2x run plugin r2x-reeds.reeds-parser --show-help
+```
+
+### Validate and run a pipeline
+
+Use the CLI's validation stages before executing data translation:
+
+```console
+r2x init
+r2x run pipeline.yaml --list
+r2x run pipeline.yaml --print reeds-to-sienna
+r2x run pipeline.yaml reeds-to-sienna --dry-run
+r2x run pipeline.yaml reeds-to-sienna --output output/system.json
+```
+
+Use `--list` to validate the pipeline name, `--print` to inspect resolved
+configuration, and `--dry-run` to verify ordering without translating data. Keep
+plugin diagnostics on stderr and translation artifacts on stdout or a durable
+`--output` path. Use `set -o pipefail` for streamed plugin pipelines.
+
+The CLI's `-q`, `-v`, and `-vv` flags control CLI verbosity. Use
+`--log-python` or `r2x log set log-python true` when Python/Loguru diagnostics
+must be shown. See the skill's [r2x CLI reference](skills/r2x-core/references/R2X_CLI.md)
+for discovery, direct execution, durable `-o`/`-i` boundaries, pipeline
+validation, and failure triage.
 
 ### Create a function transform
 

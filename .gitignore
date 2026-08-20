@@ -478,3 +478,6 @@ prompt_logs/
 
 # Architecture Decision Records (local only)
 docs/adr/
+
+# Agent workflow notes
+PAPERCUTS.md

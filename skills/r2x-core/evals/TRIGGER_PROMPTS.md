@@ -1,49 +1,39 @@
-# r2x-core Skill Trigger Examples
+# r2x-core trigger examples
 
-Use these prompts to validate when this skill should activate.
+Use these prompts to tune activation and routing. They are not a substitute for
+reading the focused reference.
 
 ## Should trigger
 
-1. "Add a new translator plugin for ReEDS that loads CSVs from a data
-   directory and produces an infrasys `System`."
-2. "My `Plugin.on_translate` is raising instead of returning `Err`. Refactor
-   the lifecycle to use `Result` end to end."
-3. "Register `MyTranslator` so `r2x_plugin` entry-point discovery picks it up
-   without a manual import."
-4. "Define a `Rule` mapping `SourceGenerator -> Generator` with a
-   `RuleFilter` that excludes retired units, then wire it into the executor."
-5. "Configure a `DataStore` that reads `gen.csv`, `load.parquet`, and
-   `regions.h5` with the right `ReaderConfig` layout kwargs per file."
-6. "Convert a model that exposes natural-unit values into the per-unit
-   system using `HasPerUnit`, with `UnitSystem.SYSTEM_BASE` for display."
-7. "Build an `UpgradeStep` chain to migrate datasets from v1 to v2 using
-   `SemanticVersioningStrategy` and `VersionReader`."
-8. "Inspect which plugins are discoverable in the current environment and
-   show their `PluginConfig` fields and implemented hooks."
+1. "Build a typed r2x-core translator plugin that loads CSVs and builds a
+   System."
+2. "Why does `Plugin.run()` fail even though my hook returns `Err`?"
+3. "Show the public API call shape for `apply_single_rule` and fix my caller."
+4. "Map source generators to target units with a versioned Rule and filter."
+5. "Configure DataFile and DataStore for CSV, JSON, Parquet, and HDF5 inputs."
+6. "Debug an HDF5 reader returning generic columns instead of solve_year."
+7. "Add an Annotated per-unit field and test natural-unit input."
+8. "Add an upgrade step for an old file mapping and verify idempotency."
+9. "Check which r2x-core plugins are discoverable in the active environment."
+10. "Review this r2x-core change for public API, Result, typing, and regression
+    risks."
 
-## Near-miss (should NOT trigger)
+## Should not trigger
 
-1. "Help me design a generic Python package without any r2x-core surface
-   area." (use general Python guidance)
-2. "Pick a UI framework for a power system dashboard." (out of scope)
-3. "Explain the PLEXOS XML schema in detail." (model-specific, not r2x-core)
-4. "Pure infrasys `System` introspection question with no r2x-core plugin,
-   rule, store, units, or versioning context." (use the `infrasys` skill)
+1. "Design a generic Pydantic model unrelated to r2x-core." (use data-model)
+2. "Inspect an infrasys System and attach time series without translation."
+   (use infrasys)
+3. "Write a standalone Python CLI." (use Python/CLI guidance)
+4. "Explain PLEXOS XML semantics without framework code." (use domain guidance)
+5. "Review an unrelated pull request." (use review guidance)
+6. "Commit the current changes." (use repository/forge workflow)
 
-## Borderline prompts (trigger + integrated reference)
+## Borderline routing
 
-1. "Migrate an old DataStore JSON layout to the new schema."
-   - Trigger this skill, then use `VERSIONING_UPGRADES.md` and
-     `DATA_STORE.md`.
-2. "Plugin entry point is not discovered after install."
-   - Trigger this skill, then use `PLUGINS.md` (registration / exposure
-     section) and inspect `importlib.metadata.entry_points(group="r2x_plugin")`.
-3. "Rule mapping silently skips a component class."
-   - Trigger this skill, then use `RULES.md` (filter and dependency
-     sections) and `REFERENCE.md` (executor contract).
-4. "HDF5 reader returns the wrong shape for a time-indexed dataset."
-   - Trigger this skill, then use `DATA_STORE.md` (HDF5 `ReaderConfig`
-     layout kwargs section). Validate with `DataStore.list_data()` and targeted `read_data(...)` checks.
-5. "Per-unit conversion mismatches between two plugins."
-   - Trigger this skill, then use `UNITS.md` and confirm both plugins use
-     the same `set_unit_system(...)` configuration.
+- A translator component schema belongs to the component package or infrasys;
+  use this skill only for the r2x-core plugin/rule/store boundary.
+- A `System.from_json` migration belongs to infrasys when it changes the
+  foundational serialized schema; use this skill for r2x-core file/config
+  upgrades around that boundary.
+- A generic reader belongs to Python guidance; use this skill when it extends
+  `DataReader`, `DataFile`, `DataStore`, or HDF5 handling.

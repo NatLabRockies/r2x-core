@@ -1,0 +1,95 @@
+{
+  "evals": [
+    {
+      "assertions": [
+        "The response inspects source or tests before relying on signatures",
+        "The example uses Plugin.from_context(PluginContext(...)).run()",
+        "The response states that run() returns PluginContext and hook failures become PluginError",
+        "The config is a typed PluginConfig subclass"
+      ],
+      "expected_output": "A typed PluginConfig, PluginContext, Plugin subclass, exact run() usage, and focused validation.",
+      "id": "public-plugin-api",
+      "prompt": "Build a small r2x-core plugin that creates a System."
+    },
+    {
+      "assertions": [
+        "The response inspects rules_executor.py and nearby tests",
+        "The response uses field_map in target-to-source direction",
+        "The response distinguishes RuleResult from RuleApplicationStats",
+        "The response does not invent a second positional context/rules argument"
+      ],
+      "expected_output": "A correction using PluginContext and the actual apply_single_rule(rule, *, context=...) contract.",
+      "id": "public-rule-api",
+      "prompt": "Fix this caller that passes a list of rules and raw components to apply_single_rule."
+    },
+    {
+      "assertions": [
+        "The response verifies current DataFile field names",
+        "The HDF5 settings are placed in reader.kwargs",
+        "The response does not invent an H5Format configuration model",
+        "The response includes a reader or datastore validation path"
+      ],
+      "expected_output": "A DataFile with a path source and ReaderConfig(kwargs=...) using current HDF5 reader options.",
+      "id": "data-api",
+      "prompt": "Configure r2x-core to read an HDF5 file with named columns and timestamps."
+    },
+    {
+      "assertions": [
+        "The response uses Annotated[..., Unit(...)]",
+        "The per-unit field names its base",
+        "The response distinguishes HasPerUnit from HasUnits",
+        "The response restores global unit display state in tests"
+      ],
+      "expected_output": "Annotated fields with Unit, HasPerUnit, a base field, and focused behavior tests.",
+      "id": "units-api",
+      "prompt": "Add a per-unit generator field and test natural-unit input."
+    },
+    {
+      "assertions": [
+        "The response checks current UpgradeStep fields",
+        "The step does not receive a nonexistent versioning_strategy constructor argument",
+        "The response branches on Result failure",
+        "The response tests idempotency or a failure path"
+      ],
+      "expected_output": "An idempotent UpgradeStep and exact run_upgrade_step(data, step=step) handling.",
+      "id": "upgrade-api",
+      "prompt": "Add an r2x-core file upgrade from 1.x to 2.0."
+    },
+    {
+      "assertions": [
+        "The response inspects src/r2x_core/logger.py and tests/test_logger.py",
+        "The response explains TRACE, DEBUG, INFO, WARNING, ERROR, and CRITICAL usage",
+        "The response tells consuming applications to disable their own namespace in __init__.py",
+        "The response shows logger.enable for the application and setup_logging for r2x_core",
+        "The response avoids print debugging, secrets, and unbounded payload logging"
+      ],
+      "expected_output": "A logging design that follows the repository's disabled-by-default namespace setup, chooses levels by operational meaning, and shows application enablement.",
+      "id": "logging-policy",
+      "prompt": "Add logging to an r2x-core plugin and decide which Loguru levels to use."
+    },
+    {
+      "assertions": [
+        "The response reads the r2x CLI integration reference or current CLI source",
+        "The response uses published r2x binaries or release installers and does not suggest building the CLI from source",
+        "The response distinguishes r2x_plugin from r2x.transforms",
+        "The response uses r2x sync and r2x list before execution",
+        "The response uses --show-help, --list, --print, and --dry-run as validation stages",
+        "The response checks durable output or pipefail behavior"
+      ],
+      "expected_output": "Entry-point validation, r2x sync/list/show-help checks, dry-run pipeline validation, and a bounded real execution with separate stdout/stderr handling.",
+      "id": "r2x-cli-workflow",
+      "prompt": "Make this r2x-core plugin discoverable and validate it through the r2x CLI."
+    },
+    {
+      "assertions": [
+        "The response checks __init__.py, defining source, tests, and package metadata",
+        "The response distinguishes source checkout from installed package",
+        "The response does not conceal the mismatch with try/except imports"
+      ],
+      "expected_output": "A source-and-test-backed answer that identifies the target package version and avoids compatibility fallbacks.",
+      "id": "source-of-truth",
+      "prompt": "The r2x-core docs show a different signature from my checkout. Which usage is correct?"
+    }
+  ],
+  "skill_name": "r2x-core"
+}

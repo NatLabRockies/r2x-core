@@ -1,153 +1,189 @@
 ---
 name: r2x-core
-description: |
-  Build and maintain r2x-core translators across plugin lifecycle, rule
-  mapping, DataStore ingestion, units, and upgrades. Use when tasks mention
-  r2x-core plugins/rules/datastore/unit-system/versioning, translator
-  discovery, model conversion pipelines, schema migrations, or function
-  transforms built on infrasys System/Component models.
-license: BSD-3-Clause
-metadata:
-  author: r2x-core team
-  version: "0.2.0"
-  category: power-system-translation
-  companion_skills:
-    - name: infrasys
-      source: pesap/agents
-      use_when: Pure System/Component modeling, serialization, time series, supplemental attributes, or component graph behavior.
-      fallback: Use infrasys docs/source.
-    - name: python-developer
-      source: pesap/agents
-      use_when: Python typing, pytest, packaging, or implementation mechanics around r2x-core code.
-      fallback: Use project Python standards and local tests.
-    - name: data-model
-      source: pesap/agents
-      use_when: PluginConfig, Pydantic schemas, or typed configuration contracts.
-      fallback: Use Pydantic v2 docs and existing config models.
+description: >
+  Build, debug, review, and extend r2x-core translators and their public Python
+  APIs, including Plugin, PluginConfig, PluginContext, exposed transforms,
+  Rule and RuleFilter translation, DataFile/DataStore/DataReader ingestion,
+  HDF5 readers, unit-aware components, persistence, and upgrades. Use when a
+  task mentions r2x-core, model translation, parser or exporter plugins, rule
+  mappings, DataStore configuration, per-unit behavior, or r2x-core schema
+  upgrades. Do not use for standalone Python guidance or foundational infrasys
+  modeling with no r2x-core surface.
 ---
 
 # r2x-core
 
-Operational skill for r2x-core, the application translation layer on top of
-infrasys `System` / `Component` primitives.
+Operational guidance for the r2x-core translation layer on top of infrasys
+`System` and `Component` models. Treat the public API examples in
+[QUICKREF.md](./references/QUICKREF.md) as the first stop for every task. Load
+only the focused reference needed for the task.
 
-## Use when
+## Mental model
 
-- Authoring, debugging, or extending an r2x-core `Plugin` or translator.
-- Wiring `PluginConfig`, `PluginContext`, `@expose_plugin`, or entry points.
-- Designing or auditing declarative `Rule` mappings, `RuleFilter`
-  composition, or rule executor behavior.
-- Configuring a `DataStore`, `DataFile`, readers, processors, or HDF5 input.
-- Working with `Ok` / `Err` / `Result`, `RuleResult`, or `TranslationResult`.
-- Handling `HasUnits`, `HasPerUnit`, `UnitSystem`, or per-unit conversions.
-- Defining `UpgradeStep` chains, version readers, or dataset/schema upgrades.
-- Building r2x-core function transforms over infrasys systems.
-
-## Avoid when
-
-- The task is only about infrasys `System` / `Component` internals with no
-  r2x-core translator surface.
-- The task is generic Python packaging, CLI, docs, or testing with no
-  r2x-core surface area.
-- The task is purely an end-user model semantics question, such as PLEXOS XML
-  details, without touching the r2x-core translator boundary.
-
-## Companion skills
-
-Some tasks are better handled by a companion skill. Use a companion skill when
-it is available; otherwise stay in this skill and verify from the companion
-project's docs/source. The same companion list is also declared in frontmatter
-metadata for runtimes that can inspect skill metadata.
-
-| Task center                                                                                                            | Preferred companion | Fallback when unavailable                       |
-| ---------------------------------------------------------------------------------------------------------------------- | ------------------- | ----------------------------------------------- |
-| Pure `System` / `Component` modeling, serialization, time series, supplemental attributes, or component graph behavior | `infrasys`          | Use infrasys docs/source                        |
-| Python typing, pytest, packaging, or implementation mechanics around r2x-core code                                     | `python-developer`  | Use project Python standards and local tests    |
-| `PluginConfig`, Pydantic schemas, or typed configuration contracts                                                     | `data-model`        | Use Pydantic v2 docs and existing config models |
-
-If the runtime supports GitHub skill installation and the user/runtime permits
-installing external skills, install/select missing companion skills from the
-shared skills repository:
-
-```bash
-gh skill install pesap/agents
-# choose the companion skill named above
+```text
+input files -> DataStore/DataReader -> PluginContext -> Plugin lifecycle
+                                      -> Rule executor -> target System
+                                      -> persistence or export
 ```
 
-If both this skill and a companion apply, use this skill for the r2x-core
-translator boundary and the companion skill/docs for the underlying concern.
+- `PluginConfig` owns typed configuration and configuration-asset paths.
+- `PluginContext` owns shared mutable execution state: config, stores, systems,
+  rules, metadata, and version settings.
+- `Plugin` provides optional lifecycle hooks. Hooks return `rust_ok` results;
+  `Plugin.run()` updates the context and returns the context.
+- `Rule` declares source-to-target component construction. The executor reads
+  systems from the context and writes target components to the target system.
+- `DataFile` describes one input. `DataStore` groups file specifications and
+  `DataReader` performs the read and processing pipeline.
+- Domain `System` / `Component` semantics remain owned by infrasys and the
+  component package, not by this skill.
 
-## Read order
+## Public API routing
 
-Start here, then load only the focused reference needed for the task:
+Read [QUICKREF.md](./references/QUICKREF.md) first. Then route by task center:
 
-1. Fast API map: [references/QUICKREF.md](./references/QUICKREF.md)
-2. Cross-cutting contracts: [references/REFERENCE.md](./references/REFERENCE.md)
-3. API/source validation protocol: [references/DISCOVERY.md](./references/DISCOVERY.md)
-4. Plugin lifecycle: [references/PLUGINS.md](./references/PLUGINS.md)
-5. Rules: [references/RULES.md](./references/RULES.md)
-6. Data ingestion: [references/DATA_STORE.md](./references/DATA_STORE.md)
-7. Units: [references/UNITS.md](./references/UNITS.md)
-8. Versioning/upgrades: [references/VERSIONING_UPGRADES.md](./references/VERSIONING_UPGRADES.md)
-9. Shared utilities: [references/UTILITIES.md](./references/UTILITIES.md)
-10. Trigger checks: [evals/TRIGGER_PROMPTS.md](./evals/TRIGGER_PROMPTS.md)
+| Task center                                                 | Read                                                          |
+| ----------------------------------------------------------- | ------------------------------------------------------------- |
+| Plugin class, config, context, exposure, lifecycle          | [PLUGINS.md](./references/PLUGINS.md)                         |
+| Rule declarations, filters, getters, execution              | [RULES.md](./references/RULES.md)                             |
+| Files, readers, processors, HDF5, datastore                 | [DATA_STORE.md](./references/DATA_STORE.md)                   |
+| `Annotated` unit fields and display modes                   | [UNITS.md](./references/UNITS.md)                             |
+| Version strategies, `UpgradeStep`, coordinator              | [VERSIONING_UPGRADES.md](./references/VERSIONING_UPGRADES.md) |
+| Component extraction, creation, export, time-series helpers | [UTILITIES.md](./references/UTILITIES.md)                     |
+| Source/signature verification or docs drift                 | [DISCOVERY.md](./references/DISCOVERY.md)                     |
+| Logging levels, sinks, structured context, or diagnostics   | [LOGGING.md](./references/LOGGING.md)                         |
+| `r2x` CLI orchestration and plugin validation               | [R2X_CLI.md](./references/R2X_CLI.md)                         |
+| Cross-cutting design and failure contracts                  | [REFERENCE.md](./references/REFERENCE.md)                     |
 
-## Authoritative contracts
+## Public API rules
 
-- `Plugin.run(*, ctx: PluginContext | None = None) -> PluginContext` and
-  raises `PluginError` on hook `Err`.
-- `apply_rules_to_context(context: PluginContext) -> TranslationResult`.
-- `apply_single_rule(rule: Rule, *, context: PluginContext) -> Result[RuleApplicationStats, ValueError]`.
-- `DataStore.add_data(data_files: Sequence[DataFile], *, overwrite: bool = False) -> None`.
-- `run_upgrade_step(data, *, step: UpgradeStep, upgrader_context=None) -> Result[Any, str]`.
+Use these rules to prevent the unreliable call patterns this skill is intended
+to eliminate:
 
-## Do
+1. Import from `r2x_core` when the symbol is in `src/r2x_core/__init__.py`.
+   Do not invent a second abstraction or use private internals to avoid the
+   public API.
+2. Verify unfamiliar signatures against root exports, defining source, nearby
+   tests, and project docs. Source and tests outrank stale documentation.
+3. `Plugin.run()` returns `PluginContext`, not `Result`. It raises
+   `PluginError` when a hook returns `Err`.
+4. `apply_rules_to_context(context)` reads rules from `context.rules`; it does
+   not accept a second rules argument. `apply_single_rule(rule, *, context=...)`
+   takes the rule first and returns rule-application statistics in a `Result`.
+5. `DataFile` uses `info`, `reader`, and `proc_spec`. Its path source is exactly
+   one of `fpath`, `relative_fpath`, or `glob`. `DataStore.add_data(...)` takes a
+   sequence of files.
+6. `VersionReader` is a protocol. `UpgradeStep` uses `target_version` with
+   optional `min_version` and `max_version`; it does not use
+   `from_version`/`to_version` constructor fields.
+7. Use Pydantic v2 `PluginConfig` subclasses and explicit typed fields. Use
+   `Annotated[..., Field(...)]` for new modeled fields and
+   `Field(default_factory=...)` for mutable defaults.
+8. Use `Ok` / `Err` at recoverable boundaries. Branch on results explicitly; do
+   not unwrap live results, catch `Exception` broadly, or hide failures behind
+   `None`.
+9. Prefer domain models, protocols, named structured returns, and keyword-only
+   configuration over loose dictionaries, `object`, casual casts, and long
+   positional tuples.
+10. Use the repository logging policy. Loguru is disabled by default; every
+    application built on r2x-core should disable its own package namespace at
+    import time and enable it explicitly at the application boundary. Use
+    `setup_logging(...)` only there, select levels by operational meaning, and
+    keep diagnostics structured and non-sensitive.
+11. Test public behavior. Add a regression test for a bug, reuse repository
+    fixtures, and round-trip persistence changes through serialization.
 
-- Inspect installed source when exact signatures matter, especially after
-  r2x-core upgrades. Use `references/DISCOVERY.md`.
-- Keep configuration typed with `PluginConfig` subclasses, not loose dicts.
-- Implement only lifecycle hooks the translator actually needs.
-- Return `Ok(value)` / `Err(error)` from plugin hooks and upgrade helpers.
-- Put file-reading concerns at the `DataFile` / `DataStore` boundary.
-- Prefer declarative `Rule` + `RuleFilter` mapping over ad-hoc translator
-  branches when the mapping is data-shaped.
-- Round-trip produced systems through infrasys serialization when persistence
-  is part of the task.
-- Report which reference docs and source modules were decisive.
+## Minimal public examples
 
-## Don't
+A class plugin is constructed from a typed context and returns that context:
 
-- Do not call `apply_rules_to_context(context, rules)`. Attach rules to the
-  context, then call `apply_rules_to_context(context)`.
-- Do not call `apply_single_rule(context, rule)`. Use
-  `apply_single_rule(rule, context=context)`.
-- Do not treat `plugin.run()` as a `Result`; catch `PluginError` at the
-  orchestration boundary if needed.
-- Do not use `RuleFilter(lambda ...)`; use declarative field/op/value filters.
-- Do not pass `DataFile(reader_config=..., processing=..., file_info=...)`;
-  use `reader=...`, `proc_spec=...`, and `info=...` for current APIs.
-- Do not use `VersionReader(strategy=...)`; implement the protocol.
-- Do not define `UpgradeStep(from_version=..., to_version=...)`; use
-  `target_version` with optional `min_version` / `max_version`.
-- Do not add compatibility import fallbacks around `r2x_core` APIs in repo
-  code unless the user explicitly asks for multi-version support.
+```python
+from pydantic import Field
+from rust_ok import Ok, Result
+
+from r2x_core import Plugin, PluginConfig, PluginContext, System
+
+
+class BuildConfig(PluginConfig):
+    name: str = Field(default="demo", min_length=1, description="System name")
+
+
+class BuildPlugin(Plugin[BuildConfig]):
+    def on_build(self) -> Result[System, str]:
+        return Ok(System(name=self.config.name))
+
+
+context = PluginContext(config=BuildConfig(name="western_grid"))
+result_context = BuildPlugin.from_context(context).run()
+assert result_context.system is not None
+assert result_context.system.name == "western_grid"
+```
+
+A function transform is called explicitly. `@expose_plugin` marks the function;
+it does not wrap, instantiate, inject, or execute it:
+
+```python
+from pydantic import Field
+from rust_ok import Ok, Result
+
+from r2x_core import PluginConfig, System, expose_plugin
+
+
+class RenameConfig(PluginConfig):
+    suffix: str = Field(default="_v2", description="Suffix to append")
+
+
+@expose_plugin
+def rename_system(system: System, config: RenameConfig) -> Result[System, str]:
+    system.name = f"{system.name}{config.suffix}"
+    return Ok(system)
+```
 
 ## Workflow
 
-1. Classify the surface: plugin, rules, datastore, units, versioning,
-   function transforms, or infrasys boundary.
-2. Load the matching reference document from `references/`.
-3. Verify exact APIs from installed/project source when behavior is uncertain.
-4. Make the smallest change that preserves public translator contracts.
-5. Validate with targeted tests, source inspection, or round-trip checks.
-6. In the handoff, include touched surface, APIs validated, docs consulted,
-   result/error behavior, and any public symbols changed.
+1. **Classify the surface:** plugin, rules, data, units, persistence, or
+   upgrades. Keep pure infrasys work separate.
+2. **Inspect first:** read repository instructions, `pyproject.toml`, defining
+   source modules, adjacent tests, and relevant docs. Reproduce failures when
+   practical.
+3. **Confirm the contract:** inspect root exports and exact signatures. If the
+   installed package differs from the checkout, state which one is targeted.
+4. **Implement a small vertical slice:** keep configuration, domain models,
+   translator logic, and boundary serialization separate. Reuse existing APIs.
+5. **Validate narrowly, then expand:** run focused tests first, then the
+   repository's `just` target or required `prek`/pytest checks. Round-trip real
+   systems when persistence is involved.
+6. **Report evidence:** include public behaviors changed, exact commands and
+   outcomes, assumptions, and remaining risks.
 
-## Output expectations
+For logging changes, load [LOGGING.md](./references/LOGGING.md) and validate
+namespace disable/enable behavior, level filtering, sink behavior, structured
+fields, and exception output.
 
-- Surface touched: plugin / rules / store / units / versioning / transform.
-- Exact APIs inspected or called for validation.
-- Reference files consulted and why.
-- Result-type usage and error propagation decisions.
-- Persistence, upgrade, or round-trip checks performed when relevant.
-- Public symbols or entry points changed, including `__all__` when applicable.
+## Validation helpers
+
+Run these from the r2x-core checkout when appropriate:
+
+```bash
+uv run python skills/r2x-core/tools/check_api_symbols.py
+uv run python skills/r2x-core/tools/check_api_symbols.py --repo src/r2x_core
+uv run python skills/r2x-core/tools/inspect_plugins.py --group r2x_plugin
+uv run python skills/r2x-core/tools/check_data_store.py <data-root> --list-unknown
+```
+
+The API probe checks symbol presence, not semantics. The plugin probe inspects
+entry points in the active Python environment, not the repository source tree.
+This r2x-core checkout does not define an `r2x_plugin` entry point, so running the
+probe here without an installed translator should report no entries. Run it in
+the environment that contains the plugin package you want to inspect; otherwise
+that result is expected and not a discovery failure. The datastore probe
+classifies files; it cannot prove reader options or schema correctness.
+
+## Handoff
+
+- **Surface:** plugin, rules, data, units, persistence, upgrades, transform,
+  or logging.
+- **Contract:** public symbols and return/error behavior involved.
+- **Changes:** files and observable behavior.
+- **Validation:** exact commands and results.
+- **Risks:** source/docs mismatches, untested integrations, or follow-up work.

@@ -71,10 +71,11 @@ if result.is_err():
 generator = result.ok()
 ```
 
-Current root export signature is `create_component(component_class, **field_values)`
-with optional `skip_none` and `skip_validation` keyword controls. The important
-pattern is to keep component construction errors at a single typed boundary
-instead of scattering bare constructors through rules.
+Current root export signature is `create_component(component_class, *, skip_none=True,
+skip_validation=False, **field_values)`. It returns
+`Result[T, pydantic.ValidationError]`. The important pattern is to keep
+component construction errors at a single typed boundary instead of scattering
+bare constructors through rules.
 
 ### Getter helpers
 

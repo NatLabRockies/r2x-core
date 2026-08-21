@@ -724,15 +724,17 @@ def test_tabular_additional_operation_edges(sample_csv: Path):
     with pytest.raises(ValueError, match="requires at least one value"):
         pl_pivot_on(frame, data_file=data_file, proc_spec=TabularProcessing(pivot_on="year"))
     with pytest.raises(ValueError, match="one aggregation function"):
-        pl_pivot_on(
-            pl.LazyFrame({"region": ["west"], "year": [2020], "a": [1], "b": [2]}),
-            data_file=data_file,
-            proc_spec=TabularProcessing(
-                pivot_on="year",
-                group_by=["region"],
-                aggregate_on={"a": "sum", "b": "mean"},
-            ),
+        TabularProcessing(
+            pivot_on="year",
+            group_by=["region"],
+            aggregate_on={"a": "sum", "b": "mean"},
         )
+    valid_unpivot, _ = pl_unpivot_on(
+        pl.LazyFrame({"value": [1], "january": [2]}),
+        data_file=data_file,
+        proc_spec=TabularProcessing(unpivot_on=["value", "january"]),
+    )
+    assert valid_unpivot.collect().columns == ["variable", "value"]
     with pytest.raises(ValueError, match="overwrite"):
         pl_unpivot_on(
             pl.LazyFrame({"value": [1], "amount": [2]}),
@@ -740,10 +742,17 @@ def test_tabular_additional_operation_edges(sample_csv: Path):
             proc_spec=TabularProcessing(unpivot_on=["amount"]),
         )
 
-    mixed = pl.LazyFrame({"flag": [True, None], "when": [date.today(), None]})
+    today = date.today()
+    mixed = pl.LazyFrame({"flag": [True, None], "when": [today, None]})
     replace_spec = TabularProcessing(replace_values={True: False})
     replaced, _ = pl_replace_values(mixed, data_file=data_file, proc_spec=replace_spec)
     assert replaced.collect()["flag"].to_list() == [False, None]
+    temporal, _ = pl_replace_values(
+        pl.LazyFrame({"when": [today, None]}),
+        data_file=data_file,
+        proc_spec=TabularProcessing(replace_values={today: date(2000, 1, 1)}),
+    )
+    assert temporal.collect()["when"].to_list() == [date(2000, 1, 1), None]
     filled, _ = pl_fill_null(
         mixed, data_file=data_file, proc_spec=TabularProcessing(fill_null={"flag": False})
     )

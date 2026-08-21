@@ -27,7 +27,6 @@ See Also
 
 import re
 from collections.abc import Callable
-from numbers import Number
 from typing import Any
 
 import polars as pl
@@ -301,8 +300,6 @@ def pl_pivot_on(
         raise ValueError(f"pivot_on in {data_file.name!r} requires at least one value column")
 
     functions = {function.lower() for function in (proc_spec.aggregate_on or {}).values()}
-    if len(functions) > 1:
-        raise ValueError("pivot_on requires one aggregation function for all value columns")
     aggregate_function = next(iter(functions), "first")
     pivot_values = (
         data_frame.select(value_name).unique(maintain_order=True).collect().get_column(value_name).to_list()
@@ -350,7 +347,7 @@ def pl_unpivot_on(
     value_columns = list(dict.fromkeys(proc_spec.unpivot_on))
     _require_columns(schema_names, value_columns, operation="unpivot_on", data_file=data_file)
     index_columns = [column for column in schema_names if column not in value_columns]
-    output_collisions = sorted({"variable", "value"} & set(schema_names))
+    output_collisions = sorted({"variable", "value"} & set(index_columns))
     if output_collisions:
         raise ValueError(
             f"unpivot_on in {data_file.name!r} would overwrite existing column(s): {output_collisions}."
@@ -366,18 +363,19 @@ def pl_unpivot_on(
 
 
 def _compatible_replacements(mapping: dict[Any, Any], dtype: pl.DataType) -> dict[Any, Any]:
-    """Select replacement keys that can be compared with a column type."""
-    if dtype == pl.String:
-        return mapping
-    if dtype == pl.Boolean:
-        return {old: new for old, new in mapping.items() if old is None or isinstance(old, bool)}
-    if dtype.is_numeric():
-        return {
-            old: new
-            for old, new in mapping.items()
-            if old is None or (isinstance(old, Number) and not isinstance(old, bool))
-        }
-    return {old: new for old, new in mapping.items() if old is None}
+    """Select replacement keys that Polars can compare with a column type."""
+    compatible: dict[Any, Any] = {}
+    for old, new in mapping.items():
+        if old is None:
+            compatible[old] = new
+            continue
+        try:
+            converted = pl.Series("_replacement", [old]).cast(dtype, strict=False)
+        except (TypeError, ValueError, pl.exceptions.PolarsError):
+            continue
+        if converted.null_count() == 0:
+            compatible[old] = new
+    return compatible
 
 
 def pl_replace_values(

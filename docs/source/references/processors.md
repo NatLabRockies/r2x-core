@@ -54,7 +54,9 @@ aggregation functions are `count`, `first`, `last`, `max`, `mean`, `median`,
 `pivot_on` is mutually exclusive with `unpivot_on`. When it names an input
 column, it performs a long-to-wide pivot. `group_by` supplies identifier
 columns, `aggregate_on` supplies value columns and their aggregation function,
-and missing `group_by` infers identifiers from the remaining columns. When it
+and missing `group_by` infers identifiers from the remaining columns. A
+`pivot_on` configuration must use one aggregation function for all value
+columns. When it
 does not name an input column, it retains the existing compatibility behavior
 and stacks all input columns into one value column named by `pivot_on`.
 

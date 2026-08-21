@@ -154,6 +154,12 @@ class TabularProcessing(BaseModel):
         if self.aggregate_on and set(self.group_by or ()) & set(self.aggregate_on):
             overlapping = sorted(set(self.group_by or ()) & set(self.aggregate_on))
             raise ValueError(f"aggregate_on cannot aggregate group_by column(s): {overlapping}")
+        if self.pivot_on and self.aggregate_on:
+            pivot_functions = {
+                function.lower() for function in self.aggregate_on.values() if "{" not in function
+            }
+            if len(pivot_functions) > 1:
+                raise ValueError("pivot_on requires one aggregation function for all value columns")
         if self.aggregate_on:
             invalid = {
                 column: function

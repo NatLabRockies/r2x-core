@@ -126,7 +126,7 @@ def test_datafile_tabular_transformations(tmp_path):
             pivot_on="column_2",
             unpivot_on=None,
             group_by=["column_1"],
-            aggregate_on={"column_2": "sum", "column_3": "mean"},
+            aggregate_on={"column_2": "sum", "column_3": "sum"},
             sort_by={"column_1": "asc", "column_2": "desc"},
             distinct_on=["column_1"],
             replace_values={None: 0, "NaN": None},
@@ -145,7 +145,7 @@ def test_datafile_tabular_transformations(tmp_path):
     assert proc_spec.pivot_on == "column_2"
     assert proc_spec.unpivot_on is None
     assert proc_spec.group_by == ["column_1"]
-    assert proc_spec.aggregate_on == {"column_2": "sum", "column_3": "mean"}
+    assert proc_spec.aggregate_on == {"column_2": "sum", "column_3": "sum"}
     assert proc_spec.sort_by == {"column_1": "asc", "column_2": "desc"}
     assert proc_spec.distinct_on == ["column_1"]
     assert proc_spec.replace_values == {None: 0, "NaN": None}

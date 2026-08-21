@@ -282,6 +282,11 @@ def pl_pivot_on(
 
     value_name = proc_spec.pivot_on
     if value_name not in (schema_names or []):
+        if proc_spec.group_by or proc_spec.aggregate_on:
+            raise ValueError(
+                f"Legacy pivot_on={value_name!r} in {data_file.name!r} cannot be combined with "
+                "group_by or aggregate_on. Use a pivot_on column that exists in the input schema."
+            )
         logger.trace("Applying legacy pivot_on={} to {}", value_name, data_file.name)
         return data_frame.unpivot(value_name=value_name).select(value_name)
 

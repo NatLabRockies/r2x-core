@@ -723,6 +723,12 @@ def test_tabular_additional_operation_edges(sample_csv: Path):
     frame = pl.LazyFrame({"year": [2020, 2020]})
     with pytest.raises(ValueError, match="requires at least one value"):
         pl_pivot_on(frame, data_file=data_file, proc_spec=TabularProcessing(pivot_on="year"))
+    with pytest.raises(ValueError, match=r"Legacy pivot_on.*cannot be combined"):
+        pl_pivot_on(
+            pl.LazyFrame({"amount": [1]}),
+            data_file=data_file,
+            proc_spec=TabularProcessing(pivot_on="label", aggregate_on={"amount": "sum"}),
+        )
     with pytest.raises(ValueError, match="one aggregation function"):
         TabularProcessing(
             pivot_on="year",

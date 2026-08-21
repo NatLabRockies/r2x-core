@@ -56,9 +56,10 @@ column, it performs a long-to-wide pivot. `group_by` supplies identifier
 columns, `aggregate_on` supplies value columns and their aggregation function,
 and missing `group_by` infers identifiers from the remaining columns. A
 `pivot_on` configuration must use one aggregation function for all value
-columns. When it
-does not name an input column, it retains the existing compatibility behavior
-and stacks all input columns into one value column named by `pivot_on`.
+columns. When it does not name an input column, it retains the existing
+compatibility behavior and stacks all input columns into one value column named
+by `pivot_on`. The legacy form cannot be combined with `group_by` or
+`aggregate_on`.
 
 ## Value, null, sort, and distinct operations
 

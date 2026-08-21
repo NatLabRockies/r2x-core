@@ -121,15 +121,12 @@ def test_datafile_tabular_transformations(tmp_path):
             select_columns=["col1", "col2", "col3"],
             drop_columns=["col4"],
             column_mapping={"col1": "column_1", "col2": "column_2"},
-            rename_index="id",
             column_schema={"column_1": "int", "column_2": "int"},
             filter_by={"column_1": 1},
-            set_index="column_1",
-            reset_index=False,
-            pivot_on="column_2",
+            pivot_on="pivot_label",
             unpivot_on=None,
             group_by=["column_1"],
-            aggregate_on={"column_2": "sum", "column_3": "mean"},
+            aggregate_on={"column_2": "sum", "column_3": "sum"},
             sort_by={"column_1": "asc", "column_2": "desc"},
             distinct_on=["column_1"],
             replace_values={None: 0, "NaN": None},
@@ -143,15 +140,12 @@ def test_datafile_tabular_transformations(tmp_path):
     assert proc_spec.select_columns == ["col1", "col2", "col3"]
     assert proc_spec.drop_columns == ["col4"]
     assert proc_spec.column_mapping == {"col1": "column_1", "col2": "column_2"}
-    assert proc_spec.rename_index == "id"
     assert proc_spec.column_schema == {"column_1": "int", "column_2": "int"}
     assert proc_spec.filter_by == {"column_1": 1}
-    assert proc_spec.set_index == "column_1"
-    assert proc_spec.reset_index is False
-    assert proc_spec.pivot_on == "column_2"
+    assert proc_spec.pivot_on == "pivot_label"
     assert proc_spec.unpivot_on is None
     assert proc_spec.group_by == ["column_1"]
-    assert proc_spec.aggregate_on == {"column_2": "sum", "column_3": "mean"}
+    assert proc_spec.aggregate_on == {"column_2": "sum", "column_3": "sum"}
     assert proc_spec.sort_by == {"column_1": "asc", "column_2": "desc"}
     assert proc_spec.distinct_on == ["column_1"]
     assert proc_spec.replace_values == {None: 0, "NaN": None}

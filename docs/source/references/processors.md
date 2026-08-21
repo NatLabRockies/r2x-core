@@ -1,158 +1,117 @@
 # Data Processors
 
-Data processors are used internally by the DataReader to apply transformations to data files based on specifications in DataFile configurations. These transformations are applied automatically and do not need to be called directly.
+`DataReader` applies `TabularProcessing` to Polars `LazyFrame` inputs after a
+file is read. Operations remain lazy where Polars supports lazy execution. A
+long-to-wide `pivot_on` performs a small discovery collection of distinct pivot
+keys because Polars requires those output columns before constructing its lazy
+pivot plan.
 
-## Usage Examples
+## Fixed tabular operation order
 
-### Automatic Transformation
+Operations always run in this order:
 
-Transformations are applied automatically by DataReader:
+1. Lowercase column names and string values.
+2. Drop columns with `drop_columns`.
+3. Rename columns with `column_mapping`.
+4. Replace values with `replace_values`.
+5. Cast columns with `column_schema`.
+6. Fill nulls with `fill_null`.
+7. Filter rows with `filter_by`.
+8. Reshape with `unpivot_on` or `pivot_on`.
+9. Group and aggregate with `group_by` and `aggregate_on`.
+10. Deduplicate with `distinct_on`.
+11. Sort with `sort_by`.
+12. Select final columns with `select_columns`.
+
+Column references are checked against the schema at the point where each
+operation runs. Errors identify the operation, missing columns, and available
+columns. Column names in configuration should be lowercase because lowercasing
+is the first operation.
+
+## Reshaping and aggregation
+
+`unpivot_on` is the explicit wide-to-long operation. Its listed columns become
+values, all remaining columns remain identifiers, and the output columns are
+`variable` and `value`:
 
 ```python
-from pathlib import Path
-from r2x_core import DataReader, DataFile, TabularProcessing
+from r2x_core import DataFile, TabularProcessing
 
-# Define data file with transformations
-data_file = DataFile(
-    name="generators",
-    fpath=Path("data/generators.csv"),
-    proc_spec=TabularProcessing(
-        drop_columns=["old_col"],
-        column_mapping={"gen_id": "id", "gen_name": "name"},
-        column_schema={"capacity": "Float64", "year": "Int64"},
-        filter_by={"year": 2030},
-        select_columns=["capacity", "name"],
-    ),
+processing = TabularProcessing(
+    unpivot_on=["january", "february"],
+    group_by=["region", "variable"],
+    aggregate_on={"value": "sum"},
+    sort_by={"value": "descending"},
 )
-
-# Transformations applied automatically
-reader = DataReader()
-data = reader.read_data_file(folder=".", data_file=data_file)
-# Returns transformed LazyFrame with dropped columns, renamed, cast, filtered, and selected
+file_spec = DataFile(name="monthly", relative_fpath="monthly.csv", proc_spec=processing)
 ```
 
-### Manual Transformation
+Aggregation runs after reshaping. `group_by` requires `aggregate_on`, and an
+aggregation without `group_by` produces one aggregate row. Supported
+aggregation functions are `count`, `first`, `last`, `max`, `mean`, `median`,
+`min`, `n_unique`, `std`, `sum`, and `var`.
+
+`pivot_on` is mutually exclusive with `unpivot_on`. When it names an input
+column, it performs a long-to-wide pivot. `group_by` supplies identifier
+columns, `aggregate_on` supplies value columns and their aggregation function,
+and missing `group_by` infers identifiers from the remaining columns. A
+`pivot_on` configuration must use one aggregation function for all value
+columns. When it does not name an input column, it retains the existing
+compatibility behavior and stacks all input columns into one value column named
+by `pivot_on`. The legacy form cannot be combined with `group_by` or
+`aggregate_on`.
+
+## Value, null, sort, and distinct operations
 
 ```python
-from r2x_core.processors import process_tabular_data
-import polars as pl
-
-# Load raw data
-df = pl.scan_csv("data/generators.csv")
-
-# Apply transformations manually
-transformed = process_tabular_data(data_file, df)
-
-# Collect results
-result = transformed.collect()
+processing = TabularProcessing(
+    replace_values={"n/a": None, "west": "western"},
+    fill_null={"capacity": 0},
+    distinct_on=["region", "technology"],
+    sort_by={"region": "asc", "capacity": "desc"},
+)
 ```
 
-### Custom Transformation
+Sort directions are `asc`, `ascending`, `desc`, and `descending`.
+`replace_values` is applied to compatible columns, so a string replacement does
+not fail on unrelated numeric columns.
 
-Register a custom transformation for a new data type:
+## Placeholders
+
+Placeholders may be used in processing values, including filters and
+transformation settings:
 
 ```python
-from r2x_core.processors import register_transformation
-from r2x_core import DataFile
-
-class MyDataType:
-    def __init__(self, data):
-        self.data = data
-
-def transform_my_data(data_file: DataFile, data: MyDataType) -> MyDataType:
-    """Custom transformation for MyDataType."""
-    # Apply transformations
-    transformed_data = data.data.upper()
-    return MyDataType(transformed_data)
-
-# Register the transformation
-register_transformation(MyDataType, transform_my_data)
-
-# Now apply_processing will use it automatically
-from r2x_core.processors import apply_processing
-
-my_data = MyDataType("hello")
-transformed = apply_processing(data_file, my_data)
+processing = TabularProcessing(
+    filter_by={"year": "{solve_year}"},
+    sort_by={"capacity": "{sort_direction}"},
+)
+store.read_data(
+    "generators",
+    placeholders={"solve_year": 2030, "sort_direction": "desc"},
+)
 ```
 
-### Polars Filter Expressions
+A missing placeholder or a placeholder that resolves to an invalid operation
+returns an explicit processing error. Pandas-style `set_index`, `reset_index`,
+and `rename_index` fields are not supported because the public tabular result
+is a Polars frame; supplying them is rejected during configuration validation.
 
-Build custom filter expressions:
+## JSON processing
+
+JSON processing has a separate pipeline for nested JSON values:
 
 ```python
-from r2x_core.processors import pl_build_filter_expr
-import polars as pl
+from r2x_core import JSONProcessing
 
-# Simple value filter
-expr1 = pl_build_filter_expr("year", 2030)
-# Returns: pl.col("year") == 2030
-
-# List filter (IN)
-expr2 = pl_build_filter_expr("status", ["active", "planned"])
-# Returns: pl.col("status").is_in(["active", "planned"])
-
-# Datetime year filter
-expr3 = pl_build_filter_expr("datetime", 2030)
-# Returns: pl.col("datetime").dt.year() == 2030
-
-# Datetime year list filter
-expr4 = pl_build_filter_expr("datetime", [2030, 2035, 2040])
-# Returns: pl.col("datetime").dt.year().is_in([2030, 2035, 2040])
-
-# Apply filters to dataframe
-df = pl.scan_csv("data.csv")
-filtered = df.filter(expr1 & expr2)
+processing = JSONProcessing(
+    key_mapping={"old_name": "name"},
+    drop_keys=["internal_id"],
+    filter_by={"status": "active"},
+    select_keys=["name", "status"],
+)
 ```
 
-## Type System
-
-The processors use Polars type strings for schema casting:
-
-```python
-# Schema mapping in DataFile
-schema = {
-    "capacity": "Float64",      # Float
-    "year": "Int64",            # Integer
-    "name": "Utf8",             # String
-    "active": "Boolean",        # Boolean
-    "date": "Date",             # Date
-    "datetime": "Datetime",     # Datetime
-}
-
-processing = TabularProcessing(column_schema=schema)
-```
-
-Supported Polars types include:
-
-- Numeric: Int8, Int16, Int32, Int64, UInt8, UInt16, UInt32, UInt64, Float32, Float64
-- String: Utf8, Categorical
-- Boolean: Boolean
-- Temporal: Date, Datetime, Duration, Time
-- Complex: List, Struct
-
-## Functional Design
-
-The processors module uses functional programming patterns:
-
-- **Pure functions**: All transformations are side-effect free
-- **Partial application**: Bind DataFile to create reusable transforms
-- **Function composition**: Pipeline multiple transformations
-- **Single dispatch**: Automatic selection based on type
-
-```python
-from functools import partial
-from r2x_core.processors import pl_lowercase, pl_drop_columns
-
-# Create bound transformation
-lowercase_transform = partial(pl_lowercase, data_file)
-
-# Apply to multiple dataframes
-df1_transformed = lowercase_transform(df1)
-df2_transformed = lowercase_transform(df2)
-```
-
-## See Also
-
-- {doc}`../how-tos/read-data-files` - Data reading guide
-- {doc}`./file-formats` - File format configuration
-- {doc}`./models` - DataFile model reference
+See {py:class}`~r2x_core.TabularProcessing`,
+{py:class}`~r2x_core.JSONProcessing`, and
+{py:func}`~r2x_core.processors.process_tabular_data` for the public API.

@@ -97,30 +97,28 @@ class TabularProcessing(BaseModel):
         List of column names to remove.
     column_mapping : dict[str, str] | None
         Maps original column names to new names.
-    rename_index : str | None
-        New name for the index.
     column_schema : dict[str, str] | None
         Maps column names to data types for type coercion.
     filter_by : dict[str, Any] | None
         Conditions for filtering rows by column values.
-    set_index : str | None
-        Column name to use as the index.
-    reset_index : bool | None
-        If True, converts index to a regular column.
     pivot_on : str | None
-        Column to pivot on for reshaping data.
+        Long-to-wide pivot column. If it does not name an input column, the
+        legacy wide-to-long transformation stacks all input columns into one
+        value column with this name.
     unpivot_on : list[str] | None
-        Columns to unpivot for reshaping data.
+        Value columns to unpivot. Remaining columns are retained as identifier
+        columns, and the generated columns are named ``variable`` and ``value``.
     group_by : list[str] | None
-        Columns to group by for aggregation.
+        Columns to group by before applying ``aggregate_on``.
     aggregate_on : dict[str, str] | None
-        Mapping of columns to aggregation functions.
+        Mapping of columns to supported aggregation functions.
     sort_by : dict[str, str] | None
-        Columns and sort directions for ordering.
+        Columns and sort directions for ordering. Directions are ``asc`` or
+        ``desc`` (the ``ascending`` and ``descending`` aliases are also accepted).
     distinct_on : list[str] | None
         Columns to use for deduplication.
     replace_values : dict[Any, Any] | None
-        Maps old values to new values for replacement.
+        Maps old values to new values across compatible columns.
     fill_null : dict[str, Any] | None
         Specifies fill values for null entries by column.
 
@@ -133,12 +131,9 @@ class TabularProcessing(BaseModel):
     select_columns: Annotated[list[str] | None, Field(description="Columns to keep")] = None
     drop_columns: Annotated[list[str] | None, Field(description="Columns to remove")] = None
     column_mapping: Annotated[dict[str, str] | None, Field(description="Column rename mapping")] = None
-    rename_index: Annotated[str | None, Field(description="Rename the index")] = None
     column_schema: Annotated[dict[str, str] | None, Field(description="Column type definitions")] = None
     filter_by: Annotated[dict[str, Any] | None, Field(description="Row filters")] = None
-    set_index: Annotated[str | None, Field(description="Column to set as index")] = None
-    reset_index: Annotated[bool | None, Field(description="Convert index to column")] = None
-    pivot_on: Annotated[str | None, Field(description="Column to pivot on")] = None
+    pivot_on: Annotated[str | None, Field(description="Pivot column or legacy value column")] = None
     unpivot_on: Annotated[list[str] | None, Field(description="Columns to unpivot")] = None
     group_by: Annotated[list[str] | None, Field(description="Columns to group by")] = None
     aggregate_on: Annotated[dict[str, str] | None, Field(description="Aggregation spec")] = None
@@ -146,6 +141,69 @@ class TabularProcessing(BaseModel):
     distinct_on: Annotated[list[str] | None, Field(description="Columns for deduplication")] = None
     replace_values: Annotated[dict[Any, Any] | None, Field(description="Value replacement map")] = None
     fill_null: Annotated[dict[str, Any] | None, Field(description="Null fill values")] = None
+
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def validate_operations(self) -> "TabularProcessing":
+        """Reject ambiguous operation combinations and invalid options."""
+        if self.pivot_on and self.unpivot_on:
+            raise ValueError("pivot_on and unpivot_on are mutually exclusive")
+        if self.group_by and not self.aggregate_on:
+            raise ValueError("group_by requires aggregate_on")
+        if self.pivot_on and self.pivot_on in (self.group_by or ()):
+            raise ValueError("pivot_on cannot also be a group_by column")
+        if self.pivot_on and self.pivot_on in (self.aggregate_on or ()):
+            raise ValueError("pivot_on cannot also be an aggregate_on column")
+        if self.aggregate_on and set(self.group_by or ()) & set(self.aggregate_on):
+            overlapping = sorted(set(self.group_by or ()) & set(self.aggregate_on))
+            raise ValueError(f"aggregate_on cannot aggregate group_by column(s): {overlapping}")
+        if self.pivot_on and self.aggregate_on:
+            pivot_functions = {
+                function.lower() for function in self.aggregate_on.values() if "{" not in function
+            }
+            if len(pivot_functions) > 1:
+                raise ValueError("pivot_on requires one aggregation function for all value columns")
+        if self.aggregate_on:
+            invalid = {
+                column: function
+                for column, function in self.aggregate_on.items()
+                if "{" not in function
+                and function.lower()
+                not in {
+                    "count",
+                    "first",
+                    "last",
+                    "max",
+                    "mean",
+                    "median",
+                    "min",
+                    "n_unique",
+                    "std",
+                    "sum",
+                    "var",
+                }
+            }
+            if invalid:
+                raise ValueError(
+                    "Unsupported aggregation function(s): "
+                    + ", ".join(f"{column}={function!r}" for column, function in invalid.items())
+                    + ". Supported functions: count, first, last, max, mean, median, min, n_unique, std, sum, var."
+                )
+        if self.sort_by:
+            invalid_directions = {
+                column: direction
+                for column, direction in self.sort_by.items()
+                if "{" not in direction
+                and direction.lower() not in {"asc", "ascending", "desc", "descending"}
+            }
+            if invalid_directions:
+                raise ValueError(
+                    "Unsupported sort direction(s): "
+                    + ", ".join(f"{column}={direction!r}" for column, direction in invalid_directions.items())
+                    + ". Use asc, ascending, desc, or descending."
+                )
+        return self
 
 
 class JSONProcessing(BaseModel):

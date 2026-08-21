@@ -11,9 +11,9 @@ and `DataStore`.
   `glob`.
 - `FileInfo(description=None, is_input=True, is_optional=False, is_timeseries=False, units=None)`
 - `ReaderConfig(kwargs: dict[str, Any] = ..., function: Callable[..., Any] | None = None)`
-- `TabularProcessing(...)` declares many fields, but current tabular execution
-  applies only lowercase, drop, rename, pivot, cast, filter, and select unless
-  source has added more transformations.
+- `TabularProcessing(...)` executes a fixed lazy pipeline of lowercase, drop,
+  rename, replacement, cast, null filling, filtering, reshape, aggregation,
+  deduplication, sorting, and selection operations.
 - `JSONProcessing(...)` supports key mapping, key selection/drop, filtering, and
   value replacement specs.
 - `DataReader.read_data_file(data_file, *, folder_path, placeholders=None) -> Any`
@@ -187,11 +187,15 @@ The tabular pipeline lowercases string values and column names before applying
 other transformations. Use lowercase column names and string filter values in
 `proc_spec` unless source behavior changes.
 
-Currently executed fields in the tabular pipeline are `drop_columns`,
-`column_mapping`, `pivot_on`, `column_schema`, `filter_by`, and
-`select_columns` (after automatic lowercasing). Other declared fields may
-validate without being executed; inspect `r2x_core.processors` before relying on
-one.
+Tabular operations run after automatic lowercasing in this order:
+`drop_columns`, `column_mapping`, `replace_values`, `column_schema`,
+`fill_null`, `filter_by`, `unpivot_on` or `pivot_on`, `group_by` plus
+`aggregate_on`, `distinct_on`, `sort_by`, and `select_columns`. `pivot_on`
+performs a long-to-wide pivot when it names an input column and retains the
+legacy wide-to-long behavior otherwise. Referenced
+columns and aggregation functions are validated with explicit errors. The
+pandas-style `set_index`, `reset_index`, and `rename_index` options are
+unsupported and rejected rather than ignored.
 
 ## JSONProcessing
 
@@ -344,7 +348,9 @@ JSON unless you need a stable external config artifact.
 - Processing fails:
   - Validate `proc_spec` field names against `TabularProcessing` or
     `JSONProcessing`.
-  - Pass required `placeholders` at read time.
+  - Check the documented tabular operation order and referenced columns.
+  - Pass required `placeholders` at read time. Placeholders can parameterize
+    filter and tabular transformation values.
 - JSON mapping load fails:
   - Confirm the mapping file is a JSON array.
   - Confirm each record has `fpath` for current `from_record(...)` behavior.

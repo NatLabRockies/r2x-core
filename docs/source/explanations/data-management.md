@@ -92,17 +92,17 @@ declaratively through {py:class}`~r2x_core.TabularProcessing` and
 ### Processing Pipeline Order
 
 1. **File Selection**: Locate the file (absolute path, relative path, or glob
-   pattern)
-2. **Reading**: Use reader (default or custom) with specified kwargs
-3. **Transformations**: Apply processing operations in sequence:
-   - Column/key selection
-   - Filtering
-   - Type coercion
-   - Reshaping (pivot, unpivot)
-   - Aggregation
-   - Sorting and deduplication
-   - Value replacement
-   - Null handling
+   pattern).
+2. **Reading**: Use the configured reader with its keyword arguments.
+3. **Tabular transformations**: Lowercase names and string values, drop columns,
+   rename columns, replace values, cast types, fill nulls, filter rows, reshape,
+   aggregate, deduplicate, sort, and select final columns.
+
+The tabular order is fixed and documented in {doc}`../references/processors`.
+`unpivot_on` runs before grouping and aggregation, which supports grouped
+long-form normalization. `pivot_on` performs a long-to-wide pivot when it
+names an input column and retains the legacy wide-to-long behavior for existing
+mappings otherwise. It cannot be combined with `unpivot_on`.
 
 Each step builds on previous ones. The design ensures transformations are
 readable (looking at a processing spec tells you exactly what happens to the

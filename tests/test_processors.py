@@ -101,16 +101,14 @@ def test_pl_drop_columns_removes_existing(sample_csv: Path):
     assert "age" in result.columns
 
 
-def test_pl_drop_columns_noop_on_missing(sample_csv: Path):
-    """Test that drop_columns is a no-op for non-existent columns."""
+def test_pl_drop_columns_missing_column_is_explicit_error(sample_csv: Path):
+    """Test that missing drop columns fail with an actionable error."""
     lf = pl.scan_csv(sample_csv)
     proc_spec = TabularProcessing(drop_columns=["nonexistent"])
     df_file = DataFile(name="test", fpath=sample_csv, proc_spec=proc_spec)
 
-    result, _ = pl_drop_columns(lf, data_file=df_file, proc_spec=proc_spec)
-    result = result.collect()
-
-    assert set(result.columns) == set(pl.scan_csv(sample_csv).collect().columns)
+    with pytest.raises(ValueError, match=r"drop_columns.*nonexistent"):
+        pl_drop_columns(lf, data_file=df_file, proc_spec=proc_spec)
 
 
 def test_pl_rename_columns_renames_existing(sample_csv: Path):
@@ -128,16 +126,14 @@ def test_pl_rename_columns_renames_existing(sample_csv: Path):
     assert "age" not in result.columns
 
 
-def test_pl_rename_columns_noop_on_missing(sample_csv: Path):
-    """Test that column_mapping is a no-op for non-existent columns."""
+def test_pl_rename_columns_missing_column_is_explicit_error(sample_csv: Path):
+    """Test that missing rename columns fail with an actionable error."""
     lf = pl.scan_csv(sample_csv)
     proc_spec = TabularProcessing(column_mapping={"nonexistent": "new_name"})
     df_file = DataFile(name="test", fpath=sample_csv, proc_spec=proc_spec)
 
-    result, _ = pl_rename_columns(lf, data_file=df_file, proc_spec=proc_spec)
-    result = result.collect()
-
-    assert set(result.columns) == set(pl.scan_csv(sample_csv).collect().columns)
+    with pytest.raises(ValueError, match=r"column_mapping.*nonexistent"):
+        pl_rename_columns(lf, data_file=df_file, proc_spec=proc_spec)
 
 
 def test_pl_cast_schema_casts_columns(sample_csv: Path):
@@ -260,10 +256,10 @@ def test_json_apply_filters_with_list_of_dicts(sample_json_file: Path):
     assert result[1]["name"] == "Bob"
 
 
-def test_pl_select_columns_with_index(sample_csv: Path):
-    """Test select_columns with set_index."""
+def test_pl_select_columns(sample_csv: Path):
+    """Test select_columns."""
     lf = pl.scan_csv(sample_csv)
-    proc_spec = TabularProcessing(select_columns=["name", "age"], set_index="name")
+    proc_spec = TabularProcessing(select_columns=["name", "age"])
     df_file = DataFile(name="test", fpath=sample_csv, proc_spec=proc_spec)
 
     from r2x_core.processors import pl_select_columns
@@ -274,18 +270,16 @@ def test_pl_select_columns_with_index(sample_csv: Path):
     assert set(result.columns) == {"name", "age"}
 
 
-def test_pl_select_columns_empty_selection(sample_csv: Path):
-    """Test select_columns with columns not in frame."""
+def test_pl_select_columns_missing_column_is_explicit_error(sample_csv: Path):
+    """Test that missing selected columns fail with an actionable error."""
     lf = pl.scan_csv(sample_csv)
     proc_spec = TabularProcessing(select_columns=["nonexistent"])
     df_file = DataFile(name="test", fpath=sample_csv, proc_spec=proc_spec)
 
     from r2x_core.processors import pl_select_columns
 
-    result, _ = pl_select_columns(lf, data_file=df_file, proc_spec=proc_spec)
-
-    # Should return unchanged - verify by collecting and checking
-    assert result.collect().equals(lf.collect())
+    with pytest.raises(ValueError, match=r"select_columns.*nonexistent"):
+        pl_select_columns(lf, data_file=df_file, proc_spec=proc_spec)
 
 
 def test_pl_apply_filters_no_filters(sample_csv: Path):
@@ -314,16 +308,14 @@ def test_pl_drop_columns_all_removed(sample_csv: Path):
     assert len(new_names) == 0
 
 
-def test_pl_cast_schema_invalid_column(sample_csv: Path):
-    """Test cast_schema with column not in dataframe."""
+def test_pl_cast_schema_missing_column_is_explicit_error(sample_csv: Path):
+    """Test that missing cast columns fail with an actionable error."""
     lf = pl.scan_csv(sample_csv)
     proc_spec = TabularProcessing(column_schema={"nonexistent": "int32"})
     df_file = DataFile(name="test", fpath=sample_csv, proc_spec=proc_spec)
 
-    result, _ = pl_cast_schema(lf, data_file=df_file, proc_spec=proc_spec)
-    result = result.collect()
-
-    assert result is not None
+    with pytest.raises(ValueError, match=r"column_schema.*nonexistent"):
+        pl_cast_schema(lf, data_file=df_file, proc_spec=proc_spec)
 
 
 def test_apply_processing_with_no_proc_spec(sample_csv: Path):
@@ -372,6 +364,39 @@ def test_apply_processing_placeholder_error(sample_csv: Path):
 
     result = apply_processing(lf, data_file=df_file, proc_spec=proc_spec, placeholders={"year": 2030})
     assert result.is_err()
+
+
+def test_apply_processing_substitutes_transformation_values(sample_csv: Path):
+    """Substitute placeholders in non-filter tabular operations."""
+    from r2x_core.processors import apply_processing
+
+    lf = pl.LazyFrame({"name": ["a", "b"], "amount": [1, 2]})
+    df_file = DataFile(name="test", fpath=sample_csv)
+    proc_spec = TabularProcessing(sort_by={"amount": "{direction}"})
+
+    result = apply_processing(
+        lf,
+        data_file=df_file,
+        proc_spec=proc_spec,
+        placeholders={"direction": "desc"},
+    )
+    assert result.is_ok()
+    assert result.unwrap().collect()["amount"].to_list() == [2, 1]
+
+
+def test_apply_processing_rejects_invalid_substituted_transformation(sample_csv: Path):
+    """Return a Result error when a placeholder resolves to invalid settings."""
+    from r2x_core.processors import apply_processing
+
+    proc_spec = TabularProcessing(sort_by={"amount": "{direction}"})
+    result = apply_processing(
+        pl.LazyFrame({"amount": [1]}),
+        data_file=DataFile(name="test", fpath=sample_csv),
+        proc_spec=proc_spec,
+        placeholders={"direction": "sideways"},
+    )
+    assert result.is_err()
+    assert "Invalid processing specification" in str(result.err())
 
 
 def test_json_select_columns_with_nested_list(sample_json_file: Path):
@@ -528,16 +553,112 @@ def test_substitute_placeholders_list_error_propagation():
     assert "missing" in str(result.err())
 
 
-def test_pl_apply_filters_column_not_in_schema(sample_csv: Path):
-    """Test pl_apply_filters returns unchanged when filter column not in schema."""
+def test_pl_apply_filters_missing_column_is_explicit_error(sample_csv: Path):
+    """Test that missing filter columns fail with an actionable error."""
     lf = pl.scan_csv(sample_csv)
     proc_spec = TabularProcessing(filter_by={"nonexistent_column": "value"})
     df_file = DataFile(name="test", fpath=sample_csv, proc_spec=proc_spec)
 
-    result, _ = pl_apply_filters(lf, data_file=df_file, proc_spec=proc_spec)
-    result = result.collect()
+    with pytest.raises(ValueError, match=r"filter_by.*nonexistent_column"):
+        pl_apply_filters(lf, data_file=df_file, proc_spec=proc_spec)
 
-    assert result.equals(lf.collect())
+
+def test_tabular_value_transformations(sample_csv: Path):
+    """Apply replacement, null filling, sorting, and deduplication."""
+    from r2x_core.processors import process_tabular_data
+
+    frame = pl.LazyFrame({"region": ["West", "West", "East"], "value": [None, 2, 1]})
+    proc_spec = TabularProcessing(
+        replace_values={"west": "north"},
+        fill_null={"value": 0},
+        distinct_on=["region", "value"],
+        sort_by={"value": "descending"},
+        select_columns=["region", "value"],
+    )
+    data_file = DataFile(name="values", fpath=sample_csv, proc_spec=proc_spec)
+
+    result = process_tabular_data(frame, data_file=data_file, proc_spec=proc_spec).collect()
+    assert result.to_dicts() == [
+        {"region": "north", "value": 2},
+        {"region": "east", "value": 1},
+        {"region": "north", "value": 0},
+    ]
+
+
+def test_tabular_long_to_wide_pivot(sample_csv: Path):
+    """Pivot long-form rows using grouped value aggregation."""
+    from r2x_core.processors import process_tabular_data
+
+    frame = pl.LazyFrame(
+        {
+            "region": ["West", "West", "West"],
+            "year": [2020, 2020, 2021],
+            "amount": [1, 2, 3],
+        }
+    )
+    proc_spec = TabularProcessing(
+        pivot_on="year",
+        group_by=["region"],
+        aggregate_on={"amount": "sum"},
+    )
+    data_file = DataFile(name="annual", fpath=sample_csv, proc_spec=proc_spec)
+
+    result = process_tabular_data(frame, data_file=data_file, proc_spec=proc_spec).collect()
+    assert result.to_dicts() == [{"region": "west", "2021": 3, "2020": 3}]
+
+
+def test_tabular_unpivot_group_aggregate_pipeline(sample_csv: Path):
+    """Compose unpivot, grouping, aggregation, sorting, and selection."""
+    from r2x_core.processors import process_tabular_data
+
+    frame = pl.LazyFrame(
+        {
+            "region": ["West", "West", "East"],
+            "jan": [1, 3, 2],
+            "feb": [2, 1, 4],
+        }
+    )
+    proc_spec = TabularProcessing(
+        unpivot_on=["jan", "feb"],
+        group_by=["region", "variable"],
+        aggregate_on={"value": "sum"},
+        sort_by={"value": "descending"},
+        select_columns=["region", "variable", "value"],
+    )
+    data_file = DataFile(name="monthly", fpath=sample_csv, proc_spec=proc_spec)
+
+    result = process_tabular_data(frame, data_file=data_file, proc_spec=proc_spec).collect()
+    assert result["value"].to_list() == [4, 4, 3, 2]
+    assert {tuple(row.values()) for row in result.to_dicts()} == {
+        ("east", "feb", 4),
+        ("west", "jan", 4),
+        ("west", "feb", 3),
+        ("east", "jan", 2),
+    }
+
+
+def test_tabular_processing_rejects_invalid_aggregation():
+    """Reject unsupported aggregation functions during configuration validation."""
+    with pytest.raises(ValueError, match="Unsupported aggregation function"):
+        TabularProcessing(aggregate_on={"value": "average"})
+
+
+def test_tabular_processing_rejects_unsupported_index_configuration():
+    """Reject pandas index settings that Polars cannot represent."""
+    with pytest.raises(ValueError, match="extra_forbidden"):
+        TabularProcessing(set_index="id")
+
+
+def test_tabular_processing_rejects_invalid_combinations():
+    """Reject ambiguous reshape and aggregation configurations."""
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        TabularProcessing(pivot_on="year", unpivot_on=["amount"])
+    with pytest.raises(ValueError, match="requires aggregate_on"):
+        TabularProcessing(group_by=["region"])
+    with pytest.raises(ValueError, match="group_by column"):
+        TabularProcessing(group_by=["region"], aggregate_on={"region": "count"})
+    with pytest.raises(ValueError, match="sort direction"):
+        TabularProcessing(sort_by={"value": "sideways"})
 
 
 def test_json_apply_filters_passthrough_non_dict_list(sample_json_file: Path):
@@ -582,6 +703,70 @@ def test_json_select_keys_passthrough_non_dict_list(sample_json_file: Path):
 
     result = json_select_keys(cast(Any, 42), data_file=df_file, proc_spec=proc_spec)
     assert result == 42
+
+
+def test_tabular_additional_operation_edges(sample_csv: Path):
+    """Cover direct operation calls and explicit operation errors."""
+    from datetime import date
+
+    from r2x_core.processors import (
+        pl_aggregate,
+        pl_fill_null,
+        pl_pivot_on,
+        pl_rename_columns,
+        pl_replace_values,
+        pl_sort,
+        pl_unpivot_on,
+    )
+
+    data_file = DataFile(name="edges", fpath=sample_csv)
+    frame = pl.LazyFrame({"year": [2020, 2020]})
+    with pytest.raises(ValueError, match="requires at least one value"):
+        pl_pivot_on(frame, data_file=data_file, proc_spec=TabularProcessing(pivot_on="year"))
+    with pytest.raises(ValueError, match="one aggregation function"):
+        pl_pivot_on(
+            pl.LazyFrame({"region": ["west"], "year": [2020], "a": [1], "b": [2]}),
+            data_file=data_file,
+            proc_spec=TabularProcessing(
+                pivot_on="year",
+                group_by=["region"],
+                aggregate_on={"a": "sum", "b": "mean"},
+            ),
+        )
+    with pytest.raises(ValueError, match="overwrite"):
+        pl_unpivot_on(
+            pl.LazyFrame({"value": [1], "amount": [2]}),
+            data_file=data_file,
+            proc_spec=TabularProcessing(unpivot_on=["amount"]),
+        )
+
+    mixed = pl.LazyFrame({"flag": [True, None], "when": [date.today(), None]})
+    replace_spec = TabularProcessing(replace_values={True: False})
+    replaced, _ = pl_replace_values(mixed, data_file=data_file, proc_spec=replace_spec)
+    assert replaced.collect()["flag"].to_list() == [False, None]
+    filled, _ = pl_fill_null(
+        mixed, data_file=data_file, proc_spec=TabularProcessing(fill_null={"flag": False})
+    )
+    assert filled.collect()["flag"].to_list() == [True, False]
+
+    aggregated, _ = pl_aggregate(
+        pl.LazyFrame({"amount": [1, 2]}),
+        data_file=data_file,
+        proc_spec=TabularProcessing(aggregate_on={"amount": "sum"}),
+    )
+    assert aggregated.collect().to_dicts() == [{"amount": 3}]
+    sorted_frame, _ = pl_sort(
+        pl.LazyFrame({"amount": [1, 2]}),
+        data_file=data_file,
+        proc_spec=TabularProcessing(sort_by={"amount": "asc"}),
+    )
+    assert sorted_frame.collect()["amount"].to_list() == [1, 2]
+    with pytest.raises(ValueError, match="duplicate column"):
+        pl_rename_columns(
+            pl.LazyFrame({"old": [1], "new": [2]}),
+            data_file=data_file,
+            proc_spec=TabularProcessing(column_mapping={"old": "new"}),
+        )
 
 
 def test_transform_xml_data_placeholder(sample_json_file: Path):

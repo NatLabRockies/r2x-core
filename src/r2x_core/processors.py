@@ -363,18 +363,20 @@ def pl_unpivot_on(
 
 
 def _compatible_replacements(mapping: dict[Any, Any], dtype: pl.DataType) -> dict[Any, Any]:
-    """Select replacement keys that Polars can compare with a column type."""
+    """Select replacement keys and values representable by a column type."""
     compatible: dict[Any, Any] = {}
     for old, new in mapping.items():
-        if old is None:
-            compatible[old] = new
-            continue
         try:
-            converted = pl.Series("_replacement", [old]).cast(dtype, strict=False)
+            old_series = pl.Series("_replacement", [old]).cast(dtype, strict=False)
+            new_series = pl.Series("_replacement", [new]).cast(dtype, strict=False)
         except (TypeError, ValueError, pl.exceptions.PolarsError):
             continue
-        if converted.null_count() == 0:
-            compatible[old] = new
+        old_compatible = old is None or old_series.null_count() == 0
+        new_compatible = new is None or new_series.null_count() == 0
+        if old_compatible and new_compatible:
+            compatible[None if old is None else old_series.item()] = (
+                None if new is None else new_series.item()
+            )
     return compatible
 
 

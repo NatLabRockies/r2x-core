@@ -729,6 +729,10 @@ def test_tabular_additional_operation_edges(sample_csv: Path):
             group_by=["region"],
             aggregate_on={"a": "sum", "b": "mean"},
         )
+    with pytest.raises(ValueError, match="cannot also be a group_by"):
+        TabularProcessing(pivot_on="year", group_by=["year"], aggregate_on={"amount": "sum"})
+    with pytest.raises(ValueError, match="cannot also be an aggregate_on"):
+        TabularProcessing(pivot_on="year", aggregate_on={"year": "sum"})
     valid_unpivot, _ = pl_unpivot_on(
         pl.LazyFrame({"value": [1], "january": [2]}),
         data_file=data_file,
@@ -753,6 +757,14 @@ def test_tabular_additional_operation_edges(sample_csv: Path):
         proc_spec=TabularProcessing(replace_values={today: date(2000, 1, 1)}),
     )
     assert temporal.collect()["when"].to_list() == [date(2000, 1, 1), None]
+    mixed_target, _ = pl_replace_values(
+        pl.LazyFrame({"number": [1, None], "label": ["a", None]}),
+        data_file=data_file,
+        proc_spec=TabularProcessing(replace_values={None: "missing"}),
+    )
+    mixed_target_result = mixed_target.collect()
+    assert mixed_target_result["number"].to_list() == [1, None]
+    assert mixed_target_result["label"].to_list() == ["a", "missing"]
     filled, _ = pl_fill_null(
         mixed, data_file=data_file, proc_spec=TabularProcessing(fill_null={"flag": False})
     )

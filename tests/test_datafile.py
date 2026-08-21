@@ -123,7 +123,7 @@ def test_datafile_tabular_transformations(tmp_path):
             column_mapping={"col1": "column_1", "col2": "column_2"},
             column_schema={"column_1": "int", "column_2": "int"},
             filter_by={"column_1": 1},
-            pivot_on="column_2",
+            pivot_on="pivot_label",
             unpivot_on=None,
             group_by=["column_1"],
             aggregate_on={"column_2": "sum", "column_3": "sum"},
@@ -142,7 +142,7 @@ def test_datafile_tabular_transformations(tmp_path):
     assert proc_spec.column_mapping == {"col1": "column_1", "col2": "column_2"}
     assert proc_spec.column_schema == {"column_1": "int", "column_2": "int"}
     assert proc_spec.filter_by == {"column_1": 1}
-    assert proc_spec.pivot_on == "column_2"
+    assert proc_spec.pivot_on == "pivot_label"
     assert proc_spec.unpivot_on is None
     assert proc_spec.group_by == ["column_1"]
     assert proc_spec.aggregate_on == {"column_2": "sum", "column_3": "sum"}

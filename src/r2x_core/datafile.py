@@ -151,6 +151,10 @@ class TabularProcessing(BaseModel):
             raise ValueError("pivot_on and unpivot_on are mutually exclusive")
         if self.group_by and not self.aggregate_on:
             raise ValueError("group_by requires aggregate_on")
+        if self.pivot_on and self.pivot_on in (self.group_by or ()):
+            raise ValueError("pivot_on cannot also be a group_by column")
+        if self.pivot_on and self.pivot_on in (self.aggregate_on or ()):
+            raise ValueError("pivot_on cannot also be an aggregate_on column")
         if self.aggregate_on and set(self.group_by or ()) & set(self.aggregate_on):
             overlapping = sorted(set(self.group_by or ()) & set(self.aggregate_on))
             raise ValueError(f"aggregate_on cannot aggregate group_by column(s): {overlapping}")

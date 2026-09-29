@@ -185,10 +185,7 @@ class DataReader:
                 continue
             result = substitute_placeholders(str(value), placeholders=placeholders)
             if result.is_err():
-                error = result.err()
-                if error is not None:
-                    raise error
-                raise ValueError(f"Could not substitute placeholders in {field}")
+                raise result.err()
             assert isinstance(result, Ok), "Result should be Ok after error check"
             substituted = result.value
             if field == "fpath":

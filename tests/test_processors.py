@@ -6,6 +6,7 @@ renaming, dropping, casting, and pivoting work as expected.
 """
 
 import json
+import warnings
 from pathlib import Path
 
 import polars as pl
@@ -571,6 +572,42 @@ def test_tabular_value_transformations(sample_csv: Path):
     ]
 
 
+def test_tabular_long_to_wide_pivot_count(sample_csv: Path):
+    frame = pl.LazyFrame(
+        {
+            "region": ["West", "West", "East"],
+            "year": [2020, 2020, 2020],
+            "amount": [1, None, 3],
+        }
+    )
+    proc_spec = TabularProcessing(
+        pivot_on="year",
+        group_by=["region"],
+        aggregate_on={"amount": "count"},
+    )
+    data_file = DataFile(name="counts", fpath=sample_csv, proc_spec=proc_spec)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        result = process_tabular_data(frame, data_file=data_file, proc_spec=proc_spec).collect()
+
+    assert {row["region"]: row["2020"] for row in result.to_dicts()} == {"West": 1, "East": 1}
+
+
+def test_pivot_key_matching_source_column_does_not_aggregate_twice(sample_csv: Path):
+    frame = pl.LazyFrame({"id": ["a", "a"], "year": ["year", "2020"], "value": [1, 2]})
+    proc_spec = TabularProcessing(
+        pivot_on="year",
+        group_by=["id"],
+        aggregate_on={"value": "sum"},
+    )
+    data_file = DataFile(name="pivot-key-collision", fpath=sample_csv, proc_spec=proc_spec)
+
+    result = process_tabular_data(frame, data_file=data_file, proc_spec=proc_spec).collect()
+
+    assert result.to_dicts() == [{"id": "a", "year": 1, "2020": 2}]
+
+
 def test_tabular_long_to_wide_pivot(sample_csv: Path):
     """Pivot long-form rows using grouped value aggregation."""
     frame = pl.LazyFrame(
@@ -854,6 +891,12 @@ def test_tabular_additional_operation_edges(sample_csv: Path):
     mixed_target_result = mixed_target.collect()
     assert mixed_target_result["number"].to_list() == [1, None]
     assert mixed_target_result["label"].to_list() == ["a", "missing"]
+    incompatible, _ = pl_replace_values(
+        pl.LazyFrame({"number": [1]}),
+        data_file=data_file,
+        proc_spec=TabularProcessing(replace_values={object(): "ignored"}),
+    )
+    assert incompatible.collect().to_dicts() == [{"number": 1}]
     filled, _ = pl_fill_null(
         mixed, data_file=data_file, proc_spec=TabularProcessing(fill_null={"flag": False})
     )
@@ -877,6 +920,25 @@ def test_tabular_additional_operation_edges(sample_csv: Path):
             data_file=data_file,
             proc_spec=TabularProcessing(column_mapping={"old": "new"}),
         )
+
+
+def test_tabular_operations_infer_schema_without_configured_changes(sample_csv: Path):
+    from r2x_core.processors import (
+        pl_distinct,
+        pl_scale,
+        pl_split_columns,
+        pl_strip_chars,
+        pl_unpivot_on,
+    )
+
+    data_file = DataFile(name="unchanged", fpath=sample_csv)
+    frame = pl.LazyFrame({"label": ["value"]})
+    expected = [{"label": "value"}]
+
+    for transform in (pl_unpivot_on, pl_split_columns, pl_strip_chars, pl_scale, pl_distinct):
+        result, columns = transform(frame, data_file=data_file, proc_spec=TabularProcessing())
+        assert columns == ["label"]
+        assert result.collect().to_dicts() == expected
 
 
 def test_transform_xml_data_placeholder(sample_json_file: Path):

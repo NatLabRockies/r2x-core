@@ -4,7 +4,9 @@
 file is read. Operations remain lazy where Polars supports lazy execution. A
 long-to-wide `pivot_on` performs a small discovery collection of distinct pivot
 keys because Polars needs those output column names before constructing its lazy
-pivot plan.
+pivot plan. `DataFile` validates processing settings against the file format:
+tabular formats require `TabularProcessing`, JSON requires `JSONProcessing`,
+and unknown fields are rejected. XML files do not support declarative processing.
 
 ## Case handling and operation order
 

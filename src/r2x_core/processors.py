@@ -336,7 +336,8 @@ def pl_pivot_on(
         raise ValueError(f"pivot_on in {data_file.name!r} requires at least one value column")
 
     functions = {function.lower() for function in (proc_spec.aggregate_on or {}).values()}
-    aggregate_function = next(iter(functions), "first")
+    aggregate_name = next(iter(functions), "first")
+    aggregate_function = pl.element().count() if aggregate_name == "count" else aggregate_name
     pivot_values = (
         data_frame.select(value_name).unique(maintain_order=True).collect().get_column(value_name).to_list()
     )
@@ -582,7 +583,7 @@ def pl_aggregate(
         schema_names = list(data_frame.collect_schema().names())
     if not proc_spec or not proc_spec.aggregate_on:
         return data_frame, schema_names
-    if proc_spec.pivot_on and proc_spec.pivot_on not in schema_names:
+    if proc_spec.pivot_on:
         return data_frame, schema_names
 
     aggregate_columns = list(proc_spec.aggregate_on)

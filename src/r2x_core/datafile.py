@@ -14,14 +14,15 @@ from pydantic import (
     ValidationError,
     ValidationInfo,
     computed_field,
+    field_validator,
     model_validator,
 )
 
-from .file_types import EXTENSION_MAPPING, FileFormat
+from .file_types import EXTENSION_MAPPING, FileFormat, JSONFormat, TableDataFormat
 from .utils import validate_file_extension, validate_glob_pattern
 from .utils.files import resolve_path
 
-_PATH_PLACEHOLDER_PATTERN = re.compile(r"\{[^{}]+\}")
+_PLACEHOLDER_PATTERN = re.compile(r"\{[^{}]+\}")
 _SUPPORTED_AGGREGATIONS = frozenset(
     {"count", "first", "last", "max", "mean", "median", "min", "n_unique", "std", "sum", "var"}
 )
@@ -206,7 +207,9 @@ class TabularProcessing(BaseModel):
             raise ValueError(f"aggregate_on cannot aggregate group_by column(s): {overlapping}")
         if self.pivot_on and self.aggregate_on:
             pivot_functions = {
-                function.lower() for function in self.aggregate_on.values() if "{" not in function
+                function.lower()
+                for function in self.aggregate_on.values()
+                if _PLACEHOLDER_PATTERN.search(function) is None
             }
             if len(pivot_functions) > 1:
                 raise ValueError("pivot_on requires one aggregation function for all value columns")
@@ -221,7 +224,8 @@ class TabularProcessing(BaseModel):
             invalid = {
                 column: function
                 for column, function in self.aggregate_on.items()
-                if "{" not in function and function.lower() not in _SUPPORTED_AGGREGATIONS
+                if _PLACEHOLDER_PATTERN.search(function) is None
+                and function.lower() not in _SUPPORTED_AGGREGATIONS
             }
             if invalid:
                 raise ValueError(
@@ -247,7 +251,7 @@ class TabularProcessing(BaseModel):
             invalid_directions = {
                 column: direction
                 for column, direction in self.sort_by.items()
-                if "{" not in direction
+                if _PLACEHOLDER_PATTERN.search(direction) is None
                 and direction.lower() not in {"asc", "ascending", "desc", "descending"}
             }
             if invalid_directions:
@@ -295,6 +299,8 @@ class JSONProcessing(BaseModel):
     replace_values: Annotated[dict[Any, Any] | None, Field(description="Value replacement map")] = None
     select_keys: Annotated[list[str] | None, Field(description="Select certain keys.")] = None
 
+    model_config = ConfigDict(extra="forbid")
+
 
 FileProcessing = TabularProcessing | JSONProcessing
 
@@ -332,7 +338,8 @@ class DataFile(BaseModel):
     ValueError
         If path sources are not exactly one of: fpath, relative_fpath, glob.
     ValueError
-        If file type does not support time series and is_timeseries is True.
+        If file type does not support time series, or its processing model is
+        incompatible with the file format.
 
     See Also
     --------
@@ -359,6 +366,31 @@ class DataFile(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
+    @field_validator("proc_spec", mode="before")
+    @classmethod
+    def parse_processing_for_file_format(cls, value: Any, info: ValidationInfo) -> Any:
+        """Parse mapping configurations with the model required by their format."""
+        if not isinstance(value, dict):
+            return value
+
+        glob = info.data.get("glob")
+        if glob is not None:
+            extension = "." + glob.rsplit(".", 1)[-1].rstrip("*?[]") if "." in glob else ""
+        else:
+            path = info.data.get("fpath") or info.data.get("relative_fpath")
+            if path is None:
+                return value
+            extension = Path(path).suffix.lower()
+
+        format_type = EXTENSION_MAPPING.get(extension)
+        if format_type is None:
+            return value
+        if issubclass(format_type, TableDataFormat):
+            return TabularProcessing.model_validate(value)
+        if issubclass(format_type, JSONFormat):
+            return JSONProcessing.model_validate(value)
+        return value
+
     @model_validator(mode="after")
     def validate_path_sources(self) -> "DataFile":
         """Validate that exactly one of fpath, relative_fpath, or glob is specified."""
@@ -372,11 +404,30 @@ class DataFile(BaseModel):
 
         if self.fpath is not None:
             is_optional = self.info.is_optional if self.info else False
-            has_template = _PATH_PLACEHOLDER_PATTERN.search(str(self.fpath)) is not None
+            has_template = _PLACEHOLDER_PATTERN.search(str(self.fpath)) is not None
             if not is_optional and not has_template and not self.fpath.exists():
                 msg = f"File not found: {self.fpath}"
                 raise FileNotFoundError(msg)
 
+        return self
+
+    @model_validator(mode="after")
+    def validate_processing_model(self) -> "DataFile":
+        """Ensure the processing model matches the file's format."""
+        if self.proc_spec is None:
+            return self
+
+        file_type = self.file_type
+        if isinstance(file_type, TableDataFormat):
+            if not isinstance(self.proc_spec, TabularProcessing):
+                raise ValueError(
+                    f"Tabular files require TabularProcessing, got {type(self.proc_spec).__name__}."
+                )
+        elif isinstance(file_type, JSONFormat):
+            if not isinstance(self.proc_spec, JSONProcessing):
+                raise ValueError(f"JSON files require JSONProcessing, got {type(self.proc_spec).__name__}.")
+        else:
+            raise ValueError(f"{type(file_type).__name__} files do not support processing specifications.")
         return self
 
     @computed_field
@@ -434,7 +485,7 @@ class DataFile(BaseModel):
             return cls.model_validate(record_copy)
 
         raw_path = record_copy[path_field]
-        has_template = _PATH_PLACEHOLDER_PATTERN.search(str(raw_path)) is not None
+        has_template = _PLACEHOLDER_PATTERN.search(str(raw_path)) is not None
         resolved = cls._resolve_record_path(
             raw_path,
             folder_path=folder_path,

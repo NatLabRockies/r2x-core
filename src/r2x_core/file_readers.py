@@ -12,6 +12,19 @@ from polars import DataFrame, LazyFrame, read_csv, scan_csv
 
 from .file_types import H5Format, JSONFormat, TableFormat, XMLFormat
 
+_HEADER_READ_OPTIONS = frozenset(
+    {
+        "separator",
+        "comment_prefix",
+        "quote_char",
+        "skip_rows",
+        "skip_lines",
+        "encoding",
+        "eol_char",
+        "decimal_comma",
+    }
+)
+
 
 @singledispatch
 def read_file_by_type(file_type_instance: Any, *, file_path: Path, **reader_kwargs: dict[str, Any]) -> Any:
@@ -83,20 +96,7 @@ def _(
     if scan_kwargs.get("skip_rows_after_header", 0):
         raise ValueError("skip_rows_after_header cannot be combined with multiple header rows")
 
-    header_options = {
-        key: scan_kwargs[key]
-        for key in (
-            "separator",
-            "comment_prefix",
-            "quote_char",
-            "skip_rows",
-            "skip_lines",
-            "encoding",
-            "eol_char",
-            "decimal_comma",
-        )
-        if key in scan_kwargs
-    }
+    header_options = {key: value for key, value in scan_kwargs.items() if key in _HEADER_READ_OPTIONS}
     header = read_csv(
         file_path,
         has_header=False,

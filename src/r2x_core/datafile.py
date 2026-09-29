@@ -22,6 +22,10 @@ from .utils import validate_file_extension, validate_glob_pattern
 from .utils.files import resolve_path
 
 _PATH_PLACEHOLDER_PATTERN = re.compile(r"\{[^{}]+\}")
+_SUPPORTED_AGGREGATIONS = frozenset(
+    {"count", "first", "last", "max", "mean", "median", "min", "n_unique", "std", "sum", "var"}
+)
+_PIVOT_AGGREGATIONS = _SUPPORTED_AGGREGATIONS - {"n_unique", "std", "var"}
 
 
 def _validate_optional_file_extension(path: Path | None, info: ValidationInfo) -> Path | None:
@@ -206,47 +210,24 @@ class TabularProcessing(BaseModel):
             }
             if len(pivot_functions) > 1:
                 raise ValueError("pivot_on requires one aggregation function for all value columns")
-            unsupported_pivot_functions = pivot_functions - {
-                "count",
-                "first",
-                "last",
-                "max",
-                "mean",
-                "median",
-                "min",
-                "sum",
-            }
+            unsupported_pivot_functions = pivot_functions - _PIVOT_AGGREGATIONS
             if unsupported_pivot_functions:
                 raise ValueError(
                     "pivot_on does not support aggregation function(s): "
                     + ", ".join(sorted(unsupported_pivot_functions))
-                    + ". Supported pivot aggregations: count, first, last, max, mean, median, min, sum."
+                    + f". Supported pivot aggregations: {', '.join(sorted(_PIVOT_AGGREGATIONS))}."
                 )
         if self.aggregate_on:
             invalid = {
                 column: function
                 for column, function in self.aggregate_on.items()
-                if "{" not in function
-                and function.lower()
-                not in {
-                    "count",
-                    "first",
-                    "last",
-                    "max",
-                    "mean",
-                    "median",
-                    "min",
-                    "n_unique",
-                    "std",
-                    "sum",
-                    "var",
-                }
+                if "{" not in function and function.lower() not in _SUPPORTED_AGGREGATIONS
             }
             if invalid:
                 raise ValueError(
                     "Unsupported aggregation function(s): "
                     + ", ".join(f"{column}={function!r}" for column, function in invalid.items())
-                    + ". Supported functions: count, first, last, max, mean, median, min, n_unique, std, sum, var."
+                    + f". Supported functions: {', '.join(sorted(_SUPPORTED_AGGREGATIONS))}."
                 )
         if self.scale:
             invalid_scales = {
@@ -476,30 +457,16 @@ class DataFile(BaseModel):
             except ValidationError as exc:
                 errors.append(exc)
 
-            except FileNotFoundError as exc:
+            except (FileNotFoundError, KeyError, TypeError, ValueError) as exc:
+                path_error = isinstance(exc, FileNotFoundError)
                 errors.append(
                     ValidationError.from_exception_data(
-                        title=f"Record[{idx}] path resolution error",
+                        title=f"Record[{idx}] {'path resolution' if path_error else 'invalid path source'} error",
                         line_errors=[
                             {
                                 "type": "value_error",
                                 "input": str(exc),
-                                "loc": ("fpath",),
-                                "ctx": {"error": str(exc), "exc_type": type(exc).__name__},
-                            }
-                        ],
-                    )
-                )
-
-            except (KeyError, TypeError, ValueError) as exc:
-                errors.append(
-                    ValidationError.from_exception_data(
-                        title=f"Record[{idx}] missing or invalid path source",
-                        line_errors=[
-                            {
-                                "type": "value_error",
-                                "input": str(exc),
-                                "loc": ("path",),
+                                "loc": ("fpath" if path_error else "path",),
                                 "ctx": {"error": str(exc), "exc_type": type(exc).__name__},
                             }
                         ],

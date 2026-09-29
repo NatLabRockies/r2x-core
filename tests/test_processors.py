@@ -13,6 +13,7 @@ import pytest
 
 from r2x_core.datafile import DataFile, JSONProcessing, TabularProcessing
 from r2x_core.processors import (
+    apply_processing,
     json_apply_filters,
     json_rename_keys,
     json_select_keys,
@@ -20,6 +21,9 @@ from r2x_core.processors import (
     pl_cast_schema,
     pl_drop_columns,
     pl_rename_columns,
+    pl_select_columns,
+    process_tabular_data,
+    substitute_placeholders,
 )
 
 
@@ -164,8 +168,6 @@ def test_unpivot_on_stacks_selected_columns(sample_csv: Path):
     proc_spec = TabularProcessing(unpivot_on=["2020", "2025", "2030"])
     df_file = DataFile(name="test", fpath=sample_csv, proc_spec=proc_spec)
 
-    from r2x_core.processors import process_tabular_data
-
     result = process_tabular_data(lf, data_file=df_file, proc_spec=proc_spec).collect()
 
     assert result.columns == ["variable", "value"]
@@ -267,8 +269,6 @@ def test_pl_select_columns(sample_csv: Path):
     proc_spec = TabularProcessing(select_columns=["name", "age"])
     df_file = DataFile(name="test", fpath=sample_csv, proc_spec=proc_spec)
 
-    from r2x_core.processors import pl_select_columns
-
     result, _ = pl_select_columns(lf, data_file=df_file, proc_spec=proc_spec)
     result = result.collect()
 
@@ -280,8 +280,6 @@ def test_pl_select_columns_missing_column_is_explicit_error(sample_csv: Path):
     lf = pl.scan_csv(sample_csv)
     proc_spec = TabularProcessing(select_columns=["nonexistent"])
     df_file = DataFile(name="test", fpath=sample_csv, proc_spec=proc_spec)
-
-    from r2x_core.processors import pl_select_columns
 
     with pytest.raises(ValueError, match=r"select_columns.*nonexistent"):
         pl_select_columns(lf, data_file=df_file, proc_spec=proc_spec)
@@ -324,8 +322,6 @@ def test_pl_cast_schema_missing_column_is_explicit_error(sample_csv: Path):
 
 
 def test_apply_processing_with_no_proc_spec(sample_csv: Path):
-    from r2x_core.processors import apply_processing
-
     lf = pl.scan_csv(sample_csv)
     df_file = DataFile(name="test", fpath=sample_csv)
 
@@ -335,8 +331,6 @@ def test_apply_processing_with_no_proc_spec(sample_csv: Path):
 
 
 def test_apply_processing_with_unregistered_type(sample_csv: Path):
-    from r2x_core.processors import apply_processing
-
     class UnregisteredType:
         pass
 
@@ -350,8 +344,6 @@ def test_apply_processing_with_unregistered_type(sample_csv: Path):
 
 
 def test_apply_processing_with_placeholder_substitution(sample_csv: Path):
-    from r2x_core.processors import apply_processing
-
     lf = pl.scan_csv(sample_csv)
     df_file = DataFile(name="test", fpath=sample_csv)
     proc_spec = TabularProcessing(filter_by={"name": "{year}"})
@@ -361,8 +353,6 @@ def test_apply_processing_with_placeholder_substitution(sample_csv: Path):
 
 
 def test_apply_processing_placeholder_error(sample_csv: Path):
-    from r2x_core.processors import apply_processing
-
     lf = pl.scan_csv(sample_csv)
     df_file = DataFile(name="test", fpath=sample_csv)
     proc_spec = TabularProcessing(filter_by={"name": "{missing}"})
@@ -373,8 +363,6 @@ def test_apply_processing_placeholder_error(sample_csv: Path):
 
 def test_apply_processing_substitutes_transformation_values(sample_csv: Path):
     """Substitute placeholders in non-filter tabular operations."""
-    from r2x_core.processors import apply_processing
-
     lf = pl.LazyFrame({"name": ["a", "b"], "amount": [1, 2]})
     df_file = DataFile(name="test", fpath=sample_csv)
     proc_spec = TabularProcessing(sort_by={"amount": "{direction}"})
@@ -391,8 +379,6 @@ def test_apply_processing_substitutes_transformation_values(sample_csv: Path):
 
 def test_apply_processing_rejects_invalid_substituted_transformation(sample_csv: Path):
     """Return a Result error when a placeholder resolves to invalid settings."""
-    from r2x_core.processors import apply_processing
-
     proc_spec = TabularProcessing(sort_by={"amount": "{direction}"})
     result = apply_processing(
         pl.LazyFrame({"amount": [1]}),
@@ -455,8 +441,6 @@ def test_json_drop_columns_with_list(sample_json_file: Path):
 
 
 def test_process_tabular_data_full_pipeline(sample_csv: Path):
-    from r2x_core.processors import process_tabular_data
-
     lf = pl.scan_csv(sample_csv)
     proc_spec = TabularProcessing(
         column_mapping={"name": "person_name"},
@@ -520,8 +504,6 @@ def test_pl_apply_filters_datetime_multiple_years(sample_csv: Path):
 
 def test_substitute_placeholders_non_string_passthrough():
     """Test substitute_placeholders returns non-string/list/dict values unchanged."""
-    from r2x_core.processors import substitute_placeholders
-
     result = substitute_placeholders(42, placeholders={"x": 1})
     assert result.is_ok()
     assert result.unwrap() == 42
@@ -533,8 +515,6 @@ def test_substitute_placeholders_non_string_passthrough():
 
 def test_substitute_placeholders_string_without_placeholder():
     """Test substitute_placeholders returns string without braces unchanged."""
-    from r2x_core.processors import substitute_placeholders
-
     result = substitute_placeholders("plain text", placeholders={"x": 1})
     assert result.is_ok()
     assert result.unwrap() == "plain text"
@@ -542,16 +522,12 @@ def test_substitute_placeholders_string_without_placeholder():
 
 def test_substitute_placeholders_supports_embedded_values():
     """Substitute placeholders embedded in surrounding text."""
-    from r2x_core.processors import substitute_placeholders
-
     result = substitute_placeholders("prefix_{variable}.csv", placeholders={"variable": 2030})
     assert result.is_ok()
     assert result.unwrap() == "prefix_2030.csv"
 
 
 def test_substitute_placeholders_rejects_unknown_embedded_values():
-    from r2x_core.processors import substitute_placeholders
-
     result = substitute_placeholders("prefix_{missing}.csv", placeholders={"year": 2030})
     assert result.is_err()
     assert "{missing}" in str(result.err())
@@ -559,8 +535,6 @@ def test_substitute_placeholders_rejects_unknown_embedded_values():
 
 def test_substitute_placeholders_list_error_propagation():
     """Test substitute_placeholders propagates errors from list items."""
-    from r2x_core.processors import substitute_placeholders
-
     result = substitute_placeholders(["{valid}", "{missing}"], placeholders={"valid": 1})
     assert result.is_err()
     assert "missing" in str(result.err())
@@ -578,8 +552,6 @@ def test_pl_apply_filters_missing_column_is_explicit_error(sample_csv: Path):
 
 def test_tabular_value_transformations(sample_csv: Path):
     """Apply replacement, null filling, sorting, and deduplication."""
-    from r2x_core.processors import process_tabular_data
-
     frame = pl.LazyFrame({"region": ["West", "West", "East"], "value": [None, 2, 1]})
     proc_spec = TabularProcessing(
         lowercase=True,
@@ -601,8 +573,6 @@ def test_tabular_value_transformations(sample_csv: Path):
 
 def test_tabular_long_to_wide_pivot(sample_csv: Path):
     """Pivot long-form rows using grouped value aggregation."""
-    from r2x_core.processors import process_tabular_data
-
     frame = pl.LazyFrame(
         {
             "region": ["West", "West", "West"],
@@ -621,9 +591,7 @@ def test_tabular_long_to_wide_pivot(sample_csv: Path):
     assert result.to_dicts() == [{"region": "West", "2021": 3, "2020": 3}]
 
 
-def test_unpivot_pipeline_renames_casts_filters_and_splits(sample_csv: Path):
-    from r2x_core.processors import apply_processing
-
+def test_unpivot_pipeline_renames_casts_and_filters(sample_csv: Path):
     frame = pl.LazyFrame(
         {
             "region": ["NYISO", "PJM"],
@@ -655,8 +623,6 @@ def test_unpivot_pipeline_renames_casts_filters_and_splits(sample_csv: Path):
 
 
 def test_tabular_processing_preserves_case_by_default(sample_csv: Path):
-    from r2x_core.processors import process_tabular_data
-
     frame = pl.LazyFrame({"Technology": ["Gas & FO"]})
     data_file = DataFile(name="technology", fpath=sample_csv)
 
@@ -672,8 +638,6 @@ def test_tabular_processing_preserves_case_by_default(sample_csv: Path):
 
 
 def test_tabular_numeric_string_cleanup(sample_csv: Path):
-    from r2x_core.processors import process_tabular_data
-
     frame = pl.LazyFrame(
         {
             "limit": ["2,450"],
@@ -696,8 +660,6 @@ def test_tabular_numeric_string_cleanup(sample_csv: Path):
 
 
 def test_apply_processing_returns_err_for_invalid_transformation(sample_csv: Path):
-    from r2x_core.processors import apply_processing
-
     result = apply_processing(
         pl.LazyFrame({"a": [1]}),
         data_file=DataFile(name="missing-column", fpath=sample_csv),
@@ -709,8 +671,6 @@ def test_apply_processing_returns_err_for_invalid_transformation(sample_csv: Pat
 
 
 def test_null_pivot_keys_are_rejected(sample_csv: Path):
-    from r2x_core.processors import apply_processing
-
     result = apply_processing(
         pl.LazyFrame({"id": ["a", "a"], "year": [None, 2020], "value": [1, 2]}),
         data_file=DataFile(name="null-pivot", fpath=sample_csv),
@@ -723,8 +683,6 @@ def test_null_pivot_keys_are_rejected(sample_csv: Path):
 
 def test_tabular_unpivot_group_aggregate_pipeline(sample_csv: Path):
     """Compose unpivot, grouping, aggregation, sorting, and selection."""
-    from r2x_core.processors import process_tabular_data
-
     frame = pl.LazyFrame(
         {
             "region": ["West", "West", "East"],
@@ -977,8 +935,6 @@ def test_pl_build_filter_expr_datetime_year_single():
 
 
 def test_tabular_processing_reports_non_numeric_scale(sample_csv: Path):
-    from r2x_core.processors import apply_processing
-
     result = apply_processing(
         pl.LazyFrame({"value": ["not numeric"]}),
         data_file=DataFile(name="invalid-scale", fpath=sample_csv),
@@ -990,8 +946,6 @@ def test_tabular_processing_reports_non_numeric_scale(sample_csv: Path):
 
 
 def test_split_column_rejects_overwriting_existing_columns(sample_csv: Path):
-    from r2x_core.processors import apply_processing
-
     result = apply_processing(
         pl.LazyFrame({"label": ["2030|NYISO"], "year": [2030]}),
         data_file=DataFile(name="split-collision", fpath=sample_csv),

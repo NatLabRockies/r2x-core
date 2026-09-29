@@ -94,15 +94,16 @@ declaratively through {py:class}`~r2x_core.TabularProcessing` and
 1. **File Selection**: Locate the file (absolute path, relative path, or glob
    pattern).
 2. **Reading**: Use the configured reader with its keyword arguments.
-3. **Tabular transformations**: Lowercase names and string values, drop columns,
-   rename columns, replace values, cast types, fill nulls, filter rows, reshape,
-   aggregate, deduplicate, sort, and select final columns.
+3. **Tabular transformations**: Optionally lowercase names and string values,
+   drop columns, then apply reshape-aware rename, replacement, string cleanup,
+   casting, scaling, filling, filtering, aggregation, deduplication, sorting,
+   and selection.
 
-The tabular order is fixed and documented in {doc}`../references/processors`.
-`unpivot_on` runs before grouping and aggregation, which supports grouped
-long-form normalization. `pivot_on` performs a long-to-wide pivot when it
-names an input column and retains the legacy wide-to-long behavior for existing
-mappings otherwise. It cannot be combined with `unpivot_on`.
+The operation order is fixed and documented in {doc}`../references/processors`.
+`unpivot_on` explicitly reshapes wide data to long form before rename, cast, and
+filter operations. `pivot_on` requires an existing input column and performs a
+long-to-wide pivot. Set `lowercase=True` only when the mapping requires
+lowercased names and string values; case is preserved by default.
 
 Each step builds on previous ones. The design ensures transformations are
 readable (looking at a processing spec tells you exactly what happens to the
@@ -117,11 +118,10 @@ they live in config files and track with git history).
 from r2x_core import DataFile, TabularProcessing
 
 processing = TabularProcessing(
-    select_columns=["date", "region", "sales"],  # Step 1: select
-    filter_by={"region": "North"},                # Step 2: filter
-    column_mapping={"sales": "revenue"},          # Step 3: rename
-    column_schema={"date": "datetime64"},         # Step 4: type
-    sort_by={"date": "ascending"}                 # Step 5: sort
+    column_mapping={"sales": "revenue"},
+    column_schema={"date": "datetime"},
+    filter_by={"region": "North"},
+    sort_by={"date": "ascending"},
 )
 
 data_file = DataFile(

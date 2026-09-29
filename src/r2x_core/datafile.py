@@ -1,5 +1,7 @@
 """Data Model for datafiles (refactored to nested models)."""
 
+import math
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, Any
@@ -18,6 +20,8 @@ from pydantic import (
 from .file_types import EXTENSION_MAPPING, FileFormat
 from .utils import validate_file_extension, validate_glob_pattern
 from .utils.files import resolve_path
+
+_PATH_PLACEHOLDER_PATTERN = re.compile(r"\{[^{}]+\}")
 
 
 def _validate_optional_file_extension(path: Path | None, info: ValidationInfo) -> Path | None:
@@ -72,6 +76,10 @@ class ReaderConfig(BaseModel):
         If None, uses the default reader for the file type. Default is None.
     kwargs : dict[str, Any]
         Keyword arguments passed to the reader function. Default is empty.
+    header_rows : int
+        Number of CSV/TSV header rows to combine. Default is 1.
+    header_separator : str
+        Separator between combined header cells. Default is ``|``.
 
     See Also
     --------
@@ -81,6 +89,26 @@ class ReaderConfig(BaseModel):
 
     kwargs: Annotated[dict[str, Any], Field(default_factory=dict, description="Keyword arguments for reader")]
     function: Annotated[Callable[[Path], Any] | None, Field(description="Custom reader function")] = None
+    header_rows: Annotated[int, Field(ge=1, description="Number of CSV/TSV header rows to combine")] = 1
+    header_separator: Annotated[
+        str, Field(min_length=1, description="Separator used to combine multi-row headers")
+    ] = "|"
+
+
+class SplitColumnSpec(BaseModel):
+    """Configuration for splitting a string column into named fields."""
+
+    separator: Annotated[str, Field(min_length=1, description="Literal separator to split on")]
+    into: Annotated[list[str], Field(min_length=2, description="Names for the resulting columns")]
+
+    @model_validator(mode="after")
+    def validate_output_columns(self) -> "SplitColumnSpec":
+        """Require distinct, non-empty output column names."""
+        if any(not name.strip() for name in self.into):
+            raise ValueError("split_column output names cannot be empty")
+        if len(set(self.into)) != len(self.into):
+            raise ValueError("split_column output names must be unique")
+        return self
 
 
 class TabularProcessing(BaseModel):
@@ -102,9 +130,7 @@ class TabularProcessing(BaseModel):
     filter_by : dict[str, Any] | None
         Conditions for filtering rows by column values.
     pivot_on : str | None
-        Long-to-wide pivot column. If it does not name an input column, the
-        legacy wide-to-long transformation stacks all input columns into one
-        value column with this name.
+        Input column used for a long-to-wide pivot. The column must exist.
     unpivot_on : list[str] | None
         Value columns to unpivot. Remaining columns are retained as identifier
         columns, and the generated columns are named ``variable`` and ``value``.
@@ -121,6 +147,14 @@ class TabularProcessing(BaseModel):
         Maps old values to new values across compatible columns.
     fill_null : dict[str, Any] | None
         Specifies fill values for null entries by column.
+    lowercase : bool
+        If True, lowercase column names and string values before processing.
+    strip_chars : dict[str, list[str]] | None
+        Literal strings to remove from configured columns before casting.
+    scale : dict[str, float] | None
+        Multipliers applied to numeric columns after casting.
+    split_column : dict[str, SplitColumnSpec] | None
+        Split columns into named fields using a literal separator.
 
     See Also
     --------
@@ -133,7 +167,7 @@ class TabularProcessing(BaseModel):
     column_mapping: Annotated[dict[str, str] | None, Field(description="Column rename mapping")] = None
     column_schema: Annotated[dict[str, str] | None, Field(description="Column type definitions")] = None
     filter_by: Annotated[dict[str, Any] | None, Field(description="Row filters")] = None
-    pivot_on: Annotated[str | None, Field(description="Pivot column or legacy value column")] = None
+    pivot_on: Annotated[str | None, Field(description="Input column used for a long-to-wide pivot")] = None
     unpivot_on: Annotated[list[str] | None, Field(description="Columns to unpivot")] = None
     group_by: Annotated[list[str] | None, Field(description="Columns to group by")] = None
     aggregate_on: Annotated[dict[str, str] | None, Field(description="Aggregation spec")] = None
@@ -141,6 +175,14 @@ class TabularProcessing(BaseModel):
     distinct_on: Annotated[list[str] | None, Field(description="Columns for deduplication")] = None
     replace_values: Annotated[dict[Any, Any] | None, Field(description="Value replacement map")] = None
     fill_null: Annotated[dict[str, Any] | None, Field(description="Null fill values")] = None
+    lowercase: Annotated[bool, Field(description="Lowercase column names and string values")] = False
+    strip_chars: Annotated[
+        dict[str, list[str]] | None, Field(description="Literal strings to remove from string columns")
+    ] = None
+    scale: Annotated[dict[str, float] | None, Field(description="Numeric multipliers by column")] = None
+    split_column: Annotated[
+        dict[str, SplitColumnSpec] | None, Field(description="Split string columns into named fields")
+    ] = None
 
     model_config = ConfigDict(extra="forbid")
 
@@ -164,6 +206,22 @@ class TabularProcessing(BaseModel):
             }
             if len(pivot_functions) > 1:
                 raise ValueError("pivot_on requires one aggregation function for all value columns")
+            unsupported_pivot_functions = pivot_functions - {
+                "count",
+                "first",
+                "last",
+                "max",
+                "mean",
+                "median",
+                "min",
+                "sum",
+            }
+            if unsupported_pivot_functions:
+                raise ValueError(
+                    "pivot_on does not support aggregation function(s): "
+                    + ", ".join(sorted(unsupported_pivot_functions))
+                    + ". Supported pivot aggregations: count, first, last, max, mean, median, min, sum."
+                )
         if self.aggregate_on:
             invalid = {
                 column: function
@@ -190,6 +248,20 @@ class TabularProcessing(BaseModel):
                     + ", ".join(f"{column}={function!r}" for column, function in invalid.items())
                     + ". Supported functions: count, first, last, max, mean, median, min, n_unique, std, sum, var."
                 )
+        if self.scale:
+            invalid_scales = {
+                column: factor for column, factor in self.scale.items() if not math.isfinite(factor)
+            }
+            if invalid_scales:
+                raise ValueError(f"scale values must be finite numbers: {invalid_scales}")
+        if self.strip_chars:
+            invalid_characters = {
+                column: values
+                for column, values in self.strip_chars.items()
+                if any(not value for value in values)
+            }
+            if invalid_characters:
+                raise ValueError(f"strip_chars values must be non-empty strings: {invalid_characters}")
         if self.sort_by:
             invalid_directions = {
                 column: direction
@@ -319,7 +391,8 @@ class DataFile(BaseModel):
 
         if self.fpath is not None:
             is_optional = self.info.is_optional if self.info else False
-            if not is_optional and not self.fpath.exists():
+            has_template = _PATH_PLACEHOLDER_PATTERN.search(str(self.fpath)) is not None
+            if not is_optional and not has_template and not self.fpath.exists():
                 msg = f"File not found: {self.fpath}"
                 raise FileNotFoundError(msg)
 
@@ -359,19 +432,35 @@ class DataFile(BaseModel):
 
     @classmethod
     def from_record(cls, record: dict[str, Any], *, folder_path: Path) -> "DataFile":
-        """Build a DataFile from a single record dictionary."""
+        """Build a DataFile from a record with exactly one path source.
+
+        Relative paths are resolved against ``folder_path``. Glob patterns are
+        retained for resolution when the data file is read.
+        """
         record_copy = dict(record)
         info = record_copy.get("info")
         is_optional = bool(info.get("is_optional")) if isinstance(info, dict) else False
+        path_fields = [
+            field for field in ("fpath", "relative_fpath", "glob") if record_copy.get(field) is not None
+        ]
+        if len(path_fields) != 1:
+            raise ValueError(
+                "Each data file record must define exactly one of fpath, relative_fpath, or glob"
+            )
 
-        raw_path = record_copy["fpath"]
+        path_field = path_fields[0]
+        if path_field == "glob":
+            return cls.model_validate(record_copy)
+
+        raw_path = record_copy[path_field]
+        has_template = _PATH_PLACEHOLDER_PATTERN.search(str(raw_path)) is not None
         resolved = cls._resolve_record_path(
             raw_path,
             folder_path=folder_path,
-            must_exist=not is_optional,
+            must_exist=not is_optional and not has_template,
         )
+        record_copy.pop("relative_fpath", None)
         record_copy["fpath"] = resolved
-
         return cls.model_validate(record_copy)
 
     @classmethod
@@ -384,20 +473,8 @@ class DataFile(BaseModel):
             try:
                 data_files.append(cls.from_record(record, folder_path=folder_path))
 
-            except (KeyError, TypeError) as exc:
-                errors.append(
-                    ValidationError.from_exception_data(
-                        title=f"Record[{idx}] missing or invalid fpath",
-                        line_errors=[
-                            {
-                                "type": "value_error",
-                                "input": str(exc),
-                                "loc": ("fpath",),
-                                "ctx": {"error": str(exc), "exc_type": type(exc).__name__},
-                            }
-                        ],
-                    )
-                )
+            except ValidationError as exc:
+                errors.append(exc)
 
             except FileNotFoundError as exc:
                 errors.append(
@@ -414,8 +491,20 @@ class DataFile(BaseModel):
                     )
                 )
 
-            except ValidationError as exc:
-                errors.append(exc)
+            except (KeyError, TypeError, ValueError) as exc:
+                errors.append(
+                    ValidationError.from_exception_data(
+                        title=f"Record[{idx}] missing or invalid path source",
+                        line_errors=[
+                            {
+                                "type": "value_error",
+                                "input": str(exc),
+                                "loc": ("path",),
+                                "ctx": {"error": str(exc), "exc_type": type(exc).__name__},
+                            }
+                        ],
+                    )
+                )
 
         if errors:
             # NOTE: Why adding type ignore

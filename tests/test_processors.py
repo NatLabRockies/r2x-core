@@ -19,7 +19,6 @@ from r2x_core.processors import (
     pl_apply_filters,
     pl_cast_schema,
     pl_drop_columns,
-    pl_pivot_on,
     pl_rename_columns,
 )
 
@@ -159,17 +158,23 @@ def test_pl_cast_schema_unsupported_type_raises(sample_csv: Path):
         pl_cast_schema(lf, data_file=df_file, proc_spec=proc_spec)
 
 
-def test_pl_pivot_on_unpivots_columns(sample_csv: Path):
-    """Test that pivot_on unpivots columns into rows."""
+def test_unpivot_on_stacks_selected_columns(sample_csv: Path):
+    """Wide-to-long processing uses its explicit unpivot operation."""
     lf = pl.LazyFrame({"2020": [100], "2025": [200], "2030": [300]})
-    proc_spec = TabularProcessing(pivot_on="year")
+    proc_spec = TabularProcessing(unpivot_on=["2020", "2025", "2030"])
     df_file = DataFile(name="test", fpath=sample_csv, proc_spec=proc_spec)
 
-    result = pl_pivot_on(lf, data_file=df_file, proc_spec=proc_spec).collect()
+    from r2x_core.processors import process_tabular_data
 
-    assert result.columns == ["year"]
+    result = process_tabular_data(lf, data_file=df_file, proc_spec=proc_spec).collect()
+
+    assert result.columns == ["variable", "value"]
     assert result.height == 3
-    assert result["year"].to_list() == [100, 200, 300]
+    assert result.to_dicts() == [
+        {"variable": "2020", "value": 100},
+        {"variable": "2025", "value": 200},
+        {"variable": "2030", "value": 300},
+    ]
 
 
 def test_json_rename_keys_renames_keys(sample_json_file: Path):
@@ -535,13 +540,21 @@ def test_substitute_placeholders_string_without_placeholder():
     assert result.unwrap() == "plain text"
 
 
-def test_substitute_placeholders_partial_placeholder_error():
-    """Test substitute_placeholders errors on partial placeholder like prefix_{var}."""
+def test_substitute_placeholders_supports_embedded_values():
+    """Substitute placeholders embedded in surrounding text."""
     from r2x_core.processors import substitute_placeholders
 
-    result = substitute_placeholders("prefix_{variable}", placeholders={"variable": "value"})
+    result = substitute_placeholders("prefix_{variable}.csv", placeholders={"variable": 2030})
+    assert result.is_ok()
+    assert result.unwrap() == "prefix_2030.csv"
+
+
+def test_substitute_placeholders_rejects_unknown_embedded_values():
+    from r2x_core.processors import substitute_placeholders
+
+    result = substitute_placeholders("prefix_{missing}.csv", placeholders={"year": 2030})
     assert result.is_err()
-    assert "not a complete placeholder" in str(result.err())
+    assert "{missing}" in str(result.err())
 
 
 def test_substitute_placeholders_list_error_propagation():
@@ -569,6 +582,7 @@ def test_tabular_value_transformations(sample_csv: Path):
 
     frame = pl.LazyFrame({"region": ["West", "West", "East"], "value": [None, 2, 1]})
     proc_spec = TabularProcessing(
+        lowercase=True,
         replace_values={"west": "north"},
         fill_null={"value": 0},
         distinct_on=["region", "value"],
@@ -604,7 +618,107 @@ def test_tabular_long_to_wide_pivot(sample_csv: Path):
     data_file = DataFile(name="annual", fpath=sample_csv, proc_spec=proc_spec)
 
     result = process_tabular_data(frame, data_file=data_file, proc_spec=proc_spec).collect()
-    assert result.to_dicts() == [{"region": "west", "2021": 3, "2020": 3}]
+    assert result.to_dicts() == [{"region": "West", "2021": 3, "2020": 3}]
+
+
+def test_unpivot_pipeline_renames_casts_filters_and_splits(sample_csv: Path):
+    from r2x_core.processors import apply_processing
+
+    frame = pl.LazyFrame(
+        {
+            "region": ["NYISO", "PJM"],
+            "2025": [10, 20],
+            "2030": [30, 40],
+        }
+    )
+    proc_spec = TabularProcessing(
+        unpivot_on=["2025", "2030"],
+        column_mapping={"variable": "year", "value": "capacity_mw"},
+        column_schema={"year": "int"},
+        filter_by={"year": "{solve_year}"},
+        select_columns=["region", "year", "capacity_mw"],
+    )
+    data_file = DataFile(name="annual", fpath=sample_csv, proc_spec=proc_spec)
+
+    result = apply_processing(
+        frame,
+        data_file=data_file,
+        proc_spec=proc_spec,
+        placeholders={"solve_year": 2030},
+    )
+
+    assert result.is_ok()
+    assert result.unwrap().collect().to_dicts() == [
+        {"region": "NYISO", "year": 2030, "capacity_mw": 30},
+        {"region": "PJM", "year": 2030, "capacity_mw": 40},
+    ]
+
+
+def test_tabular_processing_preserves_case_by_default(sample_csv: Path):
+    from r2x_core.processors import process_tabular_data
+
+    frame = pl.LazyFrame({"Technology": ["Gas & FO"]})
+    data_file = DataFile(name="technology", fpath=sample_csv)
+
+    preserved = process_tabular_data(frame, data_file=data_file, proc_spec=TabularProcessing()).collect()
+    lowered = process_tabular_data(
+        frame, data_file=data_file, proc_spec=TabularProcessing(lowercase=True)
+    ).collect()
+
+    assert preserved.columns == ["Technology"]
+    assert preserved["Technology"].to_list() == ["Gas & FO"]
+    assert lowered.columns == ["technology"]
+    assert lowered["technology"].to_list() == ["gas & fo"]
+
+
+def test_tabular_numeric_string_cleanup(sample_csv: Path):
+    from r2x_core.processors import process_tabular_data
+
+    frame = pl.LazyFrame(
+        {
+            "limit": ["2,450"],
+            "price": ["$4.99 "],
+            "share": ["171.20%"],
+            "count": ["-"],
+        }
+    )
+    proc_spec = TabularProcessing(
+        replace_values={"-": "0"},
+        strip_chars={"limit": [","], "price": ["$"], "share": ["%"]},
+        column_schema={"limit": "float", "price": "float", "share": "float", "count": "float"},
+        scale={"share": 0.01},
+    )
+    data_file = DataFile(name="formatted", fpath=sample_csv)
+
+    result = process_tabular_data(frame, data_file=data_file, proc_spec=proc_spec).collect()
+
+    assert result.to_dicts() == [{"limit": 2450.0, "price": 4.99, "share": 1.712, "count": 0.0}]
+
+
+def test_apply_processing_returns_err_for_invalid_transformation(sample_csv: Path):
+    from r2x_core.processors import apply_processing
+
+    result = apply_processing(
+        pl.LazyFrame({"a": [1]}),
+        data_file=DataFile(name="missing-column", fpath=sample_csv),
+        proc_spec=TabularProcessing(filter_by={"missing": "x"}),
+    )
+
+    assert result.is_err()
+    assert "filter_by" in str(result.err())
+
+
+def test_null_pivot_keys_are_rejected(sample_csv: Path):
+    from r2x_core.processors import apply_processing
+
+    result = apply_processing(
+        pl.LazyFrame({"id": ["a", "a"], "year": [None, 2020], "value": [1, 2]}),
+        data_file=DataFile(name="null-pivot", fpath=sample_csv),
+        proc_spec=TabularProcessing(pivot_on="year", group_by=["id"], aggregate_on={"value": "sum"}),
+    )
+
+    assert result.is_err()
+    assert "null" in str(result.err()).lower()
 
 
 def test_tabular_unpivot_group_aggregate_pipeline(sample_csv: Path):
@@ -619,6 +733,7 @@ def test_tabular_unpivot_group_aggregate_pipeline(sample_csv: Path):
         }
     )
     proc_spec = TabularProcessing(
+        lowercase=True,
         unpivot_on=["jan", "feb"],
         group_by=["region", "variable"],
         aggregate_on={"value": "sum"},
@@ -641,6 +756,16 @@ def test_tabular_processing_rejects_invalid_aggregation():
     """Reject unsupported aggregation functions during configuration validation."""
     with pytest.raises(ValueError, match="Unsupported aggregation function"):
         TabularProcessing(aggregate_on={"value": "average"})
+
+
+@pytest.mark.parametrize("function", ["n_unique", "std", "var"])
+def test_tabular_processing_rejects_pivot_aggregations_unsupported_by_polars(function: str):
+    with pytest.raises(ValueError, match="pivot_on does not support"):
+        TabularProcessing(
+            pivot_on="year",
+            group_by=["region"],
+            aggregate_on={"amount": function},
+        )
 
 
 def test_tabular_processing_rejects_unsupported_index_configuration():
@@ -723,7 +848,7 @@ def test_tabular_additional_operation_edges(sample_csv: Path):
     frame = pl.LazyFrame({"year": [2020, 2020]})
     with pytest.raises(ValueError, match="requires at least one value"):
         pl_pivot_on(frame, data_file=data_file, proc_spec=TabularProcessing(pivot_on="year"))
-    with pytest.raises(ValueError, match=r"Legacy pivot_on.*cannot be combined"):
+    with pytest.raises(ValueError, match=r"pivot_on.*missing column"):
         pl_pivot_on(
             pl.LazyFrame({"amount": [1]}),
             data_file=data_file,
@@ -740,9 +865,9 @@ def test_tabular_additional_operation_edges(sample_csv: Path):
     with pytest.raises(ValueError, match="cannot also be an aggregate_on"):
         TabularProcessing(pivot_on="year", aggregate_on={"year": "sum"})
     valid_unpivot, _ = pl_unpivot_on(
-        pl.LazyFrame({"value": [1], "january": [2]}),
+        pl.LazyFrame({"amount": [1], "january": [2]}),
         data_file=data_file,
-        proc_spec=TabularProcessing(unpivot_on=["value", "january"]),
+        proc_spec=TabularProcessing(unpivot_on=["amount", "january"]),
     )
     assert valid_unpivot.collect().columns == ["variable", "value"]
     with pytest.raises(ValueError, match="overwrite"):
@@ -849,3 +974,29 @@ def test_pl_build_filter_expr_datetime_year_single():
 
     result = df.filter(expr)
     assert len(result) == 1
+
+
+def test_tabular_processing_reports_non_numeric_scale(sample_csv: Path):
+    from r2x_core.processors import apply_processing
+
+    result = apply_processing(
+        pl.LazyFrame({"value": ["not numeric"]}),
+        data_file=DataFile(name="invalid-scale", fpath=sample_csv),
+        proc_spec=TabularProcessing(scale={"value": 0.01}),
+    )
+
+    assert result.is_err()
+    assert "scale requires numeric columns" in str(result.err())
+
+
+def test_split_column_rejects_overwriting_existing_columns(sample_csv: Path):
+    from r2x_core.processors import apply_processing
+
+    result = apply_processing(
+        pl.LazyFrame({"label": ["2030|NYISO"], "year": [2030]}),
+        data_file=DataFile(name="split-collision", fpath=sample_csv),
+        proc_spec=TabularProcessing(split_column={"label": {"separator": "|", "into": ["year", "zone"]}}),
+    )
+
+    assert result.is_err()
+    assert "overwrite existing column" in str(result.err())

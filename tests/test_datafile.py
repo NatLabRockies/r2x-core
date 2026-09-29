@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from r2x_core.datafile import FileInfo, JSONProcessing, ReaderConfig, TabularProcessing
+from r2x_core.datafile import FileInfo, JSONProcessing, ReaderConfig, SplitColumnSpec, TabularProcessing
 
 
 def test_datafile_with_nested_structure(tmp_path):
@@ -278,6 +278,35 @@ def test_data_file_from_records_success(tmp_path):
     assert len(data_files) == 2
 
 
+def test_data_file_from_records_resolves_relative_paths_and_preserves_globs(tmp_path):
+    from r2x_core import DataFile
+
+    (tmp_path / "relative.csv").write_text("value\n1\n")
+    (tmp_path / "scenario_2030.csv").write_text("value\n2\n")
+    records = [
+        {"name": "relative", "relative_fpath": "relative.csv"},
+        {"name": "scenario", "glob": "scenario_*.csv"},
+    ]
+
+    data_files = DataFile.from_records(records, folder_path=tmp_path)
+
+    assert data_files[0].fpath == tmp_path / "relative.csv"
+    assert data_files[0].relative_fpath is None
+    assert data_files[1].glob == "scenario_*.csv"
+    assert data_files[1].fpath is None
+
+
+def test_data_file_from_record_allows_placeholder_paths(tmp_path):
+    from r2x_core import DataFile
+
+    data_file = DataFile.from_record(
+        {"name": "scenario", "relative_fpath": "scenario_{year}.csv"},
+        folder_path=tmp_path,
+    )
+
+    assert data_file.fpath == tmp_path / "scenario_{year}.csv"
+
+
 def test_data_file_from_records_validation_error(tmp_path):
     from pydantic import ValidationError
 
@@ -323,17 +352,35 @@ def test_datafile_file_type_requires_path_or_glob():
 
 
 def test_datafile_file_type_unknown_extension(tmp_path):
-    """Test that file_type raises KeyError for unknown extension."""
+    """Test that DataFile rejects unknown extensions."""
     from r2x_core import DataFile
 
     unknown_file = tmp_path / "data.xyz"
     unknown_file.write_text("content")
 
     with pytest.raises(KeyError, match="not found on"):
-        DataFile(
-            name="unknown",
-            fpath=unknown_file,
-        )
+        DataFile(name="unknown", fpath=unknown_file)
+
+
+@pytest.mark.parametrize(
+    ("into", "message"),
+    [(["year", " "], "cannot be empty"), (["year", "year"], "must be unique")],
+)
+def test_split_column_requires_distinct_non_empty_output_names(into, message):
+    with pytest.raises(ValueError, match=message):
+        SplitColumnSpec(separator="|", into=into)
+
+
+@pytest.mark.parametrize(
+    ("config", "message"),
+    [
+        ({"scale": {"value": float("inf")}}, "scale values must be finite"),
+        ({"strip_chars": {"value": [""]}}, "strip_chars values must be non-empty"),
+    ],
+)
+def test_tabular_processing_rejects_invalid_cleanup_options(config, message):
+    with pytest.raises(ValueError, match=message):
+        TabularProcessing(**config)
 
 
 def test_data_file_from_records_key_error(tmp_path):

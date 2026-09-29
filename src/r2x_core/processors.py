@@ -6,17 +6,16 @@ organized by data type (Polars LazyFrame for tabular, dict for JSON) with a
 registration system allowing custom transformations.
 
 Pipeline architecture:
-- Tabular: lowercase -> drop -> rename -> replace -> cast -> fill -> filter -> reshape -> aggregate -> distinct -> sort -> select
+- Tabular: optional lowercase -> drop -> reshape-aware transforms -> aggregate -> distinct -> sort -> select
 - JSON: rename_keys -> drop_columns -> select_columns -> filter -> select_keys
 
-Tabular operation order is fixed. ``unpivot_on`` is the explicit wide-to-long
-operation that retains identifier columns. ``pivot_on`` performs a long-to-wide
-pivot when it names an input column and retains the legacy wide-to-long behavior
-otherwise. The two are mutually exclusive. Aggregation runs after reshaping for
-``unpivot_on``; ``aggregate_on`` supplies value aggregations for a real pivot.
+Tabular operation order is fixed and depends on whether ``unpivot_on`` is set.
+``unpivot_on`` is the explicit wide-to-long operation that retains identifier
+columns. ``pivot_on`` requires an input column and performs a long-to-wide
+pivot. The two are mutually exclusive. Aggregation runs after reshaping.
 
-Placeholder substitution in processing specifications uses curly braces
-(e.g., {solve_year}) and requires a placeholders dictionary at processing time.
+Placeholder substitution in processing specifications and file paths uses curly braces
+(e.g., {solve_year}) and requires a placeholders dictionary at read or processing time.
 
 See Also
 --------
@@ -50,7 +49,8 @@ def substitute_placeholders(
     """Replace {variable} placeholders in values using provided mapping.
 
     Recursively substitutes placeholders in strings, lists, and dictionaries.
-    Placeholders must be complete values (e.g., {year}, not prefix_{year}).
+    Complete placeholders preserve their replacement type; embedded placeholders
+    are converted to strings.
 
     Parameters
     ----------
@@ -115,11 +115,25 @@ def substitute_placeholders(
                 changed = True
                 return Ok(placeholders[var_name])
 
-            if _PLACEHOLDER_PATTERN.search(val):
-                return Err(
-                    ValueError(
-                        f"Found placeholder pattern in '{val}' but it's not a complete placeholder.\n"
-                        "Placeholders must be the entire value, e.g., use '{variable}' not 'prefix_{variable}'"
+            matches = list(_PLACEHOLDER_PATTERN.finditer(val))
+            if matches:
+                if placeholders is None:
+                    name = matches[0].group(1)
+                    return Err(ValueError(f"Found placeholder '{{{name}}}' but no placeholders provided."))
+                missing = [match.group(1) for match in matches if match.group(1) not in placeholders]
+                if missing:
+                    available = ", ".join(placeholders)
+                    return Err(
+                        ValueError(
+                            f"Placeholder '{{{missing[0]}}}' not found in placeholders.\n"
+                            f"Available placeholders: {available}"
+                        )
+                    )
+                changed = True
+                return Ok(
+                    _PLACEHOLDER_PATTERN.sub(
+                        lambda match: str(placeholders[match.group(1)]),
+                        val,
                     )
                 )
             return Ok(val)
@@ -171,16 +185,13 @@ def process_tabular_data(
 ) -> pl.LazyFrame:
     """Apply tabular data transformations sequentially.
 
-    Executes the fixed tabular pipeline declared in ``TabularProcessing``.
+    Execute the reshape-aware pipeline declared in ``TabularProcessing``.
 
-    Operations run in this order: lowercase column names and string values,
-    drop columns, rename columns, replace values, cast columns, fill nulls,
-    filter rows, reshape, aggregate, deduplicate, sort, and select columns.
-    ``unpivot_on`` is the explicit wide-to-long operation with identifier
-    columns. ``pivot_on`` performs a long-to-wide pivot when it names an input
-    column and retains its legacy wide-to-long behavior otherwise. Aggregation
-    follows unpivoting, which allows long data to be grouped and normalized in
-    one lazy pipeline.
+    Lowercasing is optional. With ``unpivot_on``, operations run in this order:
+    lowercase, drop, unpivot, split, replace, strip, rename, cast, scale, fill,
+    filter, aggregate, deduplicate, sort, and select. Without ``unpivot_on``,
+    split, rename, replace, strip, cast, scale, fill, and filter run before an
+    optional long-to-wide ``pivot_on``. Aggregation follows reshaping.
 
     Column names are tracked between steps so transformations stay lazy. Schema
     inspection is used only for validation and for operations whose output
@@ -207,9 +218,37 @@ def process_tabular_data(
     :func:`pl_rename_columns` : Apply column name mapping.
     """
     schema_names = list(data_frame.collect_schema().names())
+    common_steps = [pl_lowercase, pl_drop_columns]
+    if proc_spec.unpivot_on:
+        pipeline = [
+            *common_steps,
+            pl_unpivot_on,
+            pl_split_columns,
+            pl_replace_values,
+            pl_strip_chars,
+            pl_rename_columns,
+            pl_cast_schema,
+            pl_scale,
+            pl_fill_null,
+            pl_apply_filters,
+        ]
+    else:
+        pipeline = [
+            *common_steps,
+            pl_split_columns,
+            pl_rename_columns,
+            pl_replace_values,
+            pl_strip_chars,
+            pl_cast_schema,
+            pl_scale,
+            pl_fill_null,
+            pl_apply_filters,
+            pl_pivot_on,
+        ]
+    pipeline.extend([pl_aggregate, pl_distinct, pl_sort, pl_select_columns])
 
-    for fp_function in _TABULAR_PIPELINE:
-        result = fp_function(data_frame, data_file=data_file, proc_spec=proc_spec, schema_names=schema_names)
+    for transform in pipeline:
+        result = transform(data_frame, data_file=data_file, proc_spec=proc_spec, schema_names=schema_names)
         if isinstance(result, tuple):
             data_frame, schema_names = result
         else:
@@ -267,13 +306,12 @@ def pl_pivot_on(
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
 ) -> pl.LazyFrame:
-    """Pivot or stack a DataFrame according to the configured pivot column.
+    """Pivot a DataFrame long-to-wide using the configured pivot column.
 
-    When ``pivot_on`` names an input column, this performs a long-to-wide pivot
-    using grouped value aggregations. Polars requires the distinct output column
-    values up front, so that small discovery query is collected before the lazy
-    pivot plan is built. When the name is not an input column, the legacy
-    wide-to-long stack behavior is used.
+    Perform a long-to-wide pivot using grouped value aggregations. The pivot
+    column must exist in the input schema. Polars requires distinct output
+    values up front, so a small discovery query is collected before the lazy
+    pivot plan is built. Use ``unpivot_on`` for wide-to-long reshaping.
     """
     if schema_names is None:
         schema_names = list(data_frame.collect_schema().names())
@@ -281,14 +319,7 @@ def pl_pivot_on(
         return data_frame
 
     value_name = proc_spec.pivot_on
-    if value_name not in (schema_names or []):
-        if proc_spec.group_by or proc_spec.aggregate_on:
-            raise ValueError(
-                f"Legacy pivot_on={value_name!r} in {data_file.name!r} cannot be combined with "
-                "group_by or aggregate_on. Use a pivot_on column that exists in the input schema."
-            )
-        logger.trace("Applying legacy pivot_on={} to {}", value_name, data_file.name)
-        return data_frame.unpivot(value_name=value_name).select(value_name)
+    _require_columns(schema_names or [], [value_name], operation="pivot_on", data_file=data_file)
 
     group_columns = list(proc_spec.group_by or [])
     value_columns = list(proc_spec.aggregate_on or {})
@@ -309,6 +340,11 @@ def pl_pivot_on(
     pivot_values = (
         data_frame.select(value_name).unique(maintain_order=True).collect().get_column(value_name).to_list()
     )
+    if any(value is None for value in pivot_values):
+        raise ValueError(
+            f"pivot_on in {data_file.name!r} contains null key(s) in column {value_name!r}; "
+            "drop or fill null pivot keys before pivoting."
+        )
     logger.debug("Pivoting {} on {} in {}", value_columns, value_name, data_file.name)
     return data_frame.pivot(
         on=value_name,
@@ -332,7 +368,7 @@ def _require_columns(
         available = ", ".join(schema_names) or "<none>"
         raise ValueError(
             f"{operation} in {data_file.name!r} references missing column(s): {missing}. "
-            f"Available columns: {available}. Column names are lowercased before processing."
+            f"Available columns at this pipeline stage: {available}."
         )
 
 
@@ -365,6 +401,91 @@ def pl_unpivot_on(
         value_name="value",
     )
     return result, [*index_columns, "variable", "value"]
+
+
+def pl_split_columns(
+    data_frame: pl.LazyFrame,
+    *,
+    data_file: DataFile,
+    proc_spec: TabularProcessing,
+    schema_names: list[str] | None = None,
+) -> tuple[pl.LazyFrame, list[str]]:
+    """Split configured string columns into named fields."""
+    if schema_names is None:
+        schema_names = list(data_frame.collect_schema().names())
+    if not proc_spec or not proc_spec.split_column:
+        return data_frame, schema_names
+
+    result = data_frame
+    current_names = list(schema_names)
+    for column, split_spec in proc_spec.split_column.items():
+        _require_columns(current_names, [column], operation="split_column", data_file=data_file)
+        collisions = sorted(set(split_spec.into) & (set(current_names) - {column}))
+        if collisions:
+            raise ValueError(
+                f"split_column in {data_file.name!r} would overwrite existing column(s): {collisions}."
+            )
+        split_expression = (
+            pl.col(column)
+            .cast(pl.String)
+            .str.split_exact(split_spec.separator, n=len(split_spec.into) - 1)
+            .struct.rename_fields(split_spec.into)
+            .alias(column)
+        )
+        result = result.with_columns(split_expression).unnest(column)
+        current_names = [
+            name
+            for existing in current_names
+            for name in (split_spec.into if existing == column else [existing])
+        ]
+    return result, current_names
+
+
+def pl_strip_chars(
+    data_frame: pl.LazyFrame,
+    *,
+    data_file: DataFile,
+    proc_spec: TabularProcessing,
+    schema_names: list[str] | None = None,
+) -> tuple[pl.LazyFrame, list[str]]:
+    """Remove configured literal strings and surrounding whitespace."""
+    if schema_names is None:
+        schema_names = list(data_frame.collect_schema().names())
+    if not proc_spec or not proc_spec.strip_chars:
+        return data_frame, schema_names
+
+    _require_columns(schema_names, list(proc_spec.strip_chars), operation="strip_chars", data_file=data_file)
+    expressions = []
+    for column, characters in proc_spec.strip_chars.items():
+        pattern = "|".join(re.escape(character) for character in characters)
+        cleaned = pl.col(column).cast(pl.String).str.strip_chars()
+        if pattern:
+            cleaned = cleaned.str.replace_all(pattern, "")
+        expressions.append(cleaned.alias(column))
+    return data_frame.with_columns(expressions), schema_names
+
+
+def pl_scale(
+    data_frame: pl.LazyFrame,
+    *,
+    data_file: DataFile,
+    proc_spec: TabularProcessing,
+    schema_names: list[str] | None = None,
+) -> tuple[pl.LazyFrame, list[str]]:
+    """Multiply configured numeric columns by their scale factors."""
+    if schema_names is None:
+        schema_names = list(data_frame.collect_schema().names())
+    if not proc_spec or not proc_spec.scale:
+        return data_frame, schema_names
+
+    columns = list(proc_spec.scale)
+    _require_columns(schema_names, columns, operation="scale", data_file=data_file)
+    schema = data_frame.collect_schema()
+    invalid = {column: schema[column] for column in columns if not schema[column].is_numeric()}
+    if invalid:
+        raise ValueError(f"scale requires numeric columns in {data_file.name!r}: {invalid}")
+    expressions = [pl.col(column).mul(factor).alias(column) for column, factor in proc_spec.scale.items()]
+    return data_frame.with_columns(expressions), schema_names
 
 
 def _compatible_replacements(mapping: dict[Any, Any], dtype: pl.DataType) -> dict[Any, Any]:
@@ -529,6 +650,8 @@ def pl_lowercase(
     """
     if schema_names is None:
         schema_names = list(data_frame.collect_schema().names())
+    if not proc_spec or not proc_spec.lowercase:
+        return data_frame, schema_names
     result = data_frame.with_columns(pl.col(pl.String).str.to_lowercase()).rename(
         {column: column.lower() for column in schema_names}
     )
@@ -658,23 +781,6 @@ def pl_select_columns(
 
     logger.trace("Selecting {} columns from {}", len(cols_to_select), data_file.name)
     return data_frame.select(cols_to_select), cols_to_select
-
-
-_TABULAR_PIPELINE: list[Callable[..., Any]] = [
-    pl_lowercase,
-    pl_drop_columns,
-    pl_rename_columns,
-    pl_replace_values,
-    pl_cast_schema,
-    pl_fill_null,
-    pl_apply_filters,
-    pl_unpivot_on,
-    pl_pivot_on,
-    pl_aggregate,
-    pl_distinct,
-    pl_sort,
-    pl_select_columns,
-]
 
 
 def json_rename_keys(json_data: JSONType, *, data_file: DataFile, proc_spec: JSONProcessing) -> JSONType:
@@ -868,18 +974,13 @@ def apply_processing(
     proc_spec : FileProcessing | None
         Processing specification (TabularProcessing or JSONProcessing).
     placeholders : dict[str, Any] | None
-        Dictionary mapping placeholder variable names to their values.
-        Used to substitute placeholders like {solve_year} in processing settings.
+        Mapping from placeholder names to values used in processing settings.
 
     Returns
     -------
-    Any
-        Transformed data.
-
-    Raises
-    ------
-    ValueError
-        If placeholders are found in processing settings but no placeholders dict provided.
+    Result[Any, ValueError | ValidationError]
+        ``Ok`` with transformed data, or ``Err`` with a placeholder or
+        transformation validation failure.
     """
     if not proc_spec:
         return Ok(data)
@@ -902,7 +1003,11 @@ def apply_processing(
 
     for registered_types, transform_func in TRANSFORMATIONS.items():
         if isinstance(data, registered_types):
-            return Ok(transform_func(data, data_file=data_file, proc_spec=proc_spec))
+            try:
+                transformed = transform_func(data, data_file=data_file, proc_spec=proc_spec)
+            except (ValueError, pl.exceptions.PolarsError) as error:
+                return Err(ValueError(f"Processing {data_file.name!r} failed: {error}"))
+            return Ok(transformed)
 
     logger.debug("No transformation for type {} in {}", type(data).__name__, data_file.name)
     return Ok(data)

@@ -151,3 +151,36 @@ def test_unsupported_file_type(tmp_path):
 
     with pytest.raises(NotImplementedError, match="No reader implemented"):
         read_file_by_type(UnsupportedType(), file_path=test_file)
+
+
+@pytest.mark.parametrize(
+    ("header_rows", "kwargs", "message"),
+    [
+        (0, {}, "header_rows must be at least 1"),
+        (2, {"has_header": True}, "has_header=True"),
+        (2, {"new_columns": ["first", "second"]}, "new_columns"),
+        (2, {"skip_rows_after_header": 1}, "skip_rows_after_header"),
+    ],
+)
+def test_read_csv_rejects_unsupported_multirow_header_options(tmp_path, header_rows, kwargs, message):
+    csv_path = tmp_path / "headers.csv"
+    csv_path.write_text("first,second\nname,value\na,1\n")
+
+    with pytest.raises(ValueError, match=message):
+        read_file_by_type(TableFormat(), file_path=csv_path, header_rows=header_rows, **kwargs)
+
+
+def test_read_csv_rejects_insufficient_header_rows(tmp_path):
+    csv_path = tmp_path / "one_header.csv"
+    csv_path.write_text("name,value\na,1\n")
+
+    with pytest.raises(ValueError, match="Expected 3 header rows"):
+        read_file_by_type(TableFormat(), file_path=csv_path, header_rows=3)
+
+
+def test_read_csv_rejects_duplicate_combined_headers(tmp_path):
+    csv_path = tmp_path / "duplicate_headers.csv"
+    csv_path.write_text("group,group\nvalue,value\na,1\n")
+
+    with pytest.raises(ValueError, match="duplicate column names"):
+        read_file_by_type(TableFormat(), file_path=csv_path, header_rows=2)

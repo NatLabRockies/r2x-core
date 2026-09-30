@@ -26,6 +26,10 @@ See Also
 
 import re
 from collections.abc import Callable
+from datetime import date, datetime, time, timedelta
+from decimal import Decimal
+from math import isnan
+from numbers import Integral, Rational, Real
 from typing import Any
 
 import polars as pl
@@ -489,24 +493,6 @@ def pl_scale(
     return data_frame.with_columns(expressions), schema_names
 
 
-def _compatible_replacements(mapping: dict[Any, Any], dtype: pl.DataType) -> dict[Any, Any]:
-    """Select replacement keys and values representable by a column type."""
-    compatible: dict[Any, Any] = {}
-    for old, new in mapping.items():
-        try:
-            old_series = pl.Series("_replacement", [old]).cast(dtype, strict=False)
-            new_series = pl.Series("_replacement", [new]).cast(dtype, strict=False)
-        except (TypeError, ValueError, pl.exceptions.PolarsError):
-            continue
-        old_compatible = old is None or old_series.null_count() == 0
-        new_compatible = new is None or new_series.null_count() == 0
-        if old_compatible and new_compatible:
-            compatible[None if old is None else old_series.item()] = (
-                None if new is None else new_series.item()
-            )
-    return compatible
-
-
 def pl_replace_values(
     data_frame: pl.LazyFrame,
     *,
@@ -514,16 +500,89 @@ def pl_replace_values(
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
 ) -> tuple[pl.LazyFrame, list[str]]:
-    """Replace configured values in every compatible column."""
+    """Replace values when their logical families match each column."""
     if schema_names is None:
         schema_names = list(data_frame.collect_schema().names())
     if not proc_spec or not proc_spec.replace_values:
         return data_frame, schema_names
 
+    value_families = (
+        (bool, "boolean"),
+        (Integral, "integer"),
+        (Decimal, "decimal"),
+        (Rational, "rational"),
+        (Real, "float"),
+        (str, "string"),
+        (datetime, "datetime"),
+        (date, "date"),
+        (time, "time"),
+        (timedelta, "duration"),
+        ((bytes, bytearray), "binary"),
+    )
     schema = data_frame.collect_schema()
     expressions = []
     for column in schema_names:
-        replacements = _compatible_replacements(proc_spec.replace_values, schema[column])
+        dtype = schema[column]
+        if dtype == pl.Boolean:
+            target_family = "boolean"
+        elif dtype.is_integer():
+            target_family = "integer"
+        elif dtype.is_float():
+            target_family = "float"
+        elif dtype.is_decimal():
+            target_family = "decimal"
+        elif dtype == pl.String or dtype.base_type() in (pl.Categorical, pl.Enum):
+            target_family = "string"
+        elif dtype == pl.Date:
+            target_family = "date"
+        elif dtype.base_type() is pl.Datetime:
+            target_family = "datetime"
+        elif dtype == pl.Time:
+            target_family = "time"
+        elif dtype.base_type() is pl.Duration:
+            target_family = "duration"
+        elif dtype == pl.Binary:
+            target_family = "binary"
+        else:
+            continue
+
+        replacements: dict[Any, Any] = {}
+        for old, new in proc_spec.replace_values.items():
+            cast_values = []
+            compatible = True
+            for value in (old, new):
+                if value is None:
+                    cast_values.append(None)
+                    continue
+
+                source_family = next(
+                    (family for value_type, family in value_families if isinstance(value, value_type)),
+                    None,
+                )
+                can_widen_integer = source_family == "integer" and target_family == "float"
+                if source_family != target_family and not can_widen_integer:
+                    compatible = False
+                    break
+
+                try:
+                    series = pl.Series("_replacement", [value]).cast(dtype, strict=False)
+                except (TypeError, ValueError, pl.exceptions.PolarsError):
+                    compatible = False
+                    break
+                if series.null_count() != 0:
+                    compatible = False
+                    break
+
+                cast_value = series.item()
+                if cast_value != value and not (
+                    source_family == "float" and isnan(cast_value) and isnan(value)
+                ):
+                    compatible = False
+                    break
+                cast_values.append(cast_value)
+
+            if compatible:
+                replacements[cast_values[0]] = cast_values[1]
         if replacements:
             expressions.append(pl.col(column).replace(replacements).alias(column))
     logger.debug("Replacing configured values in {}", data_file.name)

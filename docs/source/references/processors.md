@@ -154,8 +154,12 @@ processing = TabularProcessing(
 ```
 
 Sort directions are `asc`, `ascending`, `desc`, and `descending`.
-`replace_values` is applied to compatible columns, so a string replacement does
-not fail on unrelated numeric columns.
+`replace_values` applies only when both values match a column's logical type
+family, and casts that lose precision are skipped. Integer values may widen to
+floating-point columns only when exactly representable. A `None` on either side
+is allowed, but the other value must still match the column family. For example,
+a boolean replacement does not become an integer replacement in numeric
+columns, and string replacements skip unrelated numeric columns.
 
 Pandas-style `set_index`, `reset_index`, and `rename_index` fields are not
 supported for tabular data. Supplying these fields is rejected during

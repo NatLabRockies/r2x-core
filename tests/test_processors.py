@@ -7,6 +7,8 @@ renaming, dropping, casting, and pivoting work as expected.
 
 import json
 import warnings
+from datetime import datetime, time, timedelta
+from decimal import Decimal
 from pathlib import Path
 
 import polars as pl
@@ -862,6 +864,164 @@ def test_json_select_keys_passthrough_non_dict_list(sample_json_file: Path):
     assert result == 42
 
 
+def test_replace_values_does_not_coerce_booleans_to_numeric_columns(sample_csv: Path):
+    from r2x_core.processors import pl_replace_values
+
+    frame = pl.LazyFrame(
+        {
+            "flag": [True, False],
+            "count": [1, 0],
+            "amount": [1.0, 0.0],
+        }
+    )
+    result, _ = pl_replace_values(
+        frame,
+        data_file=DataFile(name="typed-replacements", fpath=sample_csv),
+        proc_spec=TabularProcessing(replace_values={True: False}),
+    )
+
+    assert result.collect().to_dicts() == [
+        {"flag": False, "count": 1, "amount": 1.0},
+        {"flag": False, "count": 0, "amount": 0.0},
+    ]
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        pytest.param(Decimal("1.234"), Decimal("2.34"), id="inexact-key"),
+        pytest.param(Decimal("1.23"), Decimal("2.345"), id="inexact-replacement"),
+    ],
+)
+def test_replace_values_rejects_decimal_values_that_round_for_column(
+    sample_csv: Path, old: Decimal, new: Decimal
+):
+    from r2x_core.processors import pl_replace_values
+
+    frame = pl.DataFrame({"value": pl.Series("value", [Decimal("1.23")], dtype=pl.Decimal(5, 2))}).lazy()
+    result, _ = pl_replace_values(
+        frame,
+        data_file=DataFile(name="decimal-replacements", fpath=sample_csv),
+        proc_spec=TabularProcessing(replace_values={old: new}),
+    )
+
+    assert result.collect()["value"].to_list() == [Decimal("1.23")]
+
+
+def test_replace_values_rejects_datetime_values_that_lose_precision(sample_csv: Path):
+    from r2x_core.processors import pl_replace_values
+
+    stored = datetime(2020, 1, 1, microsecond=1_000)
+    inexact_key = datetime(2020, 1, 1, microsecond=1_001)
+    frame = pl.DataFrame({"value": pl.Series("value", [stored], dtype=pl.Datetime("ms"))}).lazy()
+    result, _ = pl_replace_values(
+        frame,
+        data_file=DataFile(name="datetime-replacements", fpath=sample_csv),
+        proc_spec=TabularProcessing(replace_values={inexact_key: datetime(2021, 1, 1)}),
+    )
+
+    assert result.collect()["value"].to_list() == [stored]
+
+
+def test_replace_values_rejects_float_values_that_lose_precision(sample_csv: Path):
+    from r2x_core.processors import pl_replace_values
+
+    frame = pl.DataFrame({"value": pl.Series("value", [1.0], dtype=pl.Float32)}).lazy()
+    result, _ = pl_replace_values(
+        frame,
+        data_file=DataFile(name="float-replacements", fpath=sample_csv),
+        proc_spec=TabularProcessing(replace_values={1.00000001: 2.0}),
+    )
+
+    assert result.collect()["value"].to_list() == [1.0]
+
+
+def test_replace_values_still_matches_float_nan(sample_csv: Path):
+    from math import nan
+
+    from r2x_core.processors import pl_replace_values
+
+    result, _ = pl_replace_values(
+        pl.LazyFrame({"amount": [nan]}),
+        data_file=DataFile(name="nan-replacements", fpath=sample_csv),
+        proc_spec=TabularProcessing(replace_values={nan: 0.0}),
+    )
+
+    assert result.collect()["amount"].to_list() == [0.0]
+
+
+def test_replace_values_does_not_coerce_rationals_to_float_columns(sample_csv: Path):
+    from fractions import Fraction
+
+    from r2x_core.processors import pl_replace_values
+
+    large_rational = Fraction(2**53 + 1, 1)
+    frame = pl.LazyFrame({"amount": [float(2**53)]})
+    result, _ = pl_replace_values(
+        frame,
+        data_file=DataFile(name="rational-replacements", fpath=sample_csv),
+        proc_spec=TabularProcessing(replace_values={large_rational: Fraction(0, 1)}),
+    )
+
+    assert result.collect()["amount"].to_list() == [float(2**53)]
+
+
+def test_replace_values_allows_only_lossless_integer_to_float_widening(sample_csv: Path):
+    from r2x_core.processors import pl_replace_values
+
+    large_integer = 2**53 + 1
+    frame = pl.LazyFrame(
+        {
+            "count": [1, large_integer],
+            "amount": [1.0, float(large_integer - 1)],
+            "small": pl.Series("small", [44, 45], dtype=pl.Int8),
+        }
+    )
+    result, _ = pl_replace_values(
+        frame,
+        data_file=DataFile(name="numeric-replacements", fpath=sample_csv),
+        proc_spec=TabularProcessing(replace_values={1: 2, large_integer: 0, 300: -1}),
+    )
+
+    assert result.collect().to_dicts() == [
+        {"count": 2, "amount": 2.0, "small": 44},
+        {"count": 0, "amount": float(large_integer - 1), "small": 45},
+    ]
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "dtype"),
+    [
+        pytest.param(Decimal("1.25"), Decimal("2.50"), pl.Decimal(5, 2), id="decimal"),
+        pytest.param(1.5, 2.5, pl.Float64, id="float"),
+        pytest.param(datetime(2020, 1, 2), datetime(2021, 2, 3), pl.Datetime("us"), id="datetime"),
+        pytest.param(time(3, 4), time(4, 5), pl.Time, id="time"),
+        pytest.param(timedelta(days=1), timedelta(days=2), pl.Duration("us"), id="duration"),
+        pytest.param(b"old", b"new", pl.Binary, id="binary"),
+        pytest.param("old", "new", pl.Categorical, id="categorical"),
+        pytest.param("old", "new", pl.Enum(["old", "new"]), id="enum"),
+    ],
+)
+def test_replace_values_preserves_logical_families(
+    sample_csv: Path, old: object, new: object, dtype: pl.DataType
+):
+    from r2x_core.processors import pl_replace_values
+
+    frame = pl.DataFrame(
+        {
+            "value": pl.Series("value", [old], dtype=dtype),
+            "whole": [1],
+        }
+    ).lazy()
+    result, _ = pl_replace_values(
+        frame,
+        data_file=DataFile(name="family-replacements", fpath=sample_csv),
+        proc_spec=TabularProcessing(replace_values={old: new}),
+    )
+
+    assert result.collect().to_dicts() == [{"value": new, "whole": 1}]
+
+
 def test_tabular_additional_operation_edges(sample_csv: Path):
     """Cover direct operation calls and explicit operation errors."""
     from datetime import date
@@ -934,6 +1094,13 @@ def test_tabular_additional_operation_edges(sample_csv: Path):
         proc_spec=TabularProcessing(replace_values={object(): "ignored"}),
     )
     assert incompatible.collect().to_dicts() == [{"number": 1}]
+    opaque_value = object()
+    opaque, _ = pl_replace_values(
+        pl.LazyFrame({"opaque": pl.Series("opaque", [opaque_value], dtype=pl.Object)}),
+        data_file=data_file,
+        proc_spec=TabularProcessing(replace_values={"old": "new"}),
+    )
+    assert opaque.collect()["opaque"][0] is opaque_value
     filled, _ = pl_fill_null(
         mixed, data_file=data_file, proc_spec=TabularProcessing(fill_null={"flag": False})
     )

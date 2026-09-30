@@ -11,6 +11,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    StringConstraints,
     ValidationError,
     ValidationInfo,
     computed_field,
@@ -23,6 +24,7 @@ from .utils import validate_file_extension, validate_glob_pattern
 from .utils.files import resolve_path
 
 _PLACEHOLDER_PATTERN = re.compile(r"\{[^{}]+\}")
+_ProcessingPlaceholder = Annotated[str, StringConstraints(pattern=r"^\{[^{}]+\}$")]
 _SUPPORTED_AGGREGATIONS = frozenset(
     {"count", "first", "last", "max", "mean", "median", "min", "n_unique", "std", "sum", "var"}
 )
@@ -152,12 +154,14 @@ class TabularProcessing(BaseModel):
         Maps old values to new values across compatible columns.
     fill_null : dict[str, Any] | None
         Specifies fill values for null entries by column.
-    lowercase : bool
-        If True, lowercase column names and string values before processing.
+    lowercase : bool | str
+        If True, lowercase column names and string values before processing. A
+        complete placeholder may defer the boolean value until processing.
     strip_chars : dict[str, list[str]] | None
         Literal strings to remove from configured columns before casting.
-    scale : dict[str, float] | None
-        Multipliers applied to numeric columns after casting.
+    scale : dict[str, float | str] | None
+        Multipliers applied to numeric columns after casting. A complete
+        placeholder may defer a multiplier until processing.
     split_column : dict[str, SplitColumnSpec] | None
         Split columns into named fields using a literal separator.
 
@@ -180,11 +184,17 @@ class TabularProcessing(BaseModel):
     distinct_on: Annotated[list[str] | None, Field(description="Columns for deduplication")] = None
     replace_values: Annotated[dict[Any, Any] | None, Field(description="Value replacement map")] = None
     fill_null: Annotated[dict[str, Any] | None, Field(description="Null fill values")] = None
-    lowercase: Annotated[bool, Field(description="Lowercase column names and string values")] = False
+    lowercase: Annotated[
+        bool | _ProcessingPlaceholder,
+        Field(description="Lowercase column names and string values; accepts complete placeholders"),
+    ] = False
     strip_chars: Annotated[
         dict[str, list[str]] | None, Field(description="Literal strings to remove from string columns")
     ] = None
-    scale: Annotated[dict[str, float] | None, Field(description="Numeric multipliers by column")] = None
+    scale: Annotated[
+        dict[str, float | _ProcessingPlaceholder] | None,
+        Field(description="Numeric multipliers by column; accepts complete placeholders"),
+    ] = None
     split_column: Annotated[
         dict[str, SplitColumnSpec] | None, Field(description="Split string columns into named fields")
     ] = None
@@ -235,7 +245,9 @@ class TabularProcessing(BaseModel):
                 )
         if self.scale:
             invalid_scales = {
-                column: factor for column, factor in self.scale.items() if not math.isfinite(factor)
+                column: factor
+                for column, factor in self.scale.items()
+                if not isinstance(factor, str) and not math.isfinite(factor)
             }
             if invalid_scales:
                 raise ValueError(f"scale values must be finite numbers: {invalid_scales}")

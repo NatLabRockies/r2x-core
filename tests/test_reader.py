@@ -173,6 +173,26 @@ def test_read_data_file_substitutes_placeholders_in_path_sources(reader_example,
         assert result.collect().to_dicts() == [{"value": 42}]
 
 
+def test_read_data_file_substitutes_boolean_and_numeric_processing_placeholders(reader_example, tmp_path):
+    from r2x_core.datafile import DataFile, TabularProcessing
+
+    csv_path = tmp_path / "typed.csv"
+    csv_path.write_text("Value\n2\n")
+    data_file = DataFile(
+        name="typed-placeholders",
+        fpath=csv_path,
+        proc_spec=TabularProcessing(lowercase="{enabled}", scale={"value": "{factor}"}),
+    )
+
+    result = reader_example.read_data_file(
+        data_file,
+        folder_path=tmp_path,
+        placeholders={"enabled": True, "factor": 0.5},
+    )
+
+    assert result.collect().to_dicts() == [{"value": 1.0}]
+
+
 def test_read_data_file_rejects_unknown_path_placeholder(reader_example, tmp_path):
     from r2x_core.datafile import DataFile
 

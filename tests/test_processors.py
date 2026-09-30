@@ -391,6 +391,43 @@ def test_apply_processing_rejects_invalid_substituted_transformation(sample_csv:
     assert "Invalid processing specification" in str(result.err())
 
 
+def test_apply_processing_substitutes_typed_transformation_values(sample_csv: Path):
+    proc_spec = TabularProcessing(lowercase="{enabled}", scale={"amount": "{factor}"})
+    result = apply_processing(
+        pl.LazyFrame({"AMOUNT": [2.0]}),
+        data_file=DataFile(name="typed-placeholders", fpath=sample_csv),
+        proc_spec=proc_spec,
+        placeholders={"enabled": True, "factor": 0.5},
+    )
+
+    assert result.is_ok()
+    assert result.unwrap().collect().to_dicts() == [{"amount": 1.0}]
+
+
+@pytest.mark.parametrize(
+    ("config", "placeholders"),
+    [
+        ({"lowercase": "{enabled}"}, {"enabled": "not-a-bool"}),
+        ({"scale": {"amount": "{factor}"}}, {"factor": float("inf")}),
+    ],
+)
+def test_apply_processing_revalidates_typed_placeholders(
+    sample_csv: Path,
+    config: dict[str, object],
+    placeholders: dict[str, bool | float | str],
+):
+    proc_spec = TabularProcessing(**config)
+    result = apply_processing(
+        pl.LazyFrame({"amount": [2.0]}),
+        data_file=DataFile(name="invalid-typed-placeholder", fpath=sample_csv),
+        proc_spec=proc_spec,
+        placeholders=placeholders,
+    )
+
+    assert result.is_err()
+    assert "Invalid processing specification" in str(result.err())
+
+
 def test_json_select_columns_with_nested_list(sample_json_file: Path):
     from r2x_core.processors import json_select_columns
 

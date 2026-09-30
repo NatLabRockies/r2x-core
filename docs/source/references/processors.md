@@ -118,7 +118,9 @@ functions or other file formats.
 
 Placeholders can appear as whole values or inside strings in processing
 settings and file paths. Whole-value placeholders preserve their type; embedded
-placeholders are converted to strings. Unknown names return an error.
+placeholders are converted to strings. `lowercase` accepts a boolean placeholder,
+and `scale` accepts numeric placeholders. Substituted values are validated
+before processing. Unknown names return an error.
 
 ```python
 from r2x_core import DataFile, DataStore, TabularProcessing

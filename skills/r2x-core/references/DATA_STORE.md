@@ -10,10 +10,10 @@ and `DataStore`.
 - `DataFile` must set exactly one path source: `fpath`, `relative_fpath`, or
   `glob`.
 - `FileInfo(description=None, is_input=True, is_optional=False, is_timeseries=False, units=None)`
-- `ReaderConfig(kwargs: dict[str, Any] = ..., function: Callable[..., Any] | None = None)`
-- `TabularProcessing(...)` declares many fields, but current tabular execution
-  applies only lowercase, drop, rename, pivot, cast, filter, and select unless
-  source has added more transformations.
+- `ReaderConfig(kwargs: dict[str, Any] = ..., function: Callable[..., Any] | None = None, header_rows: int = 1, header_separator: str = "|")`
+- `TabularProcessing(...)` preserves case by default and executes lazy reshape,
+  split, replacement, string cleaning, rename, cast, scale, null filling,
+  filtering, aggregation, deduplication, sorting, and selection operations.
 - `JSONProcessing(...)` supports key mapping, key selection/drop, filtering, and
   value replacement specs.
 - `DataReader.read_data_file(data_file, *, folder_path, placeholders=None) -> Any`
@@ -136,11 +136,20 @@ Use `ReaderConfig` for parser kwargs or a custom reader function.
 from r2x_core import DataFile, ReaderConfig
 
 csv_file = DataFile(
-    name="legacy_csv",
-    relative_fpath="legacy.csv",
+    name="pipe_csv",
+    relative_fpath="pipe.csv",
     reader=ReaderConfig(kwargs={"separator": "|"}),
 )
+
+profile_file = DataFile(
+    name="profiles",
+    relative_fpath="profiles.csv",
+    reader=ReaderConfig(header_rows=2, header_separator="|"),
+)
 ```
+
+The built-in CSV/TSV reader joins the configured number of header rows. Header
+options do not apply to custom reader functions or other file formats.
 
 Custom functions receive the resolved path plus any kwargs:
 
@@ -173,7 +182,7 @@ processing = TabularProcessing(
     filter_by={"region": "north"},
     column_mapping={"old_name": "new_name"},
     drop_columns=["unused"],
-    column_schema={"capacity": "float64"},
+    column_schema={"capacity": "float"},
 )
 
 data_file = DataFile(
@@ -183,15 +192,23 @@ data_file = DataFile(
 )
 ```
 
-The tabular pipeline lowercases string values and column names before applying
-other transformations. Use lowercase column names and string filter values in
-`proc_spec` unless source behavior changes.
+Input case is preserved by default. Set `lowercase=True` to lowercase column
+names and string values before processing.
 
-Currently executed fields in the tabular pipeline are `drop_columns`,
-`column_mapping`, `pivot_on`, `column_schema`, `filter_by`, and
-`select_columns` (after automatic lowercasing). Other declared fields may
-validate without being executed; inspect `r2x_core.processors` before relying on
-one.
+With `unpivot_on`, operations run after optional lowercasing and dropping in
+this order: unpivot, split, replace, strip, rename, cast, scale, fill, filter,
+aggregate, distinct, sort, and select. Without `unpivot_on`, split, rename,
+replace, strip, cast, scale, fill, and filter run before optional `pivot_on`;
+aggregation, distinct, sort, and select follow. `pivot_on` requires an existing
+input column and performs a long-to-wide pivot. Use `unpivot_on` for
+wide-to-long processing. Referenced columns and aggregation functions are
+validated with explicit errors. The pandas-style `set_index`, `reset_index`,
+and `rename_index` options are unsupported and rejected.
+
+Use `strip_chars` to remove literal characters from formatted numeric strings,
+`column_schema` to cast them, and `scale` for conversion factors. Use
+`split_column` to split a column into named fields. For CSV/TSV files,
+`ReaderConfig(header_rows=2, header_separator="|")` combines two header rows.
 
 ## JSONProcessing
 
@@ -275,19 +292,23 @@ Verify the callable signature against `r2x_core.processors.apply_processing`
 before registering custom transformations; reader docstrings may lag this
 internal call shape.
 
-## Placeholders in processing specs
+## Placeholders in paths and processing specs
 
 `DataReader.read_data_file(..., placeholders=...)` and
-`DataStore.read_data(..., placeholders=...)` pass placeholder values into the
-processing pipeline. Use this for parameterized filters, for example model year
-or scenario values.
+`DataStore.read_data(..., placeholders=...)` substitute placeholders in path
+sources and processing values. Whole-value placeholders preserve their type;
+embedded placeholders in strings become text. Unknown names return an error.
 
 ```python
-store.read_data("regional_loads", placeholders={"solve_year": 2030})
+file_spec = DataFile(
+    name="scenario_loads",
+    relative_fpath="{scenario}_loads.csv",
+)
+store.read_data("scenario_loads", placeholders={"scenario": "Reference"})
 ```
 
-Keep placeholders at read boundaries; do not string-format file mappings in
-plugin internals unless the DataFile/reader layer cannot express the case.
+Keep placeholders at read boundaries; do not format file mappings in plugin
+internals.
 
 ## JSON mapping files
 
@@ -308,11 +329,9 @@ plugin internals unless the DataFile/reader layer cannot express the case.
 ]
 ```
 
-Important source detail: `DataFile.from_record(...)`, used by
-`DataStore.from_json(...)`, currently reads the JSON record's `fpath` and
-resolves it against the store folder. For JSON mapping files, prefer `fpath`
-records unless source changes. Direct Python construction can still use
-`relative_fpath`.
+Each record must define exactly one path source. `fpath` and `relative_fpath`
+records resolve against the store folder; `glob` patterns pass through for
+resolution at read time. All three path sources accept placeholders.
 
 ## Serialization
 
@@ -339,15 +358,18 @@ JSON unless you need a stable external config artifact.
   - Ensure the filename or glob has a supported extension.
   - Check `DataReader().get_supported_file_types()`.
 - Processing returns zero rows unexpectedly:
-  - Remember the tabular pipeline lowercases string values and column names
-    before filtering. Try lowercase filter values such as `"north"`.
+  - Case is preserved unless `lowercase=True`; check filter values against the
+    input and configured casing.
 - Processing fails:
   - Validate `proc_spec` field names against `TabularProcessing` or
     `JSONProcessing`.
-  - Pass required `placeholders` at read time.
+  - Check the documented tabular operation order and referenced columns.
+  - Pass required `placeholders` at read time. Placeholders can parameterize
+    filter and tabular transformation values.
 - JSON mapping load fails:
   - Confirm the mapping file is a JSON array.
-  - Confirm each record has `fpath` for current `from_record(...)` behavior.
+  - Confirm each record defines exactly one of `fpath`, `relative_fpath`, or
+    `glob`.
 
 ## Source modules and docs to verify on drift
 

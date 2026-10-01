@@ -6,7 +6,7 @@ The DataReader is the main entry point for loading data files. It handles:
 - Optional file handling (returns None instead of raising errors)
 - Custom reader function delegation
 - Automatic data processing and transformations (filtering, type casting, etc.)
-- Placeholder substitution in filter specifications
+- Placeholder substitution in data file paths and processing specifications
 
 File type support is determined by EXTENSION_MAPPING, with custom readers
 available via the reader parameter in DataFile configurations.
@@ -29,8 +29,8 @@ from rust_ok import Ok
 from .datafile import DataFile
 from .exceptions import HDF5GroupNotFoundError, ReaderError
 from .file_readers import read_file_by_type
-from .file_types import EXTENSION_MAPPING
-from .processors import apply_processing, register_transformation
+from .file_types import EXTENSION_MAPPING, TableFormat
+from .processors import apply_processing, register_transformation, substitute_placeholders
 from .utils.files import get_fpath
 
 
@@ -71,7 +71,7 @@ class DataReader:
             Base directory containing the data files.
         placeholders : dict[str, Any] | None, optional
             Dictionary mapping placeholder variable names to their values.
-            Used to substitute placeholders like {solve_year} in filter_by.
+            Used to substitute placeholders in file paths and processing values.
             Default is None.
 
         Returns
@@ -85,7 +85,7 @@ class DataReader:
             If a required file does not exist or if a glob pattern matches no files.
         ValueError
             If glob pattern is malformed (no wildcards) or if placeholders are found
-            in filter_by but no placeholders dict provided.
+            without a corresponding value in ``placeholders``.
         MultipleFileError
             If a glob pattern matches multiple files (subclass of ValueError).
 
@@ -96,6 +96,7 @@ class DataReader:
         :func:`~r2x_core.datafile_utils.get_file_path` : Path resolution.
         """
         logger.debug("Starting reading for data_file={}", data_file.name)
+        data_file = self._substitute_path_placeholders(data_file, placeholders=placeholders)
         is_optional = data_file.info.is_optional if data_file.info else False  # By default files are no-opt
 
         fpath_result = get_fpath(data_file, folder_path=folder_path, info=data_file.info)
@@ -109,8 +110,10 @@ class DataReader:
         fpath = fpath_result.value
 
         reader = data_file.reader
-        reader_kwargs = reader.kwargs if reader else {}
+        reader_kwargs = dict(reader.kwargs) if reader else {}
         if reader and reader.function:
+            if reader.header_rows > 1:
+                raise ValueError("header_rows is only supported by the built-in CSV/TSV reader")
             logger.debug(
                 "Attempting to read data_file{} with reader_function={}",
                 data_file.name,
@@ -139,7 +142,18 @@ class DataReader:
             "Attempting to read data_file={} with {}", data_file.name, type(file_type_instance).__name__
         )
         try:
-            raw_data = read_file_by_type(file_type_instance, file_path=fpath, **reader_kwargs)
+            if reader and reader.header_rows > 1 and not isinstance(file_type_instance, TableFormat):
+                raise ValueError("header_rows is only supported for CSV/TSV files")
+            if isinstance(file_type_instance, TableFormat):
+                raw_data = read_file_by_type(
+                    file_type_instance,
+                    file_path=fpath,
+                    header_rows=reader.header_rows if reader else 1,
+                    header_separator=reader.header_separator if reader else "|",
+                    **reader_kwargs,
+                )
+            else:
+                raw_data = read_file_by_type(file_type_instance, file_path=fpath, **reader_kwargs)
         except HDF5GroupNotFoundError:
             if is_optional:
                 logger.debug("Skipping optional file with missing HDF5 group: {}", data_file.name)
@@ -156,6 +170,29 @@ class DataReader:
         else:
             processed_data = raw_data
         return processed_data
+
+    @staticmethod
+    def _substitute_path_placeholders(
+        data_file: DataFile,
+        *,
+        placeholders: dict[str, Any] | None,
+    ) -> DataFile:
+        """Substitute placeholders in a DataFile path source before resolution."""
+        updates: dict[str, Path | str] = {}
+        for field in ("fpath", "relative_fpath", "glob"):
+            value = getattr(data_file, field)
+            if value is None or "{" not in str(value):
+                continue
+            result = substitute_placeholders(str(value), placeholders=placeholders)
+            if result.is_err():
+                raise result.err()
+            assert isinstance(result, Ok), "Result should be Ok after error check"
+            substituted = result.value
+            if field == "fpath":
+                updates[field] = Path(str(substituted))
+            else:
+                updates[field] = str(substituted)
+        return data_file.model_copy(update=updates) if updates else data_file
 
     _SUPPORTED_FILE_TYPES: list[str] | None = None
 

@@ -140,6 +140,7 @@ def test_read_data_file_with_custom_reader(reader_example, sample_csv, tmp_path)
 
 def test_read_data_file_with_processing_error(reader_example, sample_csv, tmp_path):
     from r2x_core.datafile import DataFile, TabularProcessing
+    from r2x_core.exceptions import ReaderError
 
     data_file = DataFile(
         name="test",
@@ -147,8 +148,87 @@ def test_read_data_file_with_processing_error(reader_example, sample_csv, tmp_pa
         proc_spec=TabularProcessing(column_schema={"a": "invalid_type_name"}),
     )
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ReaderError):
         reader_example.read_data_file(data_file, folder_path=tmp_path)
+
+
+def test_read_data_file_substitutes_placeholders_in_path_sources(reader_example, tmp_path):
+    from r2x_core.datafile import DataFile
+
+    csv_path = tmp_path / "scenario_2030_profile.csv"
+    csv_path.write_text("value\n42\n")
+    path_sources = [
+        ("fpath", tmp_path / "scenario_{year}_profile.csv"),
+        ("relative_fpath", "scenario_{year}_profile.csv"),
+        ("glob", "scenario_{year}_*.csv"),
+    ]
+
+    for path_field, path_value in path_sources:
+        data_file = DataFile(name=path_field, **{path_field: path_value})
+        result = reader_example.read_data_file(
+            data_file,
+            folder_path=tmp_path,
+            placeholders={"year": 2030},
+        )
+        assert result.collect().to_dicts() == [{"value": 42}]
+
+
+def test_read_data_file_substitutes_boolean_and_numeric_processing_placeholders(reader_example, tmp_path):
+    from r2x_core.datafile import DataFile, TabularProcessing
+
+    csv_path = tmp_path / "typed.csv"
+    csv_path.write_text("Value\n2\n")
+    data_file = DataFile(
+        name="typed-placeholders",
+        fpath=csv_path,
+        proc_spec=TabularProcessing(lowercase="{enabled}", scale={"value": "{factor}"}),
+    )
+
+    result = reader_example.read_data_file(
+        data_file,
+        folder_path=tmp_path,
+        placeholders={"enabled": True, "factor": 0.5},
+    )
+
+    assert result.collect().to_dicts() == [{"value": 1.0}]
+
+
+def test_read_data_file_rejects_unknown_path_placeholder(reader_example, tmp_path):
+    from r2x_core.datafile import DataFile
+
+    data_file = DataFile(name="unknown", relative_fpath="scenario_{year}.csv")
+
+    with pytest.raises(ValueError, match=r"\{year\}"):
+        reader_example.read_data_file(data_file, folder_path=tmp_path)
+
+
+def test_read_data_file_combines_multiple_header_rows_and_processes_them(reader_example, tmp_path):
+    from r2x_core.datafile import DataFile, ReaderConfig, TabularProcessing
+
+    csv_path = tmp_path / "profiles.csv"
+    csv_path.write_text("Model Year,2025,2025,2030\nZone,NYISO_A,NYISO_B,NYISO_A\nNYISO,10,20,30\n")
+    data_file = DataFile(
+        name="profiles",
+        fpath=csv_path,
+        reader=ReaderConfig(header_rows=2),
+        proc_spec=TabularProcessing(
+            unpivot_on=["2025|NYISO_A", "2025|NYISO_B", "2030|NYISO_A"],
+            split_column={"variable": {"separator": "|", "into": ["year", "zone"]}},
+            column_schema={"year": "int"},
+            filter_by={"year": "{solve_year}"},
+            select_columns=["Model Year|Zone", "year", "zone", "value"],
+        ),
+    )
+
+    result = reader_example.read_data_file(
+        data_file,
+        folder_path=tmp_path,
+        placeholders={"solve_year": 2030},
+    )
+
+    assert result.collect().to_dicts() == [
+        {"Model Year|Zone": "NYISO", "year": 2030, "zone": "NYISO_A", "value": 30}
+    ]
 
 
 def test_read_data_file_glob_pattern(reader_example, tmp_path):
@@ -222,3 +302,63 @@ def test_read_data_file_h5_group(reader_example, tmp_path):
     result = reader_example.read_data_file(data_file, folder_path=tmp_path).collect()
 
     assert result.to_dict(as_series=False) == {"i": ["gas"], "Value": [3.0]}
+
+
+def test_custom_reader_applies_processing(reader_example, sample_csv, tmp_path):
+    import polars as pl
+
+    from r2x_core.datafile import DataFile, ReaderConfig, TabularProcessing
+
+    data_file = DataFile(
+        name="custom-processed",
+        fpath=sample_csv,
+        reader=ReaderConfig(function=lambda path: pl.LazyFrame({"old": [1]})),
+        proc_spec=TabularProcessing(column_mapping={"old": "new"}),
+    )
+
+    result = reader_example.read_data_file(data_file, folder_path=tmp_path)
+
+    assert result.collect().to_dicts() == [{"new": 1}]
+
+
+def test_custom_reader_processing_errors_are_reader_errors(reader_example, sample_csv, tmp_path):
+    import polars as pl
+
+    from r2x_core.datafile import DataFile, ReaderConfig, TabularProcessing
+    from r2x_core.exceptions import ReaderError
+
+    data_file = DataFile(
+        name="custom-invalid",
+        fpath=sample_csv,
+        reader=ReaderConfig(function=lambda path: pl.LazyFrame({"a": [1]})),
+        proc_spec=TabularProcessing(filter_by={"missing": "x"}),
+    )
+
+    with pytest.raises(ReaderError, match="filter_by"):
+        reader_example.read_data_file(data_file, folder_path=tmp_path)
+
+
+def test_custom_reader_rejects_multiple_header_rows(reader_example, sample_csv, tmp_path):
+    from r2x_core.datafile import DataFile, ReaderConfig
+
+    data_file = DataFile(
+        name="custom-headers",
+        fpath=sample_csv,
+        reader=ReaderConfig(function=lambda path: None, header_rows=2),
+    )
+
+    with pytest.raises(ValueError, match="built-in CSV/TSV reader"):
+        reader_example.read_data_file(data_file, folder_path=tmp_path)
+
+
+def test_non_csv_reader_rejects_multiple_header_rows(reader_example, sample_json, tmp_path):
+    from r2x_core.datafile import DataFile, ReaderConfig
+
+    data_file = DataFile(
+        name="json-headers",
+        fpath=sample_json,
+        reader=ReaderConfig(header_rows=2),
+    )
+
+    with pytest.raises(ValueError, match="only supported for CSV/TSV"):
+        reader_example.read_data_file(data_file, folder_path=tmp_path)

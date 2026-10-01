@@ -63,6 +63,65 @@ Use `filter_by` to select specific rows based on column values:
 ['CA', 'TX', 'NY']
 ```
 
+## Reshape, Rename, Cast, and Filter
+
+With `unpivot_on`, `column_mapping`, `column_schema`, and `filter_by` apply after
+the reshape. This supports wide year columns filtered by a runtime solve year:
+
+```python doctest
+>>> from r2x_core import DataFile, TabularProcessing
+>>>
+>>> processing = TabularProcessing(
+...     unpivot_on=["2025", "2030"],
+...     column_mapping={"variable": "year", "value": "capacity_mw"},
+...     column_schema={"year": "int"},
+...     filter_by={"year": "{solve_year}"},
+... )
+>>> processing.column_mapping
+{'variable': 'year', 'value': 'capacity_mw'}
+```
+
+For a multi-row CSV/TSV header, configure `ReaderConfig(header_rows=2)`. Header
+cells are joined with `header_separator` (default `|`). Use `split_column` to
+turn a generated label such as `2025|NYISO_A` into `year` and `zone` columns.
+
+## Split Columns
+
+Use `SplitColumnSpec` to split a source column into named columns:
+
+```python doctest
+>>> from r2x_core import SplitColumnSpec
+>>> split = SplitColumnSpec(separator="|", into=["year", "zone"])
+>>> split.into
+['year', 'zone']
+```
+
+## Preserve or Lowercase Input Case
+
+Input case is preserved by default. Set `lowercase=True` when the mapping
+expects lowercase column names and string values:
+
+```python doctest
+>>> from r2x_core import TabularProcessing
+>>> processing = TabularProcessing(lowercase=True)
+>>> processing.lowercase
+True
+```
+
+## Normalize Formatted Numbers
+
+Use `replace_values` for exact tokens, `strip_chars` for literal cleanup,
+`column_schema` to cast, and `scale` for conversion factors. For example,
+replace `-` with `0`, strip commas, currency symbols, and percent signs, cast to
+float, then scale percentages by `0.01`.
+
+## Placeholders in Paths
+
+Placeholders can be embedded in `fpath`, `relative_fpath`, or `glob`, as well
+as processing values. For example, `relative_fpath="{scenario}_loads.csv"`
+resolves when `read_data(..., placeholders={"scenario": "Reference"})` is
+called. Unknown placeholder names are errors.
+
 ## See Also
 
 - {doc}`read-data-files` - Read processed data files

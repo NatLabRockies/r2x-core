@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from r2x_core.datafile import FileInfo, JSONProcessing, ReaderConfig, TabularProcessing
+from r2x_core.datafile import FileInfo, JSONProcessing, ReaderConfig, SplitColumnSpec, TabularProcessing
 
 
 def test_datafile_with_nested_structure(tmp_path):
@@ -89,8 +89,8 @@ def test_datafile_deserialize_from_json_nested(tmp_path):
             "function": None,
         },
         "proc_spec": {
-            "column_mapping": {"forced_outage_rate": "outage_rate"},
-            "drop_columns": ["internal_id"],
+            "key_mapping": {"forced_outage_rate": "outage_rate"},
+            "drop_keys": ["internal_id"],
             "filter_by": {"status": "active"},
         },
     }
@@ -121,15 +121,12 @@ def test_datafile_tabular_transformations(tmp_path):
             select_columns=["col1", "col2", "col3"],
             drop_columns=["col4"],
             column_mapping={"col1": "column_1", "col2": "column_2"},
-            rename_index="id",
             column_schema={"column_1": "int", "column_2": "int"},
             filter_by={"column_1": 1},
-            set_index="column_1",
-            reset_index=False,
-            pivot_on="column_2",
+            pivot_on="pivot_label",
             unpivot_on=None,
             group_by=["column_1"],
-            aggregate_on={"column_2": "sum", "column_3": "mean"},
+            aggregate_on={"column_2": "sum", "column_3": "sum"},
             sort_by={"column_1": "asc", "column_2": "desc"},
             distinct_on=["column_1"],
             replace_values={None: 0, "NaN": None},
@@ -143,15 +140,12 @@ def test_datafile_tabular_transformations(tmp_path):
     assert proc_spec.select_columns == ["col1", "col2", "col3"]
     assert proc_spec.drop_columns == ["col4"]
     assert proc_spec.column_mapping == {"col1": "column_1", "col2": "column_2"}
-    assert proc_spec.rename_index == "id"
     assert proc_spec.column_schema == {"column_1": "int", "column_2": "int"}
     assert proc_spec.filter_by == {"column_1": 1}
-    assert proc_spec.set_index == "column_1"
-    assert proc_spec.reset_index is False
-    assert proc_spec.pivot_on == "column_2"
+    assert proc_spec.pivot_on == "pivot_label"
     assert proc_spec.unpivot_on is None
     assert proc_spec.group_by == ["column_1"]
-    assert proc_spec.aggregate_on == {"column_2": "sum", "column_3": "mean"}
+    assert proc_spec.aggregate_on == {"column_2": "sum", "column_3": "sum"}
     assert proc_spec.sort_by == {"column_1": "asc", "column_2": "desc"}
     assert proc_spec.distinct_on == ["column_1"]
     assert proc_spec.replace_values == {None: 0, "NaN": None}
@@ -284,6 +278,35 @@ def test_data_file_from_records_success(tmp_path):
     assert len(data_files) == 2
 
 
+def test_data_file_from_records_resolves_relative_paths_and_preserves_globs(tmp_path):
+    from r2x_core import DataFile
+
+    (tmp_path / "relative.csv").write_text("value\n1\n")
+    (tmp_path / "scenario_2030.csv").write_text("value\n2\n")
+    records = [
+        {"name": "relative", "relative_fpath": "relative.csv"},
+        {"name": "scenario", "glob": "scenario_*.csv"},
+    ]
+
+    data_files = DataFile.from_records(records, folder_path=tmp_path)
+
+    assert data_files[0].fpath == tmp_path / "relative.csv"
+    assert data_files[0].relative_fpath is None
+    assert data_files[1].glob == "scenario_*.csv"
+    assert data_files[1].fpath is None
+
+
+def test_data_file_from_record_allows_placeholder_paths(tmp_path):
+    from r2x_core import DataFile
+
+    data_file = DataFile.from_record(
+        {"name": "scenario", "relative_fpath": "scenario_{year}.csv"},
+        folder_path=tmp_path,
+    )
+
+    assert data_file.fpath == tmp_path / "scenario_{year}.csv"
+
+
 def test_data_file_from_records_validation_error(tmp_path):
     from pydantic import ValidationError
 
@@ -329,16 +352,145 @@ def test_datafile_file_type_requires_path_or_glob():
 
 
 def test_datafile_file_type_unknown_extension(tmp_path):
-    """Test that file_type raises KeyError for unknown extension."""
+    """Test that DataFile rejects unknown extensions."""
     from r2x_core import DataFile
 
     unknown_file = tmp_path / "data.xyz"
     unknown_file.write_text("content")
 
     with pytest.raises(KeyError, match="not found on"):
-        DataFile(
-            name="unknown",
-            fpath=unknown_file,
+        DataFile(name="unknown", fpath=unknown_file)
+
+
+@pytest.mark.parametrize(
+    ("into", "message"),
+    [(["year", " "], "cannot be empty"), (["year", "year"], "must be unique")],
+)
+def test_split_column_requires_distinct_non_empty_output_names(into, message):
+    with pytest.raises(ValueError, match=message):
+        SplitColumnSpec(separator="|", into=into)
+
+
+@pytest.mark.parametrize(
+    ("config", "message"),
+    [
+        ({"scale": {"value": float("inf")}}, "scale values must be finite"),
+        ({"strip_chars": {"value": [""]}}, "strip_chars values must be non-empty"),
+    ],
+)
+def test_tabular_processing_rejects_invalid_cleanup_options(config, message):
+    with pytest.raises(ValueError, match=message):
+        TabularProcessing(**config)
+
+
+@pytest.mark.parametrize(
+    ("config", "message"),
+    [
+        ({"aggregate_on": {"value": "sum{"}}, "Unsupported aggregation"),
+        (
+            {"pivot_on": "year", "aggregate_on": {"value": "sum{"}},
+            "pivot_on does not support",
+        ),
+        ({"sort_by": {"value": "descending{"}}, "Unsupported sort direction"),
+    ],
+)
+def test_tabular_processing_rejects_malformed_placeholders(config, message):
+    with pytest.raises(ValueError, match=message):
+        TabularProcessing(**config)
+
+
+def test_tabular_processing_accepts_valid_placeholders():
+    processing = TabularProcessing(
+        aggregate_on={"value": "{function}"},
+        sort_by={"value": "{direction}"},
+    )
+
+    assert processing.aggregate_on == {"value": "{function}"}
+    assert processing.sort_by == {"value": "{direction}"}
+
+
+def test_datafile_rejects_processing_models_for_the_wrong_format():
+    from r2x_core import DataFile
+
+    with pytest.raises(ValueError, match="require TabularProcessing"):
+        DataFile.model_validate(
+            {
+                "name": "tabular",
+                "relative_fpath": "data.csv",
+                "proc_spec": JSONProcessing(rename_index="index"),
+            }
+        )
+    with pytest.raises(ValueError, match="require JSONProcessing"):
+        DataFile.model_validate(
+            {
+                "name": "json",
+                "relative_fpath": "data.json",
+                "proc_spec": TabularProcessing(column_mapping={"old": "new"}),
+            }
+        )
+
+    json_filter = DataFile.model_validate(
+        {
+            "name": "json-filter",
+            "relative_fpath": "data.json",
+            "proc_spec": {"filter_by": {"status": "active"}},
+        }
+    )
+    assert isinstance(json_filter.proc_spec, JSONProcessing)
+
+    tabular_filter = DataFile.model_validate(
+        {
+            "name": "tabular-filter",
+            "relative_fpath": "data.csv",
+            "proc_spec": {"filter_by": {"status": "active"}},
+        }
+    )
+    assert isinstance(tabular_filter.proc_spec, TabularProcessing)
+
+    glob_filter = DataFile.model_validate(
+        {
+            "name": "glob-filter",
+            "glob": "data_*.csv",
+            "proc_spec": {"filter_by": {"status": "active"}},
+        }
+    )
+    assert isinstance(glob_filter.proc_spec, TabularProcessing)
+
+    with pytest.raises(ValueError, match="do not support processing specifications"):
+        DataFile.model_validate(
+            {
+                "name": "xml",
+                "relative_fpath": "data.xml",
+                "proc_spec": {"rename_index": "index"},
+            }
+        )
+
+
+def test_datafile_processing_format_parser_defers_invalid_paths():
+    from r2x_core import DataFile
+
+    with pytest.raises(ValueError, match=r"[Ee]xactly one of"):
+        DataFile.model_validate({"name": "missing-path", "proc_spec": {"filter_by": {}}})
+    with pytest.raises(ValueError, match="not found on EXTENSION_MAPPING"):
+        DataFile.model_validate(
+            {
+                "name": "unknown-extension",
+                "relative_fpath": "data.xyz",
+                "proc_spec": {"filter_by": {}},
+            }
+        )
+
+
+def test_datafile_rejects_unknown_processing_fields():
+    from r2x_core import DataFile
+
+    with pytest.raises(ValueError, match="extra_forbidden"):
+        DataFile.model_validate(
+            {
+                "name": "unknown-option",
+                "relative_fpath": "data.json",
+                "proc_spec": {"set_index": "id"},
+            }
         )
 
 

@@ -14,7 +14,7 @@ import orjson
 from loguru import logger
 from pydantic import ValidationError
 
-from .datafile import DataFile, FileProcessing, TabularProcessing
+from .datafile import DataFile, FileProcessing
 from .plugin_config import PluginConfig
 from .reader import DataReader
 from .utils import filter_valid_kwargs
@@ -257,7 +257,7 @@ class DataStore:
         fpath: str | Path,
         *,
         name: str | None = None,
-        proc_spec: FileProcessing | None = None,
+        proc_spec: FileProcessing | dict[str, Any] | None = None,
     ) -> Any:
         """Load a single data file conveniently without creating a full DataStore.
 
@@ -271,7 +271,7 @@ class DataStore:
         name : str | None, optional
             Name identifier for the file. If None, uses the file stem (name without extension).
             Default is None.
-        proc_spec : FileProcessing | None, optional
+        proc_spec : FileProcessing | dict[str, Any] | None, optional
             Process to apply to the file data. Can be a TabularProcessing or JSONProcessing
             instance, or a dictionary with transformation parameters. Default is None.
 
@@ -297,14 +297,7 @@ class DataStore:
 
         store = cls(path=fpath.parent)
 
-        if proc_spec and isinstance(proc_spec, dict):
-            proc_spec = TabularProcessing.model_validate(proc_spec)
-
-        data_file = DataFile(
-            name=name,
-            fpath=fpath,
-            proc_spec=proc_spec,
-        )
+        data_file = DataFile.model_validate({"name": name, "fpath": fpath, "proc_spec": proc_spec})
         store.add_data([data_file])
 
         return store.read_data(name=name)

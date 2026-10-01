@@ -24,7 +24,14 @@ __version__ = version("r2x_core")
 
 # ── Eager for IDEs / type checkers (dead code at runtime) ──────────
 if TYPE_CHECKING:
-    from .datafile import DataFile, FileInfo, JSONProcessing, ReaderConfig, TabularProcessing
+    from .datafile import (
+        DataFile,
+        FileInfo,
+        JSONProcessing,
+        ReaderConfig,
+        SplitColumnSpec,
+        TabularProcessing,
+    )
     from .exceptions import (
         CLIError,
         ComponentCreationError,
@@ -72,6 +79,7 @@ _LAZY_IMPORTS: dict[str, str] = {
     "FileInfo": ".datafile",
     "JSONProcessing": ".datafile",
     "ReaderConfig": ".datafile",
+    "SplitColumnSpec": ".datafile",
     "TabularProcessing": ".datafile",
     "CLIError": ".exceptions",
     "ComponentCreationError": ".exceptions",
@@ -165,6 +173,7 @@ __all__ = [
     "RuleFilter",
     "RuleResult",
     "SemanticVersioningStrategy",
+    "SplitColumnSpec",
     "SupplementalAttributeRule",
     "System",
     "TabularProcessing",

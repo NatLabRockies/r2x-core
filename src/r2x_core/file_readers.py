@@ -8,9 +8,22 @@ from xml.etree import ElementTree
 
 from h5py import File as h5pyFile
 from loguru import logger
-from polars import DataFrame, LazyFrame, scan_csv
+from polars import DataFrame, LazyFrame, read_csv, scan_csv
 
 from .file_types import H5Format, JSONFormat, TableFormat, XMLFormat
+
+_HEADER_READ_OPTIONS = frozenset(
+    {
+        "separator",
+        "comment_prefix",
+        "quote_char",
+        "skip_rows",
+        "skip_lines",
+        "encoding",
+        "eol_char",
+        "decimal_comma",
+    }
+)
 
 
 @singledispatch
@@ -44,7 +57,14 @@ def read_file_by_type(file_type_instance: Any, *, file_path: Path, **reader_kwar
 
 
 @read_file_by_type.register
-def _(file_type_class: TableFormat, *, file_path: Path, **reader_kwargs: Any) -> LazyFrame:
+def _(
+    file_type_class: TableFormat,
+    *,
+    file_path: Path,
+    header_rows: int = 1,
+    header_separator: str = "|",
+    **reader_kwargs: Any,
+) -> LazyFrame:
     """Read CSV/TSV files as LazyFrame.
 
     Parameters
@@ -61,10 +81,47 @@ def _(file_type_class: TableFormat, *, file_path: Path, **reader_kwargs: Any) ->
     pl.LazyFrame
         Lazy DataFrame containing the tabular data.
     """
-    logger.debug("Scanning {}", file_path)
+    if header_rows < 1:
+        raise ValueError("header_rows must be at least 1")
+    scan_kwargs = dict(reader_kwargs)
     if file_path.suffix.lower() == ".tsv":
-        return scan_csv(file_path, separator="\t", **reader_kwargs)
-    return scan_csv(file_path, **reader_kwargs)
+        scan_kwargs.setdefault("separator", "\t")
+    if header_rows == 1:
+        logger.debug("Scanning {}", file_path)
+        return scan_csv(file_path, **scan_kwargs)
+    if scan_kwargs.get("has_header") is True:
+        raise ValueError("Do not set reader.kwargs.has_header=True when header_rows is greater than 1")
+    if "new_columns" in scan_kwargs:
+        raise ValueError("Do not set reader.kwargs.new_columns when header_rows is greater than 1")
+    if scan_kwargs.get("skip_rows_after_header", 0):
+        raise ValueError("skip_rows_after_header cannot be combined with multiple header rows")
+
+    header_options = {key: value for key, value in scan_kwargs.items() if key in _HEADER_READ_OPTIONS}
+    header = read_csv(
+        file_path,
+        has_header=False,
+        n_rows=header_rows,
+        infer_schema=False,
+        **header_options,
+    )
+    if header.height != header_rows:
+        raise ValueError(f"Expected {header_rows} header rows in {file_path}, found {header.height}")
+
+    header_values = header.rows()
+    names: list[str] = []
+    for index in range(header.width):
+        values = [row[index] for row in header_values]
+        parts = [str(value).strip() for value in values if value is not None and str(value).strip()]
+        names.append(header_separator.join(parts) if parts else f"column_{index + 1}")
+    if len(set(names)) != len(names):
+        raise ValueError(f"Combining {header_rows} header rows produced duplicate column names: {names}")
+
+    skip_rows = int(scan_kwargs.pop("skip_rows", 0) or 0)
+    scan_kwargs["skip_rows"] = skip_rows + header_rows
+    scan_kwargs["has_header"] = False
+    scan_kwargs["new_columns"] = names
+    logger.debug("Scanning {} with {} header rows", file_path, header_rows)
+    return scan_csv(file_path, **scan_kwargs)
 
 
 @read_file_by_type.register

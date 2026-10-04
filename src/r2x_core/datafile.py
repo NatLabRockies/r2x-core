@@ -102,6 +102,77 @@ class ReaderConfig(BaseModel):
     ] = "|"
 
 
+class DataFileCandidate(BaseModel):
+    """One ordered source candidate for a logical :class:`DataFile`.
+
+    Specify exactly one of ``fpath``, ``relative_fpath``, or ``glob``. The
+    candidate's file format is derived from that path, and its ``reader``
+    config applies only to this source. A missing file or configured HDF5 group
+    allows the next candidate to be tried. Other read failures propagate.
+
+    Examples
+    --------
+    >>> from r2x_core import DataFile, DataFileCandidate, ReaderConfig
+    >>> data_file = DataFile(
+    ...     name="prices",
+    ...     sources=[
+    ...         DataFileCandidate(
+    ...             relative_fpath="outputs.h5",
+    ...             reader=ReaderConfig(kwargs={"group_key": "prices"}),
+    ...         ),
+    ...         DataFileCandidate(relative_fpath="prices.csv"),
+    ...     ],
+    ... )
+    >>> [candidate.file_type.__class__.__name__ for candidate in data_file.sources]
+    ['H5Format', 'TableFormat']
+    """
+
+    fpath: Annotated[
+        Path | None,
+        AfterValidator(_validate_optional_file_extension),
+        Field(description="Explicit path for this source candidate"),
+    ] = None
+    relative_fpath: Annotated[Path | str | None, Field(description="Path relative to the DataStore folder")] = None
+    glob: Annotated[str | None, AfterValidator(validate_glob_pattern), Field(description="Glob for this source")] = (
+        None
+    )
+    reader: Annotated[
+        ReaderConfig,
+        Field(default_factory=ReaderConfig, description="Reader configuration for this source only"),
+    ]
+
+    model_config = ConfigDict(frozen=True)
+
+    @model_validator(mode="after")
+    def validate_source(self) -> "DataFileCandidate":
+        """Require exactly one path source and validate its file format."""
+        path_count = sum(
+            source is not None for source in (self.fpath, self.relative_fpath, self.glob)
+        )
+        if path_count != 1:
+            raise ValueError("A source candidate must define exactly one of fpath, relative_fpath, or glob")
+        _ = self.file_type
+        return self
+
+    @computed_field
+    @property
+    def file_type(self) -> FileFormat:
+        """Return the file format inferred from this candidate's path."""
+        if self.fpath is not None:
+            extension = self.fpath.suffix.lower()
+        elif self.relative_fpath is not None:
+            relative_path = Path(self.relative_fpath)
+            extension = relative_path.suffix.lower()
+        elif self.glob is not None:
+            extension = "." + self.glob.rsplit(".", 1)[-1].rstrip("*?[]") if "." in self.glob else ""
+        else:
+            raise ValueError("A source candidate must define exactly one path source")
+
+        if extension not in EXTENSION_MAPPING:
+            raise ValueError(f"Unsupported source candidate extension {extension!r}")
+        return EXTENSION_MAPPING[extension]()
+
+
 class SplitColumnSpec(BaseModel):
     """Configuration for splitting a string column into named fields."""
 
@@ -320,9 +391,17 @@ FileProcessing = TabularProcessing | JSONProcessing
 class DataFile(BaseModel):
     """Data file configuration with nested structure.
 
-    Defines how to locate, read, and transform a single data file. Supports
-    absolute paths, relative paths, and glob patterns. Processing is applied
-    after reading and is type-specific (tabular or JSON).
+    Defines how to locate and process one logical dataset. Configure either
+    exactly one top-level path source or an ordered ``sources`` list of
+    :class:`DataFileCandidate` instances. Candidate-specific readers are tried
+    in order only when their file or configured HDF5 group is absent. Malformed
+    or otherwise invalid existing sources fail without falling back. The
+    logical ``proc_spec`` is applied once to data from the selected candidate.
+
+    For records and DataStore JSON, ``sources`` is a list of candidate objects
+    with one of ``fpath``, ``relative_fpath``, or ``glob``, plus an optional
+    ``reader`` object. Candidate paths determine each candidate's format. Do
+    not combine ``sources`` with top-level path or reader fields.
 
     Parameters
     ----------
@@ -335,6 +414,9 @@ class DataFile(BaseModel):
         Path relative to DataStore folder. Default is None.
     glob : str | None, optional
         Glob pattern to locate files. Default is None.
+    sources : list[DataFileCandidate] | None, optional
+        Ordered path and reader configurations. Mutually exclusive with
+        top-level path fields and ``reader``. Default is None.
     info : FileInfo | None, optional
         File metadata including role, optionality, time series flag.
         Default is None.
@@ -348,7 +430,8 @@ class DataFile(BaseModel):
     Raises
     ------
     ValueError
-        If path sources are not exactly one of: fpath, relative_fpath, glob.
+        If path sources are not exactly one top-level path or one or more
+        source candidates, or if source declarations conflict.
     ValueError
         If file type does not support time series, or its processing model is
         incompatible with the file format.
@@ -372,6 +455,10 @@ class DataFile(BaseModel):
     glob: Annotated[str | None, AfterValidator(validate_glob_pattern), Field(description="Glob pattern")] = (
         None
     )
+    sources: Annotated[
+        list[DataFileCandidate] | None,
+        Field(description="Ordered source candidates for this logical data file"),
+    ] = None
     info: Annotated[FileInfo | None, Field(description="File metadata")] = None
     reader: Annotated[ReaderConfig | None, Field(description="Reader configuration")] = None
     proc_spec: Annotated[FileProcessing | None, Field(description="Data transformations")] = None
@@ -385,16 +472,19 @@ class DataFile(BaseModel):
         if not isinstance(value, dict):
             return value
 
-        glob = info.data.get("glob")
-        if glob is not None:
-            extension = "." + glob.rsplit(".", 1)[-1].rstrip("*?[]") if "." in glob else ""
+        sources = info.data.get("sources")
+        if sources:
+            format_type = type(sources[0].file_type)
         else:
-            path = info.data.get("fpath") or info.data.get("relative_fpath")
-            if path is None:
-                return value
-            extension = Path(path).suffix.lower()
-
-        format_type = EXTENSION_MAPPING.get(extension)
+            glob = info.data.get("glob")
+            if glob is not None:
+                extension = "." + glob.rsplit(".", 1)[-1].rstrip("*?[]") if "." in glob else ""
+            else:
+                path = info.data.get("fpath") or info.data.get("relative_fpath")
+                if path is None:
+                    return value
+                extension = Path(path).suffix.lower()
+            format_type = EXTENSION_MAPPING.get(extension)
         if format_type is None:
             return value
         if issubclass(format_type, TableDataFormat):
@@ -407,8 +497,26 @@ class DataFile(BaseModel):
     def validate_path_sources(self) -> "DataFile":
         """Validate that exactly one of fpath, relative_fpath, or glob is specified."""
         paths_set = sum([self.fpath is not None, self.relative_fpath is not None, self.glob is not None])
+        if self.sources is not None:
+            if not self.sources:
+                raise ValueError("sources must contain at least one candidate")
+            if paths_set:
+                raise ValueError("Specify either top-level path fields or sources, not both")
+            if self.reader is not None:
+                raise ValueError("Configure readers on each source candidate, not on DataFile")
+            if self.info and self.info.is_timeseries:
+                unsupported = [
+                    type(candidate.file_type).__name__
+                    for candidate in self.sources
+                    if not candidate.file_type.supports_timeseries
+                ]
+                if unsupported:
+                    raise ValueError(
+                        "Time-series data is not supported by source format(s): " + ", ".join(unsupported)
+                    )
+            return self
         if paths_set == 0:
-            msg = "Exactly one of 'fpath', 'relative_fpath', or 'glob' must be specified"
+            msg = "Exactly one of 'fpath', 'relative_fpath', 'glob', or 'sources' must be specified"
             raise ValueError(msg)
         if paths_set > 1:
             msg = "Multiple path sources specified. Use exactly one of: 'fpath', 'relative_fpath', or 'glob'"
@@ -429,23 +537,31 @@ class DataFile(BaseModel):
         if self.proc_spec is None:
             return self
 
-        file_type = self.file_type
-        if isinstance(file_type, TableDataFormat):
-            if not isinstance(self.proc_spec, TabularProcessing):
+        file_types = [candidate.file_type for candidate in self.sources] if self.sources else [self.file_type]
+        for file_type in file_types:
+            if isinstance(file_type, TableDataFormat):
+                if not isinstance(self.proc_spec, TabularProcessing):
+                    raise ValueError(
+                        f"Tabular files require TabularProcessing, got {type(self.proc_spec).__name__}."
+                    )
+            elif isinstance(file_type, JSONFormat):
+                if not isinstance(self.proc_spec, JSONProcessing):
+                    raise ValueError(f"JSON files require JSONProcessing, got {type(self.proc_spec).__name__}.")
+            else:
                 raise ValueError(
-                    f"Tabular files require TabularProcessing, got {type(self.proc_spec).__name__}."
+                    f"{type(file_type).__name__} files do not support processing specifications."
                 )
-        elif isinstance(file_type, JSONFormat):
-            if not isinstance(self.proc_spec, JSONProcessing):
-                raise ValueError(f"JSON files require JSONProcessing, got {type(self.proc_spec).__name__}.")
-        else:
-            raise ValueError(f"{type(file_type).__name__} files do not support processing specifications.")
         return self
 
     @computed_field
     @property
     def file_type(self) -> FileFormat:
-        """Computed file type based on file extension."""
+        """Computed file type based on file extension or primary candidate."""
+        if self.sources is not None:
+            file_type = self.sources[0].file_type
+            if self.info and self.info.is_timeseries and not file_type.supports_timeseries:
+                raise ValueError(f"File type {type(file_type).__name__} does not support time series data")
+            return file_type
         if self.fpath is not None:
             extension = self.fpath.suffix.lower()
         elif self.relative_fpath is not None:
@@ -476,14 +592,44 @@ class DataFile(BaseModel):
 
     @classmethod
     def from_record(cls, record: dict[str, Any], *, folder_path: Path) -> "DataFile":
-        """Build a DataFile from a record with exactly one path source.
+        """Build a DataFile from a single path or ordered source candidates.
 
-        Relative paths are resolved against ``folder_path``. Glob patterns are
-        retained for resolution when the data file is read.
+        Relative paths are resolved against ``folder_path``. Candidate paths
+        are allowed to be absent so later sources can be tried. Glob patterns
+        are retained for resolution when the data file is read.
         """
         record_copy = dict(record)
         info = record_copy.get("info")
         is_optional = bool(info.get("is_optional")) if isinstance(info, dict) else False
+        if record_copy.get("sources") is not None:
+            if any(record_copy.get(field) is not None for field in ("fpath", "relative_fpath", "glob")):
+                raise ValueError("Specify either top-level path fields or sources, not both")
+            if record_copy.get("reader") is not None:
+                raise ValueError("Configure readers on each source candidate, not on DataFile")
+            resolved_sources: list[dict[str, Any]] = []
+            for source in record_copy["sources"]:
+                if not isinstance(source, dict):
+                    raise TypeError("Each source candidate record must be an object")
+                source_copy = dict(source)
+                source_path_fields = [
+                    field for field in ("fpath", "relative_fpath", "glob") if source_copy.get(field) is not None
+                ]
+                if len(source_path_fields) != 1:
+                    raise ValueError(
+                        "Each source candidate record must define exactly one of fpath, relative_fpath, or glob"
+                    )
+                source_path_field = source_path_fields[0]
+                if source_path_field != "glob":
+                    source_copy["fpath"] = cls._resolve_record_path(
+                        source_copy.pop(source_path_field),
+                        folder_path=folder_path,
+                        must_exist=False,
+                    )
+                    source_copy.pop("relative_fpath", None)
+                resolved_sources.append(source_copy)
+            record_copy["sources"] = resolved_sources
+            return cls.model_validate(record_copy)
+
         path_fields = [
             field for field in ("fpath", "relative_fpath", "glob") if record_copy.get(field) is not None
         ]

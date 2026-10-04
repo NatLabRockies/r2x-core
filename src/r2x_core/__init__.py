@@ -26,6 +26,7 @@ __version__ = version("r2x_core")
 if TYPE_CHECKING:
     from .datafile import (
         DataFile,
+        DataFileCandidate,
         FileInfo,
         JSONProcessing,
         ReaderConfig,
@@ -76,6 +77,7 @@ if TYPE_CHECKING:
 # ── Lazy at runtime ─────────────────────────────────────────────────
 _LAZY_IMPORTS: dict[str, str] = {
     "DataFile": ".datafile",
+    "DataFileCandidate": ".datafile",
     "FileInfo": ".datafile",
     "JSONProcessing": ".datafile",
     "ReaderConfig": ".datafile",
@@ -152,6 +154,7 @@ __all__ = [
     "CLIError",
     "ComponentCreationError",
     "DataFile",
+    "DataFileCandidate",
     "DataReader",
     "DataStore",
     "Err",

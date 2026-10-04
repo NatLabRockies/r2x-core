@@ -176,6 +176,50 @@ def test_read_data_cache(data_store_example, folder_with_data):
     assert len(data2) == 1, "Should read modified file content"
 
 
+def test_ordered_sources_round_trip_through_datastore_json(tmp_path):
+    import h5py
+
+    from r2x_core import (
+        DataFile,
+        DataFileCandidate,
+        DataStore,
+        ReaderConfig,
+        TabularProcessing,
+    )
+
+    data_folder = tmp_path / "data"
+    data_folder.mkdir()
+    with h5py.File(data_folder / "outputs.h5", "w") as h5_file:
+        h5_file.create_group("other")
+    (data_folder / "prices.csv").write_text("value\n3\n")
+    data_file = DataFile(
+        name="prices",
+        sources=[
+            DataFileCandidate(
+                relative_fpath="outputs.h5",
+                reader=ReaderConfig(kwargs={"group_key": "prices"}),
+            ),
+            DataFileCandidate(relative_fpath="prices.csv"),
+        ],
+        proc_spec=TabularProcessing(scale={"value": 2.0}),
+    )
+    store = DataStore(data_folder)
+    store.add_data([data_file])
+    mapping_path = tmp_path / "mapping.json"
+    store.to_json(mapping_path)
+
+    serialized = json.loads(mapping_path.read_text())
+    loaded_store = DataStore.from_json(mapping_path, path=data_folder)
+
+    assert len(serialized[0]["sources"]) == 2
+    assert serialized[0]["sources"][0]["reader"]["kwargs"] == {"group_key": "prices"}
+    loaded_file = loaded_store["prices"]
+    assert loaded_file.sources is not None
+    assert [source.fpath.name for source in loaded_file.sources] == ["outputs.h5", "prices.csv"]
+    assert loaded_file.sources[0].reader.kwargs == {"group_key": "prices"}
+    assert loaded_store.read_data("prices").collect().to_dicts() == [{"value": 6.0}]
+
+
 def test_to_json_serialization(data_store_example, tmp_path, folder_with_data):
     from r2x_core import DataStore
 

@@ -351,6 +351,183 @@ def test_custom_reader_rejects_multiple_header_rows(reader_example, sample_csv, 
         reader_example.read_data_file(data_file, folder_path=tmp_path)
 
 
+def test_ordered_sources_read_primary_and_apply_shared_processing_once(reader_example, tmp_path):
+    import h5py
+    import numpy as np
+
+    from r2x_core import DataFile, DataFileCandidate, ReaderConfig, TabularProcessing
+
+    h5_path = tmp_path / "prices.h5"
+    with h5py.File(h5_path, "w") as h5_file:
+        group = h5_file.create_group("prices")
+        group.create_dataset("columns", data=np.array([b"value"]))
+        group.create_dataset("value", data=np.array([3.0]))
+    csv_path = tmp_path / "prices.csv"
+    csv_path.write_text("value\n99\n")
+
+    data_file = DataFile(
+        name="prices",
+        sources=[
+            DataFileCandidate(
+                fpath=h5_path,
+                reader=ReaderConfig(
+                    kwargs={
+                        "group_key": "prices",
+                        "columns_key": "columns",
+                        "columns_as_datasets": True,
+                    }
+                ),
+            ),
+            DataFileCandidate(fpath=csv_path),
+        ],
+        proc_spec=TabularProcessing(scale={"value": 2.0}),
+    )
+
+    result = reader_example.read_data_file(data_file, folder_path=tmp_path)
+
+    assert result.collect().to_dicts() == [{"value": 6.0}]
+
+
+def test_ordered_sources_fall_back_when_hdf5_group_is_missing(reader_example, tmp_path):
+    import h5py
+
+    from r2x_core import DataFile, DataFileCandidate, ReaderConfig, TabularProcessing
+
+    h5_path = tmp_path / "outputs.h5"
+    with h5py.File(h5_path, "w") as h5_file:
+        h5_file.create_group("other")
+    csv_path = tmp_path / "prices.csv"
+    csv_path.write_text("value|region\n3|south\n")
+    data_file = DataFile(
+        name="prices",
+        sources=[
+            DataFileCandidate(
+                fpath=h5_path,
+                reader=ReaderConfig(kwargs={"group_key": "prices"}),
+            ),
+            DataFileCandidate(
+                fpath=csv_path,
+                reader=ReaderConfig(kwargs={"separator": "|"}),
+            ),
+        ],
+        proc_spec=TabularProcessing(scale={"value": 2.0}),
+    )
+
+    result = reader_example.read_data_file(data_file, folder_path=tmp_path)
+
+    assert result.collect().to_dicts() == [{"value": 6.0, "region": "south"}]
+
+
+def test_ordered_sources_fall_back_when_primary_file_is_missing(reader_example, tmp_path):
+    from r2x_core import DataFile, DataFileCandidate, ReaderConfig
+
+    csv_path = tmp_path / "prices.csv"
+    csv_path.write_text("value\n5\n")
+    data_file = DataFile(
+        name="prices",
+        sources=[
+            DataFileCandidate(
+                relative_fpath="missing.h5",
+                reader=ReaderConfig(kwargs={"group_key": "prices"}),
+            ),
+            DataFileCandidate(relative_fpath="prices.csv"),
+        ],
+    )
+
+    result = reader_example.read_data_file(data_file, folder_path=tmp_path)
+
+    assert result.collect().to_dicts() == [{"value": 5}]
+
+
+def test_ordered_sources_do_not_fall_back_after_invalid_primary_contents(reader_example, tmp_path):
+    import h5py
+
+    from r2x_core import DataFile, DataFileCandidate, ReaderConfig
+
+    h5_path = tmp_path / "invalid.h5"
+    with h5py.File(h5_path, "w") as h5_file:
+        h5_file.create_group("prices")
+    csv_path = tmp_path / "fallback.csv"
+    csv_path.write_text("value\n5\n")
+    data_file = DataFile(
+        name="prices",
+        sources=[
+            DataFileCandidate(
+                fpath=h5_path,
+                reader=ReaderConfig(
+                    kwargs={"group_key": "prices", "columns_as_datasets": True}
+                ),
+            ),
+            DataFileCandidate(fpath=csv_path),
+        ],
+    )
+
+    with pytest.raises(ValueError, match="columns_key is required"):
+        reader_example.read_data_file(data_file, folder_path=tmp_path)
+
+
+def test_ordered_sources_do_not_fall_back_for_invalid_reader_configuration(reader_example, tmp_path):
+    import h5py
+
+    from r2x_core import DataFile, DataFileCandidate, ReaderConfig
+
+    h5_path = tmp_path / "invalid_config.h5"
+    with h5py.File(h5_path, "w") as h5_file:
+        h5_file.create_dataset("value", data=[1])
+    csv_path = tmp_path / "fallback.csv"
+    csv_path.write_text("value\n5\n")
+    data_file = DataFile(
+        name="prices",
+        sources=[
+            DataFileCandidate(
+                fpath=h5_path,
+                reader=ReaderConfig(kwargs={"columns_as_datasets": "yes"}),
+            ),
+            DataFileCandidate(fpath=csv_path),
+        ],
+    )
+
+    with pytest.raises(ValueError, match="columns_as_datasets must be a boolean"):
+        reader_example.read_data_file(data_file, folder_path=tmp_path)
+
+
+def test_ordered_sources_missing_behavior_for_required_and_optional(reader_example, tmp_path):
+    from r2x_core import DataFile, DataFileCandidate, FileInfo
+
+    candidates = [
+        DataFileCandidate(relative_fpath="missing.h5"),
+        DataFileCandidate(glob="missing_*.csv"),
+    ]
+    required = DataFile(name="required", sources=candidates)
+    optional = DataFile(name="optional", sources=candidates, info=FileInfo(is_optional=True))
+
+    with pytest.raises(
+        FileNotFoundError,
+        match=r"candidate 1.*missing.h5.*candidate 2.*missing_\*\.csv",
+    ):
+        reader_example.read_data_file(required, folder_path=tmp_path)
+    assert reader_example.read_data_file(optional, folder_path=tmp_path) is None
+
+
+def test_ordered_sources_do_not_fall_back_for_multiple_glob_matches(reader_example, tmp_path):
+    from r2x_core import DataFile, DataFileCandidate
+
+    (tmp_path / "prices_a.csv").write_text("value\n1\n")
+    (tmp_path / "prices_b.csv").write_text("value\n2\n")
+    fallback = tmp_path / "fallback.csv"
+    fallback.write_text("value\n3\n")
+    data_file = DataFile(
+        name="prices",
+        sources=[
+            DataFileCandidate(glob="prices_*.csv"),
+            DataFileCandidate(fpath=fallback),
+        ],
+    )
+
+    with pytest.raises(ValueError, match="Multiple files matched"):
+        reader_example.read_data_file(data_file, folder_path=tmp_path)
+
+
 def test_non_csv_reader_rejects_multiple_header_rows(reader_example, sample_json, tmp_path):
     from r2x_core.datafile import DataFile, ReaderConfig
 

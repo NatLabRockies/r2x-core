@@ -4,7 +4,14 @@ import json
 
 import pytest
 
-from r2x_core.datafile import FileInfo, JSONProcessing, ReaderConfig, SplitColumnSpec, TabularProcessing
+from r2x_core.datafile import (
+    DataFileCandidate,
+    FileInfo,
+    JSONProcessing,
+    ReaderConfig,
+    SplitColumnSpec,
+    TabularProcessing,
+)
 
 
 def test_datafile_with_nested_structure(tmp_path):
@@ -261,6 +268,77 @@ def test_datafile_with_reader_config(tmp_path):
     assert data_file.reader is not None
     assert data_file.reader.kwargs == {"param1": "value1"}
     assert data_file.reader.function == custom_reader
+
+
+def test_datafile_ordered_source_candidates_are_typed_and_exclusive():
+    from r2x_core import DataFile
+    from r2x_core.file_types import H5Format, TableFormat
+
+    data_file = DataFile(
+        name="prices",
+        sources=[
+            DataFileCandidate(
+                relative_fpath="outputs.h5",
+                reader=ReaderConfig(kwargs={"group_key": "prices"}),
+            ),
+            DataFileCandidate(relative_fpath="prices.csv"),
+        ],
+        proc_spec=TabularProcessing(scale={"value": 2.0}),
+    )
+
+    assert [type(source.file_type) for source in data_file.sources] == [H5Format, TableFormat]
+    assert isinstance(data_file.file_type, H5Format)
+    assert data_file.sources[0].reader.kwargs == {"group_key": "prices"}
+    assert data_file.sources[1].reader.kwargs == {}
+
+    with pytest.raises(ValueError, match="exactly one"):
+        DataFileCandidate(relative_fpath="prices.csv", glob="prices_*.csv")
+    with pytest.raises(ValueError, match="top-level path fields or sources"):
+        DataFile(name="conflicting", relative_fpath="prices.csv", sources=[DataFileCandidate(glob="prices_*.csv")])
+    with pytest.raises(ValueError, match="readers on each source candidate"):
+        DataFile(
+            name="conflicting-reader",
+            sources=[DataFileCandidate(relative_fpath="prices.csv")],
+            reader=ReaderConfig(kwargs={"separator": "|"}),
+        )
+
+
+def test_datafile_ordered_candidates_reject_incompatible_shared_processing():
+    from r2x_core import DataFile
+
+    with pytest.raises(ValueError, match="Tabular files require TabularProcessing"):
+        DataFile(
+            name="mixed-formats",
+            sources=[
+                DataFileCandidate(relative_fpath="metadata.json"),
+                DataFileCandidate(relative_fpath="table.csv"),
+            ],
+            proc_spec=JSONProcessing(),
+        )
+
+
+def test_datafile_from_record_resolves_ordered_source_candidates(tmp_path):
+    from r2x_core import DataFile
+
+    data_file = DataFile.from_record(
+        {
+            "name": "prices",
+            "sources": [
+                {
+                    "relative_fpath": "outputs.h5",
+                    "reader": {"kwargs": {"group_key": "prices"}},
+                },
+                {"relative_fpath": "prices.csv"},
+            ],
+        },
+        folder_path=tmp_path,
+    )
+
+    assert data_file.fpath is None
+    assert data_file.sources is not None
+    assert data_file.sources[0].fpath == tmp_path / "outputs.h5"
+    assert data_file.sources[0].reader.kwargs == {"group_key": "prices"}
+    assert data_file.sources[1].fpath == tmp_path / "prices.csv"
 
 
 def test_data_file_from_records_success(tmp_path):

@@ -26,7 +26,7 @@ from typing import Any
 from loguru import logger
 from rust_ok import Ok
 
-from .datafile import DataFile
+from .datafile import DataFile, DataFileCandidate
 from .exceptions import HDF5GroupNotFoundError, ReaderError
 from .file_readers import read_file_by_type
 from .file_types import EXTENSION_MAPPING, TableFormat
@@ -82,12 +82,13 @@ class DataReader:
         Raises
         ------
         FileNotFoundError
-            If a required file does not exist or if a glob pattern matches no files.
+            If a required source is absent. For ordered candidates, this is
+            raised only after all candidate files and configured HDF5 groups
+            are absent. Optional data files return None when all are absent.
         ValueError
-            If glob pattern is malformed (no wildcards) or if placeholders are found
-            without a corresponding value in ``placeholders``.
-        MultipleFileError
-            If a glob pattern matches multiple files (subclass of ValueError).
+            If the glob pattern is malformed, matches multiple files, or if a
+            placeholder has no corresponding value. Multiple glob matches do
+            not trigger candidate fallback.
 
         See Also
         --------
@@ -96,80 +97,153 @@ class DataReader:
         :func:`~r2x_core.datafile_utils.get_file_path` : Path resolution.
         """
         logger.debug("Starting reading for data_file={}", data_file.name)
-        data_file = self._substitute_path_placeholders(data_file, placeholders=placeholders)
-        is_optional = data_file.info.is_optional if data_file.info else False  # By default files are no-opt
+        if data_file.sources is not None:
+            return self._read_ordered_sources(
+                data_file,
+                folder_path=folder_path,
+                placeholders=placeholders,
+            )
 
-        fpath_result = get_fpath(data_file, folder_path=folder_path, info=data_file.info)
-        if fpath_result.is_err():
-            error = fpath_result.err()
-            if isinstance(error, FileNotFoundError) and is_optional:
+        is_optional = data_file.info.is_optional if data_file.info else False
+        try:
+            fpath = self._resolve_source_path(
+                data_file,
+                folder_path=folder_path,
+                placeholders=placeholders,
+            )
+        except FileNotFoundError:
+            if is_optional:
                 logger.info("Skipping optional file: {}", data_file.name)
                 return None
-            raise error
-        assert isinstance(fpath_result, Ok), "Result should be Ok after error check"
-        fpath = fpath_result.value
+            raise
 
-        reader = data_file.reader
-        reader_kwargs = dict(reader.kwargs) if reader else {}
-        if reader and reader.function:
-            if reader.header_rows > 1:
-                raise ValueError("header_rows is only supported by the built-in CSV/TSV reader")
-            logger.debug(
-                "Attempting to read data_file{} with reader_function={}",
-                data_file.name,
-                data_file.reader,
-            )
-            raw_data = reader.function(fpath, **reader_kwargs)
-            if data_file.proc_spec is not None:
-                processed_data = apply_processing(
-                    raw_data,
-                    data_file=data_file,
-                    proc_spec=data_file.proc_spec,
-                    placeholders=placeholders,
-                )
-
-                if processed_data.is_err():
-                    raise ReaderError(processed_data.error)
-                assert isinstance(processed_data, Ok), "Result should be Ok after error check"
-                processed_data = processed_data.value
-            else:
-                processed_data = raw_data
-
-            return processed_data
-
-        file_type_instance = data_file.file_type
-        logger.trace(
-            "Attempting to read data_file={} with {}", data_file.name, type(file_type_instance).__name__
-        )
         try:
-            if reader and reader.header_rows > 1 and not isinstance(file_type_instance, TableFormat):
-                raise ValueError("header_rows is only supported for CSV/TSV files")
-            if isinstance(file_type_instance, TableFormat):
-                raw_data = read_file_by_type(
-                    file_type_instance,
-                    file_path=fpath,
-                    header_rows=reader.header_rows if reader else 1,
-                    header_separator=reader.header_separator if reader else "|",
-                    **reader_kwargs,
-                )
-            else:
-                raw_data = read_file_by_type(file_type_instance, file_path=fpath, **reader_kwargs)
+            raw_data = self._read_raw_data(data_file, fpath=fpath)
         except HDF5GroupNotFoundError:
             if is_optional:
                 logger.debug("Skipping optional file with missing HDF5 group: {}", data_file.name)
                 return None
             raise
-        if data_file.proc_spec is not None:
-            processed_data = apply_processing(
-                raw_data, data_file=data_file, proc_spec=data_file.proc_spec, placeholders=placeholders
+        return self._apply_processing(data_file, raw_data, placeholders=placeholders)
+
+    def _read_ordered_sources(
+        self,
+        data_file: DataFile,
+        *,
+        folder_path: Path,
+        placeholders: dict[str, Any] | None,
+    ) -> Any:
+        """Try ordered candidates, skipping only typed missing-source failures."""
+        is_optional = data_file.info.is_optional if data_file.info else False
+        missing_sources: list[tuple[str, FileNotFoundError | HDF5GroupNotFoundError]] = []
+
+        for index, candidate in enumerate(data_file.sources or (), start=1):
+            candidate_file = data_file.model_copy(
+                update={
+                    "fpath": candidate.fpath,
+                    "relative_fpath": candidate.relative_fpath,
+                    "glob": candidate.glob,
+                    "reader": candidate.reader,
+                    "sources": None,
+                }
             )
-            if processed_data.is_err():
-                raise ReaderError(processed_data.error)
-            assert isinstance(processed_data, Ok), "Result should be Ok after error check"
-            processed_data = processed_data.value
-        else:
-            processed_data = raw_data
-        return processed_data
+            label = self._source_candidate_label(candidate)
+            try:
+                fpath = self._resolve_source_path(
+                    candidate_file,
+                    folder_path=folder_path,
+                    placeholders=placeholders,
+                )
+            except FileNotFoundError as error:
+                missing_sources.append((f"candidate {index} ({label})", error))
+                continue
+
+            try:
+                raw_data = self._read_raw_data(candidate_file, fpath=fpath)
+            except HDF5GroupNotFoundError as error:
+                missing_sources.append((f"candidate {index} ({label})", error))
+                continue
+            return self._apply_processing(data_file, raw_data, placeholders=placeholders)
+
+        if is_optional:
+            logger.info("Skipping optional data file with no available source: {}", data_file.name)
+            return None
+
+        details = "; ".join(f"{label}: {error}" for label, error in missing_sources)
+        message = f"No source candidate was available for required DataFile {data_file.name!r}. Tried: {details}"
+        raise FileNotFoundError(message) from (missing_sources[-1][1] if missing_sources else None)
+
+    @staticmethod
+    def _source_candidate_label(candidate: DataFileCandidate) -> str:
+        """Describe the path source configured on a candidate."""
+        for field in ("fpath", "relative_fpath", "glob"):
+            value = getattr(candidate, field)
+            if value is not None:
+                return f"{field}={value!s}"
+        raise ValueError("Source candidate has no path source")
+
+    def _resolve_source_path(
+        self,
+        data_file: DataFile,
+        *,
+        folder_path: Path,
+        placeholders: dict[str, Any] | None,
+    ) -> Path:
+        """Resolve one source path after substituting any configured placeholders."""
+        resolved_file = self._substitute_path_placeholders(data_file, placeholders=placeholders)
+        fpath_result = get_fpath(resolved_file, folder_path=folder_path, info=resolved_file.info)
+        if fpath_result.is_err():
+            raise fpath_result.err()
+        assert isinstance(fpath_result, Ok), "Result should be Ok after error check"
+        return fpath_result.value
+
+    @staticmethod
+    def _read_raw_data(data_file: DataFile, *, fpath: Path) -> Any:
+        """Read one resolved source without applying the logical processing spec."""
+        reader = data_file.reader
+        reader_kwargs = dict(reader.kwargs) if reader else {}
+        if reader and reader.function:
+            if reader.header_rows > 1:
+                raise ValueError("header_rows is only supported by the built-in CSV/TSV reader")
+            logger.debug("Attempting to read data_file={} with reader_function={}", data_file.name, reader)
+            return reader.function(fpath, **reader_kwargs)
+
+        file_type_instance = data_file.file_type
+        logger.trace(
+            "Attempting to read data_file={} with {}", data_file.name, type(file_type_instance).__name__
+        )
+        if reader and reader.header_rows > 1 and not isinstance(file_type_instance, TableFormat):
+            raise ValueError("header_rows is only supported for CSV/TSV files")
+        if isinstance(file_type_instance, TableFormat):
+            return read_file_by_type(
+                file_type_instance,
+                file_path=fpath,
+                header_rows=reader.header_rows if reader else 1,
+                header_separator=reader.header_separator if reader else "|",
+                **reader_kwargs,
+            )
+        return read_file_by_type(file_type_instance, file_path=fpath, **reader_kwargs)
+
+    @staticmethod
+    def _apply_processing(
+        data_file: DataFile,
+        raw_data: Any,
+        *,
+        placeholders: dict[str, Any] | None,
+    ) -> Any:
+        """Apply the logical DataFile processing spec once to the selected source."""
+        if data_file.proc_spec is None:
+            return raw_data
+        processed_data = apply_processing(
+            raw_data,
+            data_file=data_file,
+            proc_spec=data_file.proc_spec,
+            placeholders=placeholders,
+        )
+        if processed_data.is_err():
+            raise ReaderError(processed_data.error)
+        assert isinstance(processed_data, Ok), "Result should be Ok after error check"
+        return processed_data.value
 
     @staticmethod
     def _substitute_path_placeholders(

@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.1](https://github.com/NatLabRockies/r2x-core/compare/v0.9.0...v0.9.1) (2026-10-06)
+
+
+### Build
+
+* **deps:** bump actions/checkout from 7.0.0 to 7.0.1 ([#117](https://github.com/NatLabRockies/r2x-core/issues/117)) ([2a9286f](https://github.com/NatLabRockies/r2x-core/commit/2a9286f31401438b05617d8157c3c00853f365bc))
+* **deps:** bump actions/labeler from 6.2.0 to 7.0.0 ([#118](https://github.com/NatLabRockies/r2x-core/issues/118)) ([f107604](https://github.com/NatLabRockies/r2x-core/commit/f107604b73885fe849aafb915f2488d77f44de67))
+
 ## [0.9.0](https://github.com/NatLabRockies/r2x-core/compare/v0.8.0...v0.9.0) (2026-10-01)
 
 

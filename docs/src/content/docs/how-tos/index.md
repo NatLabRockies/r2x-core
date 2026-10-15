@@ -1,5 +1,7 @@
 ---
 title: "How-To Guides"
+sidebar:
+  hidden: true
 ---
 
 Task-focused guides for accomplishing specific goals with R2X Core.

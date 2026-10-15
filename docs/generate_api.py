@@ -22,7 +22,13 @@ def rewrite_link(match: re.Match[str], *, docname: str) -> str:
     url = urlsplit(value)
     if url.scheme or url.netloc or not url.path or url.path.startswith("/"):
         return match.group(0)
-    parent = posixpath.dirname(docname) if docname.endswith("/index") or url.path.endswith(".md") else docname
+    # JSONHTMLBuilder emits directory-relative routes; explicit source/HTML
+    # filenames instead resolve relative to the document's containing directory.
+    parent = (
+        posixpath.dirname(docname)
+        if docname.endswith("/index") or url.path.endswith((".html", ".md"))
+        else docname
+    )
     target = posixpath.normpath(posixpath.join(parent, url.path))
     target = target.removesuffix(".html").removesuffix(".md")
     if target.endswith("/index"):
@@ -31,6 +37,35 @@ def rewrite_link(match: re.Match[str], *, docname: str) -> str:
     if url.fragment:
         destination += "#" + url.fragment
     return f"href={quote}{destination}{quote}"
+
+
+def api_targets(output: Path) -> dict[str, str]:
+    """Index unambiguous public names using the API anchors Sphinx actually emitted."""
+    candidates: dict[str, set[str]] = {}
+    for page in sorted((output / "references").glob("*.fjson")):
+        body = json.loads(page.read_text())["body"]
+        for identifier in re.findall(r'<dt class="sig[^>]* id="([^"]+)"', body):
+            if not identifier.startswith("r2x_core."):
+                continue
+            parts = identifier.split(".")
+            target = BASE + "references/" + page.stem + "/#" + identifier
+            for length in range(1, len(parts) + 1):
+                candidates.setdefault(".".join(parts[-length:]), set()).add(target)
+    return {name: next(iter(urls)) for name, urls in candidates.items() if len(urls) == 1}
+
+
+def link_code_names(match: re.Match[str], *, targets: dict[str, str]) -> str:
+    """Retain Pygments tokens while linking names with a unique documented target."""
+
+    def link_name(name_match: re.Match[str]) -> str:
+        markup = name_match.group(0)
+        name = re.sub(r"<[^>]+>", "", markup)
+        target = targets.get(name) if "." in name or name[:1].isupper() else None
+        return f'<a href="{html.escape(target, quote=True)}">{markup}</a>' if target else markup
+
+    token = r'<span class="n">[^<]+</span>'
+    qualified = token + r'(?:<span class="o">[.]</span>' + token + r")*"
+    return re.sub(qualified, link_name, match.group(0))
 
 
 def main() -> None:
@@ -42,6 +77,7 @@ def main() -> None:
         cwd=ROOT,
         check=True,
     )
+    targets = api_targets(output)
     destination = ROOT / "docs/src/content/docs"
     generated = destination / "references"
     generated.mkdir(parents=True, exist_ok=True)
@@ -52,6 +88,12 @@ def main() -> None:
         title = re.sub(r"<[^>]+>", "", data["title"])
         body = re.sub(r"<h1\b[^>]*>.*?</h1>", "", data["body"], count=1, flags=re.S)
         body = re.sub(r"""href=(["'])(.*?)\1""", partial(rewrite_link, docname=docname), body)
+        body = re.sub(
+            r'<div class="highlight[^>]*>.*?</pre>',
+            partial(link_code_names, targets=targets),
+            body,
+            flags=re.S,
+        )
         body = "<details><summary>API contents</summary>" + data["toc"] + "</details>\n" + body
         page = (
             "---\ntitle: "

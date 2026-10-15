@@ -15,8 +15,8 @@ DataStore.read_data(name: str, *, placeholders: dict[str, Any] | None = None) ->
 ```
 
 `path=None` uses the current directory; an explicit root must already exist.
-The optional reader is a `DataReader`; the optional upgrade handler is a callable used by upgrade-aware loading.
-`add_data` registers definitions and rejects duplicate names unless overwriting is enabled.
+The optional reader is a {py:class}`~r2x_core.DataReader`; the optional upgrade handler is a callable used by upgrade-aware loading.
+{py:meth}`~r2x_core.DataStore.add_data` registers definitions and rejects duplicate names unless overwriting is enabled.
 `list_data` returns registered logical names in sorted order.
 `read_data` returns the format-specific reader result, not always a DataFrame: the tutorial's CSV path returns a Polars lazy frame.
 A missing root raises `FileNotFoundError`; an unknown logical name raises `KeyError`; parsing and processing failures propagate from the reader.
@@ -27,12 +27,35 @@ See [processing specifications](/r2x-core/references/processors/) before combini
 
 ## System serialization
 
+### Write a system
+
+{py:meth}`System.to_json <r2x_core.System.to_json>` serializes a {py:class}`~r2x_core.System`.
+[Implementation](https://github.com/NatLabRockies/r2x-core/blob/7eb201999706103b4ea965aeb4b6e42d4801703f/src/r2x_core/system.py#L251-L321).
+The displayed instance signature omits `self`.
+
 ```python
-System.to_json(fname: Path | str | None = None, overwrite: bool = False,
-               indent: int | None = None, data: Any = None) -> bytes | None
-System.from_json(source: Path | str | bytes, /, *,
-                 upgrade_handler: Callable[..., Any] | None = None,
-                 **kwargs: Any) -> System
+System.to_json(
+    fname: Path | str | None = None,
+    overwrite: bool = False,
+    indent: int | None = None,
+    data: Any = None,
+) -> bytes | None
+```
+
+### Reload a system
+
+{py:meth}`System.from_json <r2x_core.System.from_json>` returns a {py:class}`~r2x_core.System`.
+[Implementation](https://github.com/NatLabRockies/r2x-core/blob/7eb201999706103b4ea965aeb4b6e42d4801703f/src/r2x_core/system.py#L323-L386).
+`source` is positional-only; `upgrade_handler` is keyword-only.
+
+```python
+System.from_json(
+    source: Path | str | bytes,
+    /,
+    *,
+    upgrade_handler: Callable[..., Any] | None = None,
+    **kwargs: Any,
+) -> System
 ```
 
 With a filename, `to_json` writes through the infrasys file serializer and rejects existing output unless `overwrite=True`.

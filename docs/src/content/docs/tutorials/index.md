@@ -1,5 +1,7 @@
 ---
 title: "Tutorials"
+sidebar:
+  hidden: true
 ---
 
 - [getting started](/r2x-core/tutorials/getting-started/)

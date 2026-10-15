@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 from fixtures.source_system import BusComponent
 from fixtures.target_system import NodeComponent
-from infrasys import Component, SingleTimeSeries
+from infrasys import Component, SingleTimeSeries, component_associations
 from infrasys.time_series_manager import TimeSeriesManager
 from infrasys.time_series_models import TimeSeriesStorageType
 from infrasys.utils.sqlite import create_in_memory_db
@@ -30,8 +30,14 @@ class ConnectedBusComponent(Component):
 @pytest.mark.parametrize("component_count", [0, 1, 33_000])
 @pytest.mark.parametrize("with_time_series", [False, True])
 def test_rules_translate_components_beyond_sql_variable_limit(
-    component_count: int, with_time_series: bool
+    component_count: int, with_time_series: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    def create_variable_limited_db(database: str = ":memory:") -> sqlite3.Connection:
+        connection = create_in_memory_db(database)
+        connection.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 32_766)
+        return connection
+
+    monkeypatch.setattr(component_associations, "create_in_memory_db", create_variable_limited_db)
     source = System(name="source")
     source.add_components(*(BusComponent(name=f"bus_{index}") for index in range(component_count)))
     if with_time_series and component_count:

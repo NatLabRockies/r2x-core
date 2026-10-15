@@ -18,7 +18,7 @@ my_plugin/
 
 Define a configuration class that extends `PluginConfig`:
 
-```python
+```python doctest
 >>> from r2x_core import PluginConfig
 >>> class MyConfig(PluginConfig):
 ...     solve_year: int
@@ -34,7 +34,7 @@ Define a configuration class that extends `PluginConfig`:
 
 Create a `DataStore` directly from your plugin configuration:
 
-```python
+```python doctest
 >>> import tempfile
 >>> from pathlib import Path
 >>> from r2x_core import DataStore, PluginConfig
@@ -51,7 +51,7 @@ DataStore
 
 Use the `getter` decorator to register custom field extractors:
 
-```python
+```python doctest
 >>> from r2x_core import getter
 >>> @getter
 ... def extract_name(component):

@@ -8,7 +8,7 @@ Function-based plugins are simple, zero-overhead transforms that modify a `Syste
 
 Create a simple transform that modifies a system:
 
-```python
+```python doctest
 >>> from r2x_core import expose_plugin, PluginConfig, System
 >>> from pydantic import Field
 >>> from rust_ok import Ok, Result
@@ -36,7 +36,7 @@ True
 
 Use Pydantic field validators to enforce configuration constraints:
 
-```python
+```python doctest
 >>> from r2x_core import expose_plugin, PluginConfig, System
 >>> from pydantic import Field, field_validator
 >>> from rust_ok import Ok, Result
@@ -72,7 +72,7 @@ True
 
 Use nested Pydantic models for complex configurations:
 
-```python
+```python doctest
 >>> from r2x_core import expose_plugin, PluginConfig, System
 >>> from pydantic import BaseModel, Field
 >>> from rust_ok import Ok, Result
@@ -111,7 +111,7 @@ True
 
 Return errors when operations fail:
 
-```python
+```python doctest
 >>> from r2x_core import expose_plugin, PluginConfig, System
 >>> from rust_ok import Ok, Err, Result
 
@@ -141,7 +141,7 @@ True
 
 Call exposed functions directly with explicit arguments:
 
-```python
+```python doctest
 >>> from r2x_core import expose_plugin, PluginConfig, System
 >>> from rust_ok import Ok, Result
 
@@ -171,7 +171,7 @@ Success: original
 
 Use PEP 695 type parameter syntax for generic plugin functions with constrained config types:
 
-```python
+```python doctest
 >>> from r2x_core import expose_plugin, PluginConfig, System
 >>> from rust_ok import Ok, Result
 >>> from pydantic import Field
@@ -261,7 +261,7 @@ The Rust CLI will:
 
 Here's a complete example of a real-world transform plugin:
 
-```python
+```python doctest
 >>> from r2x_core import expose_plugin, PluginConfig, System
 >>> from pathlib import Path
 >>> from pydantic import Field, field_validator

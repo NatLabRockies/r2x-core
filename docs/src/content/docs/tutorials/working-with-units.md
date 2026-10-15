@@ -20,7 +20,7 @@ annotations. R2X Core stores all per-unit quantities internally in device-base
 per-unit, so display modes only affect how values appear, not how they're
 calculated.
 
-```python
+```python doctest
 >>> from typing import Annotated
 >>> from infrasys import Component
 >>> from r2x_core import HasPerUnit, Unit
@@ -49,7 +49,7 @@ Equipment with multiple ratings, like transformers, can reference different
 bases. Each field independently specifies which base it normalizes to, and R2X
 Core tracks and converts accordingly.
 
-```python
+```python doctest
 >>> from typing import Annotated
 >>> from infrasys import Component
 >>> from r2x_core import HasPerUnit, Unit
@@ -79,7 +79,7 @@ Main TX
 View unit values in different display modes without affecting internal
 calculations. The `UnitSystem` controls how values are presented to users.
 
-```python
+```python doctest
 >>> from r2x_core import UnitSystem, set_unit_system, get_unit_system
 >>>
 >>> current = get_unit_system()
@@ -95,7 +95,7 @@ Use the `HasUnits` mixin to get unit-aware access to all component fields. This
 provides a convenient interface for components that need explicit unit
 management.
 
-```python
+```python doctest
 >>> from typing import Annotated
 >>> from infrasys import Component
 >>> from r2x_core import HasUnits, Unit

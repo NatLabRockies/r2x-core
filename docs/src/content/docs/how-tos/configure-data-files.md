@@ -6,7 +6,7 @@ DataFiles configure how to load and process external data sources.
 
 ## Basic DataFile
 
-```python
+```python doctest
 >>> import tempfile
 >>> from r2x_core import DataFile, FileInfo
 >>> from pathlib import Path
@@ -28,7 +28,7 @@ My data
 
 Define transformations for CSV and Excel files:
 
-```python
+```python doctest
 >>> import tempfile
 >>> from r2x_core import DataFile, TabularProcessing
 >>> from pathlib import Path
@@ -51,7 +51,7 @@ Define transformations for CSV and Excel files:
 
 Define transformations for JSON files:
 
-```python
+```python doctest
 >>> import tempfile
 >>> import json
 >>> from r2x_core import DataFile, JSONProcessing
@@ -72,7 +72,7 @@ Define transformations for JSON files:
 
 Work with HDF5 format files:
 
-```python
+```python doctest
 >>> import tempfile
 >>> import h5py
 >>> import numpy as np
@@ -95,7 +95,7 @@ H5Format
 
 Automatically detect and work with different file formats using FileFormat:
 
-```python
+```python doctest
 >>> import tempfile
 >>> from pathlib import Path
 >>> from r2x_core import DataFile, FileFormat

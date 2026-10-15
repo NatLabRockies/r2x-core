@@ -8,7 +8,7 @@ Execute rules to convert components between formats.
 
 Capture statistics about rule application:
 
-```python
+```python doctest
 >>> from r2x_core import Rule, RuleResult, TranslationResult
 >>> rule = Rule(source_type="Bus", target_type="Node", version=1)
 >>> result = RuleResult(
@@ -39,7 +39,7 @@ True
 
 Use `apply_rules_to_context()` to apply all rules in a context:
 
-```python
+```python doctest
 >>> from r2x_core import apply_rules_to_context
 >>> # result = apply_rules_to_context(context)
 >>> # result.total_converted
@@ -49,7 +49,7 @@ Use `apply_rules_to_context()` to apply all rules in a context:
 
 Use `apply_single_rule()` to apply one rule:
 
-```python
+```python doctest
 >>> from r2x_core import apply_single_rule, Rule
 >>> rule = Rule(source_type="Gen", target_type="Unit", version=1)
 >>> # result = apply_single_rule(rule, context=context)

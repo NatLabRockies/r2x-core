@@ -293,7 +293,7 @@ Function-based plugins offer a simpler alternative to class-based plugins. They 
 
 ### Basic Function Plugin
 
-```python
+```python doctest
 >>> from r2x_core import expose_plugin, PluginConfig, System
 >>> from rust_ok import Ok, Result
 
@@ -320,7 +320,7 @@ Function-based plugins offer a simpler alternative to class-based plugins. They 
 
 Configuration fields can contain nested Pydantic models for complex structures:
 
-```python
+```python doctest
 >>> from r2x_core import expose_plugin, PluginConfig, System
 >>> from pydantic import BaseModel, Field
 >>> from rust_ok import Ok, Result
@@ -366,7 +366,7 @@ Function plugins support several ways to define and use configurations:
 
 #### 1. Simple Configuration
 
-```python
+```python doctest
 >>> from r2x_core import expose_plugin, PluginConfig, System
 >>> from rust_ok import Ok, Result
 
@@ -386,7 +386,7 @@ Function plugins support several ways to define and use configurations:
 
 #### 2. Configuration with Validation
 
-```python
+```python doctest
 >>> from r2x_core import expose_plugin, PluginConfig, System
 >>> from pydantic import Field, field_validator
 >>> from rust_ok import Ok, Result
@@ -415,7 +415,7 @@ True
 
 #### 3. Configuration with Complex Nested Structure
 
-```python
+```python doctest
 >>> from r2x_core import expose_plugin, PluginConfig, System
 >>> from pydantic import BaseModel, Field
 >>> from rust_ok import Ok, Result
@@ -466,7 +466,7 @@ True
 
 #### 4. Configuration with Python 3.12 Type Parameters
 
-```python
+```python doctest
 >>> from r2x_core import expose_plugin, PluginConfig, System
 >>> from rust_ok import Ok, Result
 

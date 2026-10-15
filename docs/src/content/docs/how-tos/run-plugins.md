@@ -6,7 +6,7 @@ Execute plugins in your R2X Core workflows.
 
 ## Basic Usage
 
-```python
+```python doctest
 >>> from r2x_core import PluginContext, Plugin, PluginConfig
 >>> from rust_ok import Ok
 >>> class MyPluginConfig(PluginConfig):

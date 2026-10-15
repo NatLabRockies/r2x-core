@@ -8,7 +8,7 @@ Transform and filter tabular data during loading using [`TabularProcessing`](/r2
 
 Use `column_mapping` to rename columns while loading:
 
-```python
+```python doctest
 >>> from pathlib import Path
 >>> from r2x_core import DataFile, TabularProcessing
 >>>
@@ -25,7 +25,7 @@ Use `column_mapping` to rename columns while loading:
 
 Use `drop_columns` to exclude columns from processing:
 
-```python
+```python doctest
 >>> from pathlib import Path
 >>> from r2x_core import DataFile, TabularProcessing
 >>>
@@ -42,7 +42,7 @@ Use `drop_columns` to exclude columns from processing:
 
 Use `filter_by` to select specific rows based on column values:
 
-```python
+```python doctest
 >>> from pathlib import Path
 >>> from r2x_core import DataFile, TabularProcessing
 >>>
@@ -70,7 +70,7 @@ Use `filter_by` to select specific rows based on column values:
 With `unpivot_on`, `column_mapping`, `column_schema`, and `filter_by` apply after
 the reshape. This supports wide year columns filtered by a runtime solve year:
 
-```python
+```python doctest
 >>> from r2x_core import DataFile, TabularProcessing
 >>>
 >>> processing = TabularProcessing(
@@ -91,7 +91,7 @@ turn a generated label such as `2025|NYISO_A` into `year` and `zone` columns.
 
 Use `SplitColumnSpec` to split a source column into named columns:
 
-```python
+```python doctest
 >>> from r2x_core import SplitColumnSpec
 >>> split = SplitColumnSpec(separator="|", into=["year", "zone"])
 >>> split.into
@@ -103,7 +103,7 @@ Use `SplitColumnSpec` to split a source column into named columns:
 Input case is preserved by default. Set `lowercase=True` when the mapping
 expects lowercase column names and string values:
 
-```python
+```python doctest
 >>> from r2x_core import TabularProcessing
 >>> processing = TabularProcessing(lowercase=True)
 >>> processing.lowercase

@@ -8,7 +8,7 @@ Load and process data files using `DataReader` and `DataFile` configurations.
 
 A [`DataFile`](/r2x-core/references/api/) specifies where and how to read a data file:
 
-```python
+```python doctest
 >>> from r2x_core import DataFile
 >>>
 >>> # Create a configuration with a relative path
@@ -23,7 +23,7 @@ A [`DataFile`](/r2x-core/references/api/) specifies where and how to read a data
 
 [`DataReader`](/r2x-core/references/api/) supports multiple file formats:
 
-```python
+```python doctest
 >>> from r2x_core import DataReader
 >>>
 >>> reader = DataReader()
@@ -36,7 +36,7 @@ A [`DataFile`](/r2x-core/references/api/) specifies where and how to read a data
 
 Use [`TabularProcessing`](/r2x-core/references/api/) to filter, rename, and transform data during loading:
 
-```python
+```python doctest
 >>> from r2x_core import DataFile, TabularProcessing
 >>>
 >>> # Configure transformations
@@ -62,7 +62,7 @@ Use [`TabularProcessing`](/r2x-core/references/api/) to filter, rename, and tran
 
 Use [`DataReader`](/r2x-core/references/api/) to load a configured data file:
 
-```python
+```python doctest
 >>> import tempfile
 >>> from pathlib import Path
 >>> from r2x_core import DataReader, DataFile

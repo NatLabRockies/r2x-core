@@ -8,7 +8,7 @@ R2X Core provides flexible version management through [`VersionStrategy`](/r2x-c
 
 Use semantic versioning (MAJOR.MINOR.PATCH) to manage versions based on the nature of changes:
 
-```python
+```python doctest
 >>> from r2x_core import SemanticVersioningStrategy
 >>> strategy = SemanticVersioningStrategy()
 >>> type(strategy).__name__
@@ -19,7 +19,7 @@ Use semantic versioning (MAJOR.MINOR.PATCH) to manage versions based on the natu
 
 Track versions using Git tags and commit hashes:
 
-```python
+```python doctest
 >>> from r2x_core import GitVersioningStrategy
 >>> commits = ["abc123", "def456", "ghi789"]
 >>> strategy = GitVersioningStrategy(commits)
@@ -31,7 +31,7 @@ Track versions using Git tags and commit hashes:
 
 Both strategies implement the [`VersionStrategy`](/r2x-core/references/api/) interface for consistent version management across your project:
 
-```python
+```python doctest
 >>> from r2x_core import SemanticVersioningStrategy, GitVersioningStrategy, VersionStrategy
 >>> semantic = SemanticVersioningStrategy()
 >>> commits = ["abc123", "def456", "ghi789"]

@@ -34,7 +34,7 @@ When evaluating getter-backed filters, the executor passes the current `PluginCo
 
 If you load rules from JSON or another record format, store the getter name in the filter record and make sure the matching `@getter` has been registered before loading:
 
-```python
+```python doctest
 >>> from r2x_core import Rule
 >>> from r2x_core.getters import getter
 >>>

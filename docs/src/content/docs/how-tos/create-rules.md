@@ -6,7 +6,7 @@ Rules describe how to convert components from one model format to another.
 
 ## Basic Rule
 
-```python
+```python doctest
 >>> from r2x_core import Rule
 >>> rule = Rule(
 ...     source_type="Bus",
@@ -24,7 +24,7 @@ Rules describe how to convert components from one model format to another.
 
 Provide defaults for fields that may be missing in source components:
 
-```python
+```python doctest
 >>> from r2x_core import Rule
 >>> rule = Rule(
 ...     source_type="Generator",
@@ -41,7 +41,7 @@ Provide defaults for fields that may be missing in source components:
 
 Load multiple rules from a list of dictionaries:
 
-```python
+```python doctest
 >>> from r2x_core import Rule
 >>> records = [
 ...     {"source_type": "Bus", "target_type": "Node", "version": 1},

@@ -8,7 +8,7 @@ Create and apply data upgrades to transform raw files and configurations between
 
 Choose a versioning strategy based on your needs:
 
-```python
+```python doctest
 >>> from r2x_core import SemanticVersioningStrategy, GitVersioningStrategy, VersionStrategy
 >>> semantic = SemanticVersioningStrategy()
 >>> type(semantic).__name__
@@ -23,7 +23,7 @@ Choose a versioning strategy based on your needs:
 
 Define what you want to upgrade:
 
-```python
+```python doctest
 >>> from r2x_core import UpgradeType
 >>> print(UpgradeType.FILE)
 UpgradeType.FILE
@@ -35,7 +35,7 @@ UpgradeType.SYSTEM
 
 Create an upgrade step to transform data:
 
-```python
+```python doctest
 >>> from r2x_core import UpgradeStep, UpgradeType, SemanticVersioningStrategy, run_upgrade_step
 >>> def upgrade_to_v2(data: dict) -> dict:
 ...     data = data.copy()
@@ -61,7 +61,7 @@ Create an upgrade step to transform data:
 
 Always return a copy and handle missing fields:
 
-```python
+```python doctest
 >>> def safe_upgrade(data: dict) -> dict:
 ...     upgraded = data.copy()
 ...     upgraded.setdefault("new_field", "default")

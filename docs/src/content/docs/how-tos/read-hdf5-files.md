@@ -8,7 +8,7 @@ HDF5 (Hierarchical Data Format) is a flexible format for storing large amounts o
 
 Create a [`DataFile`](/r2x-core/references/api/) configuration for an HDF5 file:
 
-```python
+```python doctest
 >>> from r2x_core import DataFile
 >>>
 >>> # Basic HDF5 configuration
@@ -23,7 +23,7 @@ Create a [`DataFile`](/r2x-core/references/api/) configuration for an HDF5 file:
 
 Specify which dataset to read using the `data_key` parameter in [`ReaderConfig`](/r2x-core/references/api/):
 
-```python
+```python doctest
 >>> from r2x_core import DataFile, ReaderConfig
 >>>
 >>> # Read a specific nested dataset
@@ -40,7 +40,7 @@ Specify which dataset to read using the `data_key` parameter in [`ReaderConfig`]
 
 Use `column_name_mapping` to rename generic dataset keys to meaningful column names:
 
-```python
+```python doctest
 >>> from r2x_core import DataFile, ReaderConfig
 >>>
 >>> # Map generic names to meaningful column names
@@ -62,7 +62,7 @@ Use `column_name_mapping` to rename generic dataset keys to meaningful column na
 
 Use [`DataReader`](/r2x-core/references/api/) to load a configured HDF5 file:
 
-```python
+```python doctest
 >>> import tempfile
 >>> from pathlib import Path
 >>> import h5py
@@ -103,7 +103,7 @@ First row: (100.0, 80.0)
 
 For advanced use cases, use [`configurable_h5_reader`](/r2x-core/references/api/) directly to read HDF5 files with full control over dataset mapping:
 
-```python
+```python doctest
 >>> import tempfile
 >>> from pathlib import Path
 >>> import h5py

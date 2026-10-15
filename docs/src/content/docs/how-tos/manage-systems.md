@@ -6,7 +6,7 @@ A [`System`](/r2x-core/references/api/) represents a power system model containi
 
 ## Get All Components as Records
 
-```python
+```python doctest
 >>> from r2x_core import System, components_to_records
 >>> from infrasys import Component
 >>> system = System(name="MySystem")
@@ -19,7 +19,7 @@ A [`System`](/r2x-core/references/api/) represents a power system model containi
 
 ## Filter Components By Type
 
-```python
+```python doctest
 >>> from r2x_core import System, components_to_records
 >>> from infrasys import Component
 >>> class Generator(Component):
@@ -39,7 +39,7 @@ A [`System`](/r2x-core/references/api/) represents a power system model containi
 
 ## Select Specific Fields
 
-```python
+```python doctest
 >>> from r2x_core import System, components_to_records
 >>> from infrasys import Component
 >>> from pydantic import Field
@@ -58,7 +58,7 @@ A [`System`](/r2x-core/references/api/) represents a power system model containi
 
 ## Export Components To CSV
 
-```python
+```python doctest
 >>> from r2x_core import System, export_components_to_csv
 >>> from infrasys import Component
 >>> from pathlib import Path
@@ -76,7 +76,7 @@ True
 
 Safely create components with automatic validation error handling:
 
-```python
+```python doctest
 >>> from r2x_core import create_component
 >>> from infrasys import Component
 >>> result = create_component(Component, name="MyComponent")

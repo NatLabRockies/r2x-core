@@ -6,7 +6,7 @@ Create components with unit-aware fields using the `HasPerUnit` mixin.
 
 ## Create Components with Units
 
-```python
+```python doctest
 >>> from typing import Annotated
 >>> from infrasys import Component
 >>> from r2x_core.units import HasPerUnit, Unit
@@ -24,7 +24,7 @@ Create components with unit-aware fields using the `HasPerUnit` mixin.
 
 Automatically convert natural units to per-unit:
 
-```python
+```python doctest
 >>> from typing import Annotated
 >>> from infrasys import Component
 >>> from r2x_core.units import HasPerUnit, Unit
@@ -44,7 +44,7 @@ Automatically convert natural units to per-unit:
 
 Change how values are displayed:
 
-```python
+```python doctest
 >>> from typing import Annotated
 >>> from infrasys import Component
 >>> from r2x_core.units import HasPerUnit, Unit, UnitSystem, set_unit_system

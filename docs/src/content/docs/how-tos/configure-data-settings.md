@@ -8,7 +8,7 @@ Define data source configurations as JSON to manage file paths, units, filtering
 
 Create a JSON configuration file that describes multiple data files with their properties and processing rules:
 
-```python
+```python doctest
 >>> import json
 >>> config = [
 ...     {
@@ -37,7 +37,7 @@ Create a JSON configuration file that describes multiple data files with their p
 
 Load a JSON configuration file to create a [`DataStore`](/r2x-core/references/api/) with all file definitions:
 
-```python
+```python doctest
 >>> from pathlib import Path
 >>> from r2x_core import DataStore
 >>> import json

@@ -8,7 +8,7 @@ A [`DataStore`](/r2x-core/references/api/) is a collection of [`DataFile`](/r2x-
 
 Use [`DataStore`](/r2x-core/references/api/) to instantiate an empty data store:
 
-```python
+```python doctest
 >>> from r2x_core import DataStore
 >>> store = DataStore()
 >>> type(store).__name__
@@ -19,7 +19,7 @@ Use [`DataStore`](/r2x-core/references/api/) to instantiate an empty data store:
 
 Use the [`add_data`](/r2x-core/references/api/) method to register data files:
 
-```python
+```python doctest
 >>> from pathlib import Path
 >>> from r2x_core import DataFile, DataStore
 >>>
@@ -42,7 +42,7 @@ Use the [`add_data`](/r2x-core/references/api/) method to register data files:
 
 Check which data files are registered in the store:
 
-```python
+```python doctest
 >>> from pathlib import Path
 >>> from r2x_core import DataFile, DataStore
 >>>

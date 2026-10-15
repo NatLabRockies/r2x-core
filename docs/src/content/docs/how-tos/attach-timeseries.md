@@ -8,7 +8,7 @@ Time series data represents values that change over time, such as load profiles,
 
 Set the `is_timeseries` attribute to indicate that a [`DataFile`](/r2x-core/references/api/) contains time-varying data:
 
-```python
+```python doctest
 >>> from pathlib import Path
 >>> from r2x_core import DataFile, FileInfo
 >>>
@@ -35,7 +35,7 @@ False
 
 Separate time series and static component data in a [`DataStore`](/r2x-core/references/api/) by marking each file appropriately with [`FileInfo`](/r2x-core/references/api/):
 
-```python
+```python doctest
 >>> from pathlib import Path
 >>> from r2x_core import DataFile, FileInfo
 >>>
@@ -64,7 +64,7 @@ False
 
 Include descriptive information about the time series data using [`FileInfo`](/r2x-core/references/api/):
 
-```python
+```python doctest
 >>> from pathlib import Path
 >>> from r2x_core import DataFile, FileInfo
 >>>
@@ -89,7 +89,7 @@ True
 
 Use [`transfer_time_series_metadata`](/r2x-core/references/api/) to transfer time series metadata from a source system to a target system:
 
-```python
+```python doctest
 >>> from r2x_core import transfer_time_series_metadata, PluginContext
 >>> # transfer_time_series_metadata transfers metadata between systems
 >>> # It requires both source_system and target_system in the context
@@ -102,7 +102,7 @@ Use [`transfer_time_series_metadata`](/r2x-core/references/api/) to transfer tim
 
 Use [`replace_single_time_series`](/r2x-core/references/api/) to replace one target association while preserving backing data that may be shared with the source system:
 
-```python
+```python doctest
 >>> from r2x_core import replace_single_time_series
 >>> replace_single_time_series.__doc__.splitlines()[0]
 'Replace exactly one time series association without removing shared data.'

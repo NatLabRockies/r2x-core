@@ -14,8 +14,7 @@ The helper returns `Ok(transformed_data)` on success or `Err("Failed ...")` if t
 It does not roll back mutations or filesystem writes and does not itself compare versions.
 
 ```python
-from r2x_core import System, UpgradeStep, run_upgrade_step
-from r2x_core.utils import UpgradeType
+from r2x_core import System, UpgradeStep, UpgradeType, run_upgrade_step
 
 
 def rename(system: System) -> System:

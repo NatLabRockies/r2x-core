@@ -8,7 +8,7 @@ R2X Core provides a framework for defining version upgrades using [`UpgradeStep`
 
 R2X Core supports two types of upgrades through [`UpgradeType`](/r2x-core/references/api/):
 
-```python
+```python doctest
 >>> from r2x_core import UpgradeType
 >>>
 >>> # FILE: Upgrade raw data files before loading into a system
@@ -26,7 +26,7 @@ R2X Core supports two types of upgrades through [`UpgradeType`](/r2x-core/refere
 
 View the [`UpgradeStep`](/r2x-core/references/api/) structure to understand how upgrades are defined:
 
-```python
+```python doctest
 >>> from r2x_core import UpgradeStep, UpgradeType
 >>>
 >>> # Create an example upgrade step definition

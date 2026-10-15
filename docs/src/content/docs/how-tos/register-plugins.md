@@ -8,7 +8,7 @@ A plugin consists of a configuration class and a plugin implementation.
 
 Define a `PluginConfig` subclass:
 
-```python
+```python doctest
 >>> from r2x_core import PluginConfig
 >>> from pathlib import Path
 >>> class MyPluginConfig(PluginConfig):
@@ -23,7 +23,7 @@ Define a `PluginConfig` subclass:
 
 Extend `Plugin` and implement lifecycle hooks:
 
-```python
+```python doctest
 >>> from r2x_core import Plugin, PluginConfig, PluginContext
 >>> from rust_ok import Ok
 >>> class MyPluginConfig(PluginConfig):

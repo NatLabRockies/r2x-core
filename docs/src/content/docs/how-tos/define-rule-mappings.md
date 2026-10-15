@@ -8,7 +8,7 @@ The rule system provides declarative component translation between power system 
 
 A [`Rule`](/r2x-core/references/api/) defines how to convert components from one type to another. The `source_type` and `target_type` specify which component classes to match and produce. The `field_map` dictionary describes how source fields become target fields.
 
-```python
+```python doctest
 >>> from r2x_core import Rule
 
 >>> rule = Rule(
@@ -31,7 +31,7 @@ The `version` field supports schema evolution. When source or target formats cha
 
 When source components may be missing certain fields, the `defaults` parameter provides fallback values. This is particularly useful when translating from simpler models that lack fields required by more detailed target models.
 
-```python
+```python doctest
 >>> from r2x_core import Rule
 
 >>> rule = Rule(
@@ -51,7 +51,7 @@ Defaults are applied only when the source component lacks the specified field. I
 
 A rule can create a primary component and supplemental attributes from the same source component. Declare each supplemental output with its target type and its own field mappings, getters, and defaults:
 
-```python
+```python doctest
 >>> from r2x_core import Rule, SupplementalAttributeRule, attach_rule_outputs, resolve_supplemental_class
 >>>
 >>> output = SupplementalAttributeRule(
@@ -112,7 +112,7 @@ Construction errors include the rule, source component, and supplemental output 
 
 The [`RuleFilter`](/r2x-core/references/api/) class restricts which components a rule processes. Rather than embedding conditional logic in procedural code, you declare predicates that the rule executor evaluates.
 
-```python
+```python doctest
 >>> from r2x_core import Rule, RuleFilter
 
 >>> # Only translate generators with status "active"
@@ -131,7 +131,7 @@ The [`RuleFilter`](/r2x-core/references/api/) class restricts which components a
 
 Use a field-backed filter when the selection value is already present on the source component. Use a getter-backed filter when the candidate value must be derived from translator context, supplemental attributes, or other source-system lookups. If a filter uses `getter`, call `matches(component, context=...)` with the active `PluginContext`, because the getter-backed path needs that context to evaluate.
 
-```python
+```python doctest
 >>> from types import SimpleNamespace
 >>> from rust_ok import Ok
 >>> from r2x_core import RuleFilter
@@ -150,7 +150,7 @@ Filters are evaluated before translation begins, so components that don't match 
 
 The [`RuleFilter`](/r2x-core/references/api/) class supports several comparison operations. String comparisons are case-insensitive by default, which handles the common case of inconsistent capitalization in source data.
 
-```python
+```python doctest
 >>> from types import SimpleNamespace
 >>> from r2x_core import RuleFilter
 
@@ -183,7 +183,7 @@ Numeric comparisons like `geq`, `leq`, `gt`, and `lt` require exactly one value 
 
 The `on_missing` parameter controls filter behavior when a component lacks the filtered field. This is important for handling heterogeneous source data where some components have optional attributes.
 
-```python
+```python doctest
 >>> from types import SimpleNamespace
 >>> from r2x_core import RuleFilter
 
@@ -216,7 +216,7 @@ The default `on_missing="exclude"` behavior is conservative, ensuring that compo
 
 The [`from_records`](/r2x-core/references/api/) class method creates rules from dictionary configurations. This enables loading rules from JSON files, databases, or other configuration sources.
 
-```python
+```python doctest
 >>> from r2x_core import Rule
 
 >>> records = [
@@ -246,7 +246,7 @@ The method validates each record and raises :exc:`~pydantic.ValidationError` if 
 
 [`Rule`](/r2x-core/references/api/) instances are frozen dataclasses. This immutability prevents subtle bugs where shared rules are accidentally modified during translation, causing unexpected behavior in seemingly unrelated operations.
 
-```python
+```python doctest
 >>> from r2x_core import Rule
 
 >>> rule = Rule(source_type="A", target_type="B", version=1)
@@ -263,7 +263,7 @@ If you need a modified rule, create a new instance with the changed values. This
 
 [`Rule`](/r2x-core/references/api/) provides helper methods for inspecting rule configuration. These are useful when building generic translation logic that needs to handle both single and multiple source/target scenarios.
 
-```python
+```python doctest
 >>> from r2x_core import Rule
 
 >>> # Single source, multiple targets
@@ -284,7 +284,7 @@ Multiple targets are useful when a single source component should create multipl
 
 The [`apply_rules_to_context`](/r2x-core/references/api/) function returns a [`TranslationResult`](/r2x-core/references/api/) containing detailed statistics about the translation. Individual rule outcomes are captured in [`RuleResult`](/r2x-core/references/api/) objects.
 
-```python
+```python doctest
 >>> from r2x_core import Rule, RuleResult, TranslationResult
 
 >>> # RuleResult captures per-rule statistics
@@ -323,7 +323,7 @@ The [`summary`](/r2x-core/references/api/) method prints a formatted table of re
 
 Use [`apply_rules_to_context`](/r2x-core/references/api/) to apply all rules in a translation context:
 
-```python
+```python doctest
 >>> from r2x_core import Rule, apply_rules_to_context
 >>> # rules = [rule1, rule2, rule3]
 >>> # context = TranslationContext(rules=rules, source_components=[...])
@@ -335,7 +335,7 @@ Use [`apply_rules_to_context`](/r2x-core/references/api/) to apply all rules in 
 
 Apply one rule at a time using [`apply_single_rule`](/r2x-core/references/api/):
 
-```python
+```python doctest
 >>> from r2x_core import Rule, apply_single_rule
 >>> rule = Rule(source_type="Gen", target_type="Unit", version=1, field_map={"name": "name"})
 >>> # result = apply_single_rule(rule, source_components=[...])

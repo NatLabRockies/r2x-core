@@ -22,8 +22,9 @@ export default defineConfig({
       editLink: { baseUrl: 'https://github.com/NatLabRockies/r2x-core/edit/main/docs/' },
       customCss: ['./src/styles/brand.css', './src/styles/api.css'],
       sidebar: [
+        { label: 'Getting started', items: [{ label: 'Installation', link: '/install/' }, { label: 'Prerequisites and environment', link: '/getting-started/environment/' }, { label: 'Verify installation and first use', link: '/getting-started/verify/' }] },
         { label: 'Tutorials', items: [{ autogenerate: { directory: 'tutorials' } }] },
-        { label: 'How-to guides', items: [{ label: 'Install', link: '/install/' }, { autogenerate: { directory: 'how-tos' } }] },
+        { label: 'How-to guides', items: [{ autogenerate: { directory: 'how-tos' } }] },
         { label: 'Reference/API', items: [{ autogenerate: { directory: 'references' } }] },
         { label: 'Explanation', items: [{ autogenerate: { directory: 'explanations' } }] },
         { label: 'Troubleshooting', items: [{ label: 'Diagnose failures', link: '/troubleshooting/' }] },

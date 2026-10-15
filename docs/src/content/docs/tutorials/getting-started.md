@@ -18,7 +18,8 @@ flowchart TD
 
 ## Prepare the example
 
-You need Git, [uv](https://docs.astral.sh/uv/getting-started/installation/), and a supported Python version (3.11 through 3.14).
+Complete [Getting started: prerequisites and environment](/r2x-core/getting-started/environment/) first.
+This tutorial additionally needs Git to obtain its small CSV fixture and matching library source.
 Use a new working directory, then obtain the example and the matching library source:
 
 ```bash

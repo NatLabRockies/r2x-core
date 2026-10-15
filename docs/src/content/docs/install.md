@@ -6,6 +6,8 @@ title: "Installation"
 Current package metadata supports Python 3.11 through 3.14 (`>=3.11,<3.15`).
 Check the [PyPI package page](https://pypi.org/project/r2x-core/) when choosing a released version.
 
+Start with [Prerequisites and environment](/r2x-core/getting-started/environment/) if you need a fresh project.
+
 ## Add to a project
 
 In an existing uv project:
@@ -43,3 +45,5 @@ Install [r2x-cli](https://github.com/NatLabRockies/r2x-cli#quick-start) separate
 `r2x-core` itself has no plugin entry point to run.
 The CLI manages its own Python environment; adding a package to a uv project does not install it there.
 See [getting started](/r2x-core/tutorials/getting-started/) for direct library usage.
+
+Continue with [Verify installation and first use](/r2x-core/getting-started/verify/).

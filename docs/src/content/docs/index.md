@@ -5,6 +5,10 @@ title: r2x-core
 Build model translators with typed configuration, lifecycle hooks, file readers, and rule mappings.
 Model packages supply parsers and exporters; [r2x-cli](https://github.com/NatLabRockies/r2x-cli) installs and orchestrates them.
 
+## Get set up
+
+[Install the published package](/r2x-core/install/), choose an [environment](/r2x-core/getting-started/environment/), and [verify first use](/r2x-core/getting-started/verify/).
+
 ## Start with a working example
 
 [Read a CSV and build a system](/r2x-core/tutorials/getting-started/) without external model datasets.

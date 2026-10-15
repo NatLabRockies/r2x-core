@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from sqlite3 import Connection
 from typing import TYPE_CHECKING, Any, cast
@@ -24,6 +24,14 @@ class TimeSeriesTransferResult:
 
     transferred: int
     updated: int
+    children_remapped: int
+
+
+@dataclass(frozen=True, slots=True)
+class _TargetComponentTables:
+    """Target component types and number of child mappings staged for transfer."""
+
+    uuid_to_type: dict[str, str]
     children_remapped: int
 
 
@@ -80,48 +88,20 @@ def _count_ts_associations(conn: Connection) -> int:
 
 def _setup_target_and_child_tables(
     tgt_metadata: Connection,
-    src_associations: Connection,
-    uuid_map: dict,
-) -> tuple[list[tuple], dict[str, str]]:
-    """Set up temporary tables for target components and child mapping.
-
-    Returns
-    -------
-        Tuple of (child_remapping, uuid_to_type) where
-        - child_remapping is a list of (child_uuid, parent_uuid, parent_type) tuples
-        - uuid_to_type maps UUID strings to component type names
-    """
+    source_system: System,
+    uuid_map: Mapping[UUID, Component],
+) -> _TargetComponentTables:
+    """Stage target components and their source associations without bulk SQL parameters."""
     uuid_to_type = {str(uuid): type(comp).__name__ for uuid, comp in uuid_map.items()}
 
     tgt_metadata.execute("DROP TABLE IF EXISTS target_components")
     tgt_metadata.execute("CREATE TEMP TABLE target_components (uuid TEXT PRIMARY KEY, type TEXT)")
     tgt_metadata.executemany("INSERT INTO target_components VALUES (?, ?)", list(uuid_to_type.items()))
 
-    target_uuids = list(uuid_to_type.keys())
-
-    if not target_uuids:
-        # No target components exist; skip the query and return empty results.
-        tgt_metadata.execute("DROP TABLE IF EXISTS child_mapping")
-        tgt_metadata.execute(
-            "CREATE TEMP TABLE child_mapping (child_uuid TEXT, parent_uuid TEXT, parent_type TEXT)"
-        )
-        return [], uuid_to_type
-
-    # Build placeholders for the IN clause
-    placeholders = ",".join("?" for _ in target_uuids)
-    child_parent_rows = src_associations.execute(
-        f"""
-        SELECT component_uuid, attached_component_uuid
-        FROM component_associations
-        WHERE attached_component_uuid IN ({placeholders})
-        """,
-        target_uuids,
-    ).fetchall()
-
-    child_remapping = [
-        (child_uuid, parent_uuid, type(uuid_map[UUID(parent_uuid)]).__name__)
-        for child_uuid, parent_uuid in child_parent_rows
-        if parent_uuid in uuid_to_type
+    child_remapping: list[tuple[str, str, str]] = [
+        (str(associated.uuid), str(component.uuid), type(component).__name__)
+        for component in uuid_map.values()
+        for associated in source_system.list_parent_components(component)
     ]
 
     tgt_metadata.execute("DROP TABLE IF EXISTS child_mapping")
@@ -131,7 +111,10 @@ def _setup_target_and_child_tables(
     if child_remapping:
         tgt_metadata.executemany("INSERT INTO child_mapping VALUES (?, ?, ?)", child_remapping)
 
-    return child_remapping, uuid_to_type
+    return _TargetComponentTables(
+        uuid_to_type=uuid_to_type,
+        children_remapped=len(child_remapping),
+    )
 
 
 def _transfer_associations(
@@ -337,7 +320,9 @@ def transfer_time_series_metadata(context: PluginContext) -> TimeSeriesTransferR
 
     source_system = context.source_system
     target_system = context.target_system
-    uuid_map = target_system._component_mgr._components_by_uuid
+    uuid_map: dict[UUID, Component] = {
+        component.uuid: component for component in target_system.iter_all_components()
+    }
 
     logger.info(f"Transferring time series metadata for {len(uuid_map)} components")
 
@@ -347,12 +332,7 @@ def transfer_time_series_metadata(context: PluginContext) -> TimeSeriesTransferR
     ):
         src_metadata = src_store.metadata_conn
         tgt_metadata = tgt_store.metadata_conn
-        src_associations = source_system._component_mgr._associations._con
-
-        # Setup temporary tables and get child remapping + uuid_to_type
-        child_remapping, uuid_to_type = _setup_target_and_child_tables(
-            tgt_metadata, src_associations, uuid_map
-        )
+        tables = _setup_target_and_child_tables(tgt_metadata, source_system, uuid_map)
 
         # Deduplicate before transfer
         removed_duplicates = _deduplicate_ts_associations(tgt_metadata, UNIQUE_TS_COLUMNS)
@@ -363,14 +343,14 @@ def transfer_time_series_metadata(context: PluginContext) -> TimeSeriesTransferR
 
         # Transfer associations
         columns = _ts_columns(tgt_metadata)
-        _transfer_associations(src_metadata, tgt_metadata, uuid_to_type, columns)
+        _transfer_associations(src_metadata, tgt_metadata, tables.uuid_to_type, columns)
 
         # Remove potential duplicates before remapping
         _remove_duplicate_rows_before_remap(tgt_metadata)
 
         # Remap child associations
         updated = _remap_child_associations(tgt_metadata)
-        children_remapped = len(child_remapping) if child_remapping else 0
+        children_remapped = tables.children_remapped
 
         # Deduplicate after remapping
         removed_after_update = _deduplicate_ts_associations(tgt_metadata, UNIQUE_TS_COLUMNS)

@@ -1,5 +1,5 @@
 ---
-title: "Versioning and upgrades"
+title: "Data schema upgrades"
 ---
 
 A data version describes the input schema or model state, independently of the installed package version.

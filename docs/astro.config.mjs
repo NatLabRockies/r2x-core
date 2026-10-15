@@ -18,7 +18,7 @@ export default defineConfig({
         replacesTitle: false,
       },
       description: 'Shared infrastructure for power-system model translators.',
-      social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/NatLabRockies/r2x-core' }],
+      social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/NatLabRockies/r2x-core' }, { icon: 'code-branch', label: 'Browse source versions', href: 'https://github.com/NatLabRockies/r2x-core/tags' }],
       editLink: { baseUrl: 'https://github.com/NatLabRockies/r2x-core/edit/main/docs/' },
       customCss: ['./src/styles/brand.css', './src/styles/api.css'],
       sidebar: [
@@ -28,7 +28,7 @@ export default defineConfig({
         { label: 'Reference/API', items: [{ autogenerate: { directory: 'references' } }] },
         { label: 'Explanation', items: [{ autogenerate: { directory: 'explanations' } }] },
         { label: 'Troubleshooting', items: [{ label: 'Diagnose failures', link: '/troubleshooting/' }] },
-        { label: 'Changelog', items: [{ label: 'Releases and versions', link: '/release-history/' }, { label: 'Release notes', link: '/release-notes/' }] },
+        { label: 'Changelog', link: '/release-notes/' },
         { label: 'Contributors', items: [{ label: 'Development', link: '/contributing/' }] },
       ],
     }),

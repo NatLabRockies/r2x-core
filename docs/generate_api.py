@@ -98,6 +98,7 @@ def main() -> None:
         page = (
             "---\ntitle: "
             + json.dumps(title)
+            + ("\nsidebar:\n  hidden: true" if original.stem == "index" else "")
             + "\neditUrl: "
             + json.dumps("https://github.com/NatLabRockies/r2x-core/edit/main/docs/source/" + docname + ".md")
             + '\n---\n\n<div class="api-contracts">\n'

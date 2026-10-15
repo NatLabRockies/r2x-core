@@ -41,3 +41,10 @@ Verify guide and API links, signatures, configuration tables, source links, and 
 Run the repository hooks on changed source files.
 The existing GitHub documentation workflow builds this Astro output and publishes `docs/dist/` through the unchanged gh-pages provider.
 Its deployment condition, branch, token, and permissions are preserved; running a local build does not deploy anything.
+
+## Executable examples and branding
+
+`examples/csv-system/` is the small input-to-artifact workflow used by the getting-started tutorial.
+Run its build and inspection scripts from that directory with the root project environment.
+The negative-input case is expected to fail validation before export.
+The source SVGs under `src/assets/` are the shared R2X light/dark and square marks; the header keeps the package title visible and uses R2X's sizing and theme colors.

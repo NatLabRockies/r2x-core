@@ -1,3 +1,5 @@
+<img src="./docs/src/assets/r2x-logo-full-square.svg" alt="R2X framework logo" align="left" width="220px" height="220px" hspace="10"/>
+
 ### r2x-core
 
 Shared infrastructure for building power-system model translators.
@@ -6,6 +8,8 @@ Shared infrastructure for building power-system model translators.
 
 `r2x-core` provides typed plugin configuration, lifecycle hooks, file readers, rule mappings, and unit-aware systems.
 Model packages implement parsers and exporters; [r2x-cli](https://github.com/NatLabRockies/r2x-cli) installs and runs them.
+
+<br clear="left">
 
 ## Quick Start
 

@@ -36,3 +36,23 @@ See [plugins](/r2x-core/references/plugins/) for the execution order.
 The library does not install or discover packages on behalf of the CLI.
 Use `r2x list` and `r2x sync` in the CLI's managed environment, then inspect `r2x run PLUGIN_REF --help` using a reference returned by `list`.
 See [CLI plugin management](https://github.com/NatLabRockies/r2x-cli/blob/main/docs/plugin-management.md).
+
+## The CSV tutorial prints the wrong total or reload fails
+
+Run from `docs/examples/csv-system` and inspect `inputs/generators.csv`.
+The active rows are 100 and 50 MW; the retired 25 MW row must be filtered out before component construction.
+The default scale is 1.1, so the expected total is 165 MW, not 192.5 MW (all three rows scaled) or 150 MW (no scaling).
+
+```bash
+uv run --no-dev python build_system.py
+uv run --no-dev python inspect_system.py
+```
+
+The first script checks the in-memory component count; the second independently loads the saved artifact and checks names and capacities.
+A `capacity_mw` validation error for a negative active row is expected: correct the input instead of disabling model validation.
+An export is not produced when construction fails, but an older successful output may still exist.
+Use the command's exit status and the fresh-process assertions to distinguish the latest run from a stale artifact.
+
+For `ModuleNotFoundError: tutorial_model`, use the fixture directory so its model module is importable.
+For a storage-file error, keep `system.json` and `system_time_series/` together.
+See [the complete tutorial](/r2x-core/tutorials/getting-started/) and [artifact boundaries](/r2x-core/explanations/workflow-boundaries/).

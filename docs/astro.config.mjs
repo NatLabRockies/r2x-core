@@ -8,13 +8,19 @@ export default defineConfig({
   base: '/r2x-core/',
   markdown: { processor: unified() },
   integrations: [
-    mermaid({ enableLog: false }),
+    mermaid({ enableLog: false, mermaidConfig: { theme: "base", fontFamily: "system-ui, sans-serif" } }),
     starlight({
       title: 'r2x-core',
+      logo: {
+        light: './src/assets/r2x-logo-full-color.svg',
+        dark: './src/assets/r2x-logo-white.svg',
+        alt: 'R2X framework logo',
+        replacesTitle: false,
+      },
       description: 'Shared infrastructure for power-system model translators.',
       social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/NatLabRockies/r2x-core' }],
       editLink: { baseUrl: 'https://github.com/NatLabRockies/r2x-core/edit/main/' },
-      customCss: ['./src/styles/api.css'],
+      customCss: ['./src/styles/brand.css', './src/styles/api.css'],
       sidebar: [
         { label: 'Tutorials', items: [{ autogenerate: { directory: 'tutorials' } }] },
         { label: 'How-to guides', items: [{ label: 'Install', link: '/install/' }, { label: 'Task guides', items: [{ autogenerate: { directory: 'how-tos' } }] }] },

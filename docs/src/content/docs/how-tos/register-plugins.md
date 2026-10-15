@@ -45,9 +45,13 @@ Extend `Plugin` and implement lifecycle hooks:
 Register plugins in `pyproject.toml` for automatic discovery:
 
 ```toml
-[project.entry-points.r2x_plugin]
-my_plugin = "my_package.plugins:my_plugin_instance"
+[project.entry-points."r2x.parsers"]
+my-parser = "my_package.plugins:MyPlugin"
 ```
+
+The group declares the runtime role; the entry name is the CLI reference.
+For function transforms use `r2x.transforms` and an `@expose_plugin` function accepting `System` and typed configuration.
+The [CLI worked example](https://github.com/NatLabRockies/r2x-cli/tree/main/docs/examples/first-pipeline) installs and executes both forms.
 
 ## See Also
 

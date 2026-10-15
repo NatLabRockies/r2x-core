@@ -29,3 +29,5 @@ Read explanation documents when you want to:
 - **How-to Guides**: Task-oriented instructions for specific goals
 - **Reference**: Technical descriptions of APIs and interfaces
 - **Explanations** (you are here): Understanding-oriented discussions of concepts and design
+
+- [Workflow boundaries](/r2x-core/explanations/workflow-boundaries/): separate file loading, typed models, lifecycle state, and durable artifacts.

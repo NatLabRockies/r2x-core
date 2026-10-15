@@ -41,7 +41,7 @@ test *ARGS:
 
 # Build documentation.
 docs:
-    uv run sphinx-build -M html docs/source docs/build
+    cd docs && npm run build
 
 # Run prek hooks (format, lint, type check, file hygiene).
 hooks:

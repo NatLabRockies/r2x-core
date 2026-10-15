@@ -371,5 +371,5 @@ That's it! The validation and type checking will work automatically.
 ## See Also
 
 - [DataFile Reference](models.md) - Complete DataFile API
-- {doc}`../how-tos/attach-timeseries` - Time series guide
-- {doc}`../how-tos/build-parsers` - Using file types in parsers
+- [attach timeseries](/r2x-core/how-tos/attach-timeseries/) - Time series guide
+- [build parsers](/r2x-core/how-tos/build-parsers/) - Using file types in parsers

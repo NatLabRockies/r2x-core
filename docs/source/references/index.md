@@ -49,10 +49,7 @@ For detailed API documentation with examples and method signatures, see the [Com
 
 ## Documentation Coverage
 
-```{eval-rst}
-.. report:doc-coverage::
-   :packageid: src
-```
+Docstring coverage is checked separately with `just docstrings`.
 
 ```{toctree}
 :maxdepth: 2

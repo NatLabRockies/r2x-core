@@ -1,6 +1,6 @@
 # Versioning Strategies
 
-For complete API documentation of versioning classes, see {doc}`./api`.
+For complete API documentation of versioning classes, see [api](/r2x-core/references/api/).
 
 ## Quick Reference
 
@@ -175,6 +175,6 @@ strategy.compare(None, "1.0.0")  # -1 (upgrade needed)
 
 ## See Also
 
-- {doc}`./upgrader` - Upgrade system using versioning strategies
-- {doc}`../how-tos/manage-versions` - Version management guide
-- {doc}`./api` - Complete API documentation
+- [upgrader](/r2x-core/references/upgrader/) - Upgrade system using versioning strategies
+- [manage versions](/r2x-core/how-tos/manage-versions/) - Version management guide
+- [api](/r2x-core/references/api/) - Complete API documentation

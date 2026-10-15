@@ -1,6 +1,6 @@
 # Results
 
-For complete API documentation of result types, see {doc}`./api`.
+For complete API documentation of result types, see [api](/r2x-core/references/api/).
 
 ## Quick Reference
 

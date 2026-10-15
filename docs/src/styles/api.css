@@ -1,0 +1,6 @@
+.api-contracts dt.sig { font-family: var(--sl-font-mono); padding: .75rem; background: var(--sl-color-gray-6); overflow-wrap: anywhere; }
+.api-contracts dd { margin-inline-start: 1rem; }
+.api-contracts .field-list { display: block; }
+.api-contracts pre { overflow-x: auto; padding: 1rem; }
+.api-contracts .headerlink { margin-inline-start: .3em; }
+.api-contracts table { display: block; overflow-x: auto; }

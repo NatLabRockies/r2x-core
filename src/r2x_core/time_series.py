@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import dataclass
 from sqlite3 import Connection
 from typing import TYPE_CHECKING, Any, cast
-from uuid import UUID
 
 from infrasys import SingleTimeSeries
 from loguru import logger
@@ -24,14 +23,6 @@ class TimeSeriesTransferResult:
 
     transferred: int
     updated: int
-    children_remapped: int
-
-
-@dataclass(frozen=True, slots=True)
-class _TargetComponentTables:
-    """Target component types and number of child mappings staged for transfer."""
-
-    uuid_to_type: dict[str, str]
     children_remapped: int
 
 
@@ -88,19 +79,24 @@ def _count_ts_associations(conn: Connection) -> int:
 
 def _setup_target_and_child_tables(
     tgt_metadata: Connection,
+    *,
     source_system: System,
-    uuid_map: Mapping[UUID, Component],
-) -> _TargetComponentTables:
+    target_system: System,
+) -> int:
     """Stage target components and their source associations without bulk SQL parameters."""
-    uuid_to_type = {str(uuid): type(comp).__name__ for uuid, comp in uuid_map.items()}
-
     tgt_metadata.execute("DROP TABLE IF EXISTS target_components")
     tgt_metadata.execute("CREATE TEMP TABLE target_components (uuid TEXT PRIMARY KEY, type TEXT)")
-    tgt_metadata.executemany("INSERT INTO target_components VALUES (?, ?)", list(uuid_to_type.items()))
+    tgt_metadata.executemany(
+        "INSERT INTO target_components VALUES (?, ?)",
+        (
+            (str(component.uuid), type(component).__name__)
+            for component in target_system.iter_all_components()
+        ),
+    )
 
     child_remapping: list[tuple[str, str, str]] = [
         (str(associated.uuid), str(component.uuid), type(component).__name__)
-        for component in uuid_map.values()
+        for component in target_system.iter_all_components()
         for associated in source_system.list_parent_components(component)
     ]
 
@@ -111,16 +107,13 @@ def _setup_target_and_child_tables(
     if child_remapping:
         tgt_metadata.executemany("INSERT INTO child_mapping VALUES (?, ?, ?)", child_remapping)
 
-    return _TargetComponentTables(
-        uuid_to_type=uuid_to_type,
-        children_remapped=len(child_remapping),
-    )
+    return len(child_remapping)
 
 
 def _transfer_associations(
     src_metadata: Connection,
     tgt_metadata: Connection,
-    uuid_to_type: dict,
+    target_uuids: set[str],
     columns: list[str],
 ) -> None:
     """Transfer time series associations from source to target."""
@@ -157,7 +150,6 @@ def _transfer_associations(
                 logger.warning("Could not detach src_ts during time series transfer: {}", exc)
     else:
         src_rows = src_metadata.execute(f"SELECT {column_csv} FROM time_series_associations").fetchall()
-        target_uuids = set(uuid_to_type.keys())
         ts_type_idx = columns.index("time_series_type")
         filtered_rows = [
             row
@@ -320,11 +312,9 @@ def transfer_time_series_metadata(context: PluginContext) -> TimeSeriesTransferR
 
     source_system = context.source_system
     target_system = context.target_system
-    uuid_map: dict[UUID, Component] = {
-        component.uuid: component for component in target_system.iter_all_components()
-    }
+    target_uuids = {str(component.uuid) for component in target_system.iter_all_components()}
 
-    logger.info(f"Transferring time series metadata for {len(uuid_map)} components")
+    logger.info(f"Transferring time series metadata for {len(target_uuids)} components")
 
     with (
         source_system.open_time_series_store(mode="r") as src_store,
@@ -332,7 +322,9 @@ def transfer_time_series_metadata(context: PluginContext) -> TimeSeriesTransferR
     ):
         src_metadata = src_store.metadata_conn
         tgt_metadata = tgt_store.metadata_conn
-        tables = _setup_target_and_child_tables(tgt_metadata, source_system, uuid_map)
+        children_remapped = _setup_target_and_child_tables(
+            tgt_metadata, source_system=source_system, target_system=target_system
+        )
 
         # Deduplicate before transfer
         removed_duplicates = _deduplicate_ts_associations(tgt_metadata, UNIQUE_TS_COLUMNS)
@@ -343,14 +335,13 @@ def transfer_time_series_metadata(context: PluginContext) -> TimeSeriesTransferR
 
         # Transfer associations
         columns = _ts_columns(tgt_metadata)
-        _transfer_associations(src_metadata, tgt_metadata, tables.uuid_to_type, columns)
+        _transfer_associations(src_metadata, tgt_metadata, target_uuids, columns)
 
         # Remove potential duplicates before remapping
         _remove_duplicate_rows_before_remap(tgt_metadata)
 
         # Remap child associations
         updated = _remap_child_associations(tgt_metadata)
-        children_remapped = tables.children_remapped
 
         # Deduplicate after remapping
         removed_after_update = _deduplicate_ts_associations(tgt_metadata, UNIQUE_TS_COLUMNS)

@@ -772,27 +772,26 @@ This JSON shows:
 - Array fields with items type
 - Descriptions for all fields
 
-## Integration with CLI
+## Integration with the Rust CLI
 
-The discovery system enables auto-generated CLI help:
+[r2x-cli](https://natlabrockies.github.io/r2x-cli/installation/) supplies the `r2x` executable.
+Python examples above describe plugin implementation and metadata inspection, not an alternative CLI entry point.
+The installed command for discovery is:
 
+```bash
+r2x list
 ```
-$ python -m cli plugins list
 
-Discovered Plugins:
-  ReEDSParser
-    Config: ReEDSConfig
-    Hooks: on_validate, on_build
-    Requires: config, store
-    Accepts stdin: No
+Use the actual references returned by that command. There is no `plugins list` subcommand.
+For a reproducible example, first install the small package from the [CLI tutorial](https://natlabrockies.github.io/r2x-cli/getting-started/).
+Then inspect its registered references and generated options:
 
-  PlexosExporter
-    Config: PlexosExportConfig
-    Hooks: on_export
-    Requires: config, system, store
-    Accepts stdin: Yes
-
-$ python -m cli run ReEDSParser --model-year 2030 --input-folder /data
-
-$ python -m cli run PlexosExporter --output-dir /export < system.json
+```bash
+r2x list r2x-tutorial
+r2x run create --help
+r2x run scale --help
 ```
+
+The tutorial registers `create` in `r2x.parsers` and `scale` in `r2x.transforms`.
+Class names in a metadata example are not automatically installed CLI references.
+Follow the [tested pipeline and artifact commands](https://natlabrockies.github.io/r2x-cli/getting-started/#save-the-result) for execution; real model package options must come from that installed plugin's help.

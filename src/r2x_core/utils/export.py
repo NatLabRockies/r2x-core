@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import os
 from collections.abc import Callable, Iterator
 from itertools import chain
 from pathlib import Path
@@ -93,15 +94,21 @@ def export_components_to_csv(
         logger.warning("No components to export")
         return
 
-    fpath = Path(file_path)
+    fpath = Path(file_path).resolve()
     fpath.parent.mkdir(parents=True, exist_ok=True)
 
     fieldnames = list(first_record.keys())
 
+    destination_mode = fpath.stat().st_mode if fpath.exists() else 0o666
     candidate_path = fpath.with_name(f".{fpath.name}.{uuid4().hex}.tmp")
     temporary_path: Path | None = None
     try:
-        with candidate_path.open("x", newline="") as f:
+        with open(
+            candidate_path,
+            "x",
+            newline="",
+            opener=lambda path, flags: os.open(path, flags, mode=destination_mode),
+        ) as f:
             temporary_path = candidate_path
             writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore", **dict_writer_kwargs)
             writer.writeheader()

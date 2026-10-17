@@ -238,3 +238,42 @@ def test_export_components_to_csv_respects_umask(tmp_path: Path) -> None:
         check=True,
     )
     assert stat.S_IMODE(output_file.stat().st_mode) == 0o644
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file permission semantics")
+def test_export_components_to_csv_stages_with_restricted_permissions(tmp_path: Path) -> None:
+    system = System(name="Restricted")
+    system.add_components(Component(name="first"), Component(name="second"))
+    output_file = tmp_path / "components.csv"
+    output_file.write_text("original")
+    output_file.chmod(0o600)
+    observed_modes: list[int] = []
+
+    def inspect_staging(component: Component) -> bool:
+        if component.name == "second":
+            staging_files = [path for path in tmp_path.iterdir() if path != output_file]
+            assert len(staging_files) == 1
+            observed_modes.append(stat.S_IMODE(staging_files[0].stat().st_mode))
+        return True
+
+    export_components_to_csv(system, file_path=output_file, filter_func=inspect_staging)
+
+    assert observed_modes == [0o600]
+    assert list(tmp_path.iterdir()) == [output_file]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX symlink semantics")
+def test_export_components_to_csv_preserves_symlink(tmp_path: Path) -> None:
+    system = System(name="Symlink")
+    system.add_components(Component(name="first"))
+    target = tmp_path / "target" / "components.csv"
+    target.parent.mkdir()
+    target.write_text("original")
+    link = tmp_path / "linked.csv"
+    link.symlink_to(target.relative_to(tmp_path))
+
+    export_components_to_csv(system, file_path=link, fields=["name"])
+
+    assert link.is_symlink()
+    assert link.read_bytes() == target.read_bytes() == b"name\r\nfirst\r\n"
+    assert list(target.parent.iterdir()) == [target]

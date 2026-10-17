@@ -53,7 +53,7 @@ See the [documentation site](https://natlabrockies.github.io/r2x-core/) for the 
 
 ## Development
 
-Install `uv`, a supported Python version, Node.js 22.12 or newer for the docs, and `just`.
+Install `uv`, a supported Python version, Node.js 22.22 or newer for the docs, and `just`.
 From a source checkout:
 
 ```bash

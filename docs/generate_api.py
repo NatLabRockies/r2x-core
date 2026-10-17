@@ -43,7 +43,7 @@ def api_targets(output: Path) -> dict[str, str]:
     """Index unambiguous public names using the API anchors Sphinx actually emitted."""
     candidates: dict[str, set[str]] = {}
     for page in sorted((output / "references").glob("*.fjson")):
-        body = json.loads(page.read_text())["body"]
+        body = json.loads(page.read_text(encoding="utf-8"))["body"]
         for identifier in re.findall(r'<dt class="sig[^>]* id="([^"]+)"', body):
             if not identifier.startswith("r2x_core."):
                 continue
@@ -84,7 +84,7 @@ def main() -> None:
     inputs = sorted((source / "references").glob("*.md"))
     for original in inputs:
         docname = "references/" + original.stem
-        data = json.loads((output / f"{docname}.fjson").read_text())
+        data = json.loads((output / f"{docname}.fjson").read_text(encoding="utf-8"))
         title = re.sub(r"<[^>]+>", "", data["title"])
         body = re.sub(r"<h1\b[^>]*>.*?</h1>", "", data["body"], count=1, flags=re.S)
         body = re.sub(r"""href=(["'])(.*?)\1""", partial(rewrite_link, docname=docname), body)
@@ -105,11 +105,12 @@ def main() -> None:
             + body
             + "\n</div>\n"
         )
-        (generated / original.name).write_text(page)
-    changelog = (ROOT / "CHANGELOG.md").read_text()
+        (generated / original.name).write_text(page, encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     (destination / "release-notes.md").write_text(
         '---\ntitle: Release notes\neditUrl: "https://github.com/NatLabRockies/r2x-core/edit/main/CHANGELOG.md"\n---\n\n'
-        + re.sub(r"^# .+\n", "", changelog, count=1)
+        + re.sub(r"^# .+\n", "", changelog, count=1),
+        encoding="utf-8",
     )
     print(f"Generated {len(inputs)} API reference pages and canonical release notes.")
 
@@ -132,7 +133,8 @@ def write_redirects() -> None:
             '<!doctype html><html lang="en"><head><meta charset="utf-8">'
             f'<meta http-equiv="refresh" content="0;url={target}">'
             f'<link rel="canonical" href="{target}"><title>Page moved</title></head>'
-            f'<body><a href="{target}">Continue to documentation</a></body></html>\n'
+            f'<body><a href="{target}">Continue to documentation</a></body></html>\n',
+            encoding="utf-8",
         )
     print(f"Preserved {len(redirects)} legacy HTML paths.")
 

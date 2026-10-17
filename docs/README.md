@@ -1,7 +1,7 @@
 # Documentation development
 
 The public documentation is an Astro/Starlight site with Pagefind search and basepath `/r2x-core/`.
-Use Node.js 22.12 or newer and the locked Python documentation environment:
+Use Node.js 22.22 or newer and the locked Python documentation environment:
 
 ```bash
 uv sync --locked --group docs --group dev

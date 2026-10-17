@@ -9,7 +9,7 @@ This tutorial first inspects a complete class without requiring external model d
 
 ## Inspect a complete plugin
 
-```python doctest
+```python doctest requires-python=3.12
 >>> import inspect
 >>> from r2x_core import Plugin, PluginConfig, PluginContext, System
 >>> from rust_ok import Ok, Result

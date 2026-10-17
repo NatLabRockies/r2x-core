@@ -169,7 +169,14 @@ def main() -> None:
     navigation_file.write_text(json.dumps(navigation, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     (destination / "release-notes.md").write_text(
-        '---\ntitle: Release notes\neditUrl: "https://github.com/NatLabRockies/r2x-core/edit/main/CHANGELOG.md"\n---\n\n'
+        '---\ntitle: Changelog\neditUrl: "https://github.com/NatLabRockies/r2x-core/edit/main/CHANGELOG.md"\n---\n\n'
+        + "This page is generated from the canonical repository changelog. "
+        + "See [GitHub releases](https://github.com/NatLabRockies/r2x-core/releases) and "
+        + "[PyPI](https://pypi.org/project/r2x-core/) for published distributions.\n\n"
+        + "These guides describe main. For an installed release, select its tag in the "
+        + "[source version browser](https://github.com/NatLabRockies/r2x-core/tags) "
+        + "and open its documentation directory. Tagged source is available through GitHub; "
+        + "this site does not advertise historical hosted builds.\n\n"
         + re.sub(r"^# .+\n", "", changelog, count=1),
         encoding="utf-8",
     )

@@ -50,3 +50,11 @@ Its deployment condition, branch, token, and permissions are preserved; running 
 Run its build and inspection scripts from that directory with the root project environment.
 The negative-input case is expected to fail validation before export.
 The source SVGs under `src/assets/` are the shared R2X light/dark and square marks; the header keeps the package title visible and uses R2X's sizing and theme colors.
+
+## Interpreter-specific examples
+
+An example that needs newer Python syntax declares it in the fence, for example `python doctest requires-python=3.12`.
+Both documentation runners execute that exact block using the declared interpreter when the host is older.
+They use `uv run --isolated` with the existing locked documentation dependencies, leaving the host environment intact.
+No block is skipped and expected outputs remain checked; interpreter download or execution failure fails the check.
+The first run on Python 3.11 may need network access to provision Python 3.12 and its isolated dependencies.

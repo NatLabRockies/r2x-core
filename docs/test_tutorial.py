@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import doctest
+import io
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
+
+from doctest_runner import minimum_python, run_block
 
 FIXTURE = Path(__file__).parent / "examples/csv-system"
 
@@ -32,10 +36,25 @@ class CsvTutorialTest(unittest.TestCase):
                     any(item.want or re.search(r"\bassert\s", item.source) for item in example.examples),
                     f"{page}: doctest must check output or assert a value",
                 )
-                result = doctest.DocTestRunner().run(example)
+                result = run_block(
+                    code, name=example.name, filename=str(page), minimum=minimum_python(marker)
+                )
                 self.assertEqual(result.failed, 0, str(page))
                 checked += result.attempted
         self.assertGreater(checked, 0)
+
+    def test_declared_syntax_and_expectations(self) -> None:
+        code = ">>> def identity[T](value: T) -> T:\n...     return value\n>>> identity(7)\n7\n"
+        result = run_block(code, name="generic", filename=__file__, minimum=(3, 12))
+        self.assertEqual(result.failed, 0)
+        self.assertEqual(result.attempted, 2)
+        with redirect_stdout(io.StringIO()) as diagnostics:
+            incorrect = run_block(
+                code.replace("\n7\n", "\n8\n"), name="incorrect", filename=__file__, minimum=(3, 12)
+            )
+        self.assertEqual(incorrect.failed, 1)
+        self.assertIn("Expected:", diagnostics.getvalue())
+        self.assertEqual(minimum_python(" doctest requires-python=3.12"), (3, 12))
 
     def test_export_reload_and_invalid_capacity(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

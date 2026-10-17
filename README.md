@@ -20,19 +20,19 @@ Core is a library; it does not install the `r2x` executable.
 
 ### Install
 
-Use Python 3.11 through 3.14. In an existing uv project:
+Use Python 3.11 through 3.14. In an activated virtual environment:
 
 ```bash
-uv add r2x-core
+python -m pip install r2x-core
 ```
 
-For a new project, run `uv init --bare` in an empty directory first.
-See [Installation](https://natlabrockies.github.io/r2x-core/install/) for pip and upgrade instructions.
+For uv projects, use `uv add r2x-core`.
+See [Installation](https://natlabrockies.github.io/r2x-core/install/) for environment and upgrade instructions.
 
 Verify the installation and create a system:
 
 ```bash
-uv run python -c "from r2x_core import System; print(System(name='example').name)"
+python -c "from r2x_core import System; print(System(name='example').name)"
 ```
 
 Expect `example`. Continue with the [CSV capacity tutorial](https://natlabrockies.github.io/r2x-core/tutorials/getting-started/) to build, transform, export, and independently reload a system.

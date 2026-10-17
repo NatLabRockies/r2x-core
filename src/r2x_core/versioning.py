@@ -135,11 +135,16 @@ class GitVersioningStrategy(VersionStrategy):
             If commit_history is empty or contains non-string values.
         """
         if not commit_history:
-            raise ValueError("commit_history cannot be empty")
+            msg = "commit_history cannot be empty"
+            raise ValueError(msg)
         if not all(isinstance(c, str) for c in commit_history):
-            raise ValueError("All commits must be strings")
+            msg = "All commits must be strings"
+            raise ValueError(msg)
 
         self.commit_history = tuple(commit_history)
+        self.commit_positions: dict[str, int] = {}
+        for index, commit in enumerate(self.commit_history):
+            self.commit_positions.setdefault(commit, index)
 
     def compare_versions(self, current: str | None, *, target: str) -> int:
         """Compare git versions by commit history position.
@@ -164,22 +169,25 @@ class GitVersioningStrategy(VersionStrategy):
             If current is None, or if either commit is not found in history.
         """
         if current is None:
-            raise ValueError("Current version cannot be None")
+            msg = "Current version cannot be None"
+            raise ValueError(msg)
 
-        if current not in self.commit_history:
-            raise ValueError(
+        if current not in self.commit_positions:
+            msg = (
                 f"Current commit '{current}' not found in history. "
                 f"Available commits: {self.commit_history[0]} ... {self.commit_history[-1]}"
             )
+            raise ValueError(msg)
 
-        if target not in self.commit_history:
-            raise ValueError(
+        if target not in self.commit_positions:
+            msg = (
                 f"Target commit '{target}' not found in history. "
                 f"Available commits: {self.commit_history[0]} ... {self.commit_history[-1]}"
             )
+            raise ValueError(msg)
 
-        current_idx = self.commit_history.index(current)
-        target_idx = self.commit_history.index(target)
+        current_idx = self.commit_positions[current]
+        target_idx = self.commit_positions[target]
 
         if current_idx < target_idx:
             return -1

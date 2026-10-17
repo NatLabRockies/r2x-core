@@ -12,7 +12,7 @@
   "name": "r2x-core-docs",
   "private": true,
   "scripts": {
-    "build": "uv run python test_generate_api.py && uv run python generate_api.py && astro build && uv run python generate_api.py --redirects",
+    "build": "uv run python test_generate_api.py && uv run python test_tutorial.py && uv run python generate_api.py && astro build && uv run python generate_api.py --redirects",
     "dev": "uv run python generate_api.py && astro dev",
     "preview": "astro preview"
   },

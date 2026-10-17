@@ -126,11 +126,13 @@ def write_redirects() -> None:
             continue
         redirects[name] = name
     for old, new in redirects.items():
-        target = html.escape(BASE + new + "/", quote=True)
+        redirect_url = BASE + new + "/"
+        target = html.escape(redirect_url, quote=True)
         output = destination / (old + ".html")
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(
             '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+            f"<script>location.replace({json.dumps(redirect_url)} + location.search + location.hash);</script>"
             f'<meta http-equiv="refresh" content="0;url={target}">'
             f'<link rel="canonical" href="{target}"><title>Page moved</title></head>'
             f'<body><a href="{target}">Continue to documentation</a></body></html>\n',

@@ -1,9 +1,21 @@
 ---
 title: r2x-core
+description: Python building blocks for developers who read, transform, and export power-system model data.
 ---
 
-Build model translators with typed configuration, lifecycle hooks, file readers, and rule mappings.
-Model packages supply parsers and exporters; [r2x-cli](https://github.com/NatLabRockies/r2x-cli) installs and orchestrates them.
+`r2x-core` is a Python library for developers building power-system model translators.
+It supplies the shared pieces for reading input files, constructing typed components,
+applying transformations, and exporting an inspectable system. Configuration,
+plugin lifecycle hooks, rule mappings, and unit handling help model packages use
+the same workflow instead of rebuilding that infrastructure.
+
+Model plugins provide the knowledge of a particular model's files and conventions:
+its parser reads that format, and its exporter writes the target format.
+[r2x-cli](https://github.com/NatLabRockies/r2x-cli) is the separate Rust command-line tool
+that installs those plugins and runs them in pipelines. Use core directly when
+writing or testing a plugin; use the CLI when running installed translators.
+Start with the [CSV capacity example](/r2x-core/tutorials/getting-started/) to see
+these boundaries without external model datasets.
 
 ## Get set up
 
@@ -21,5 +33,5 @@ Use the [generated API reference](/r2x-core/references/api/) to inspect signatur
 - [Reference/API](/r2x-core/references/): public API and configuration contracts.
 - [Explanation](/r2x-core/explanations/): architecture and data flow.
 - [Troubleshooting](/r2x-core/troubleshooting/): imports, input lookup, and lifecycle errors.
-- [Changelog and versions](/r2x-core/release-history/): releases and tagged source documentation.
+- [Changelog](/r2x-core/release-notes/): release history.
 - [Contributors](/r2x-core/contributing/): setup and checks.

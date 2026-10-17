@@ -40,12 +40,9 @@ UNIQUE_TS_COLUMNS: tuple[str, ...] = (
 
 def _main_db_path(conn: Connection) -> str | None:
     """Return filesystem path for the main SQLite database, if present."""
-    try:
-        for _, name, path in conn.execute("PRAGMA database_list").fetchall():
-            if name == "main" and path:
-                return str(path)
-    except Exception:
-        return None
+    for _, name, path in conn.execute("PRAGMA database_list").fetchall():
+        if name == "main" and path:
+            return str(path)
     return None
 
 

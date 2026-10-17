@@ -8,7 +8,7 @@ Use this when detecting dataset versions or applying schema/data migrations with
 - `VersionStrategy.compare_versions(current, *, target) -> int`
 - `VersionReader.read_version(folder_path: Path) -> str | None` (protocol)
 - `UpgradeStep(name, func, target_version, upgrade_type, priority=100, min_version=None, max_version=None)`
-- `run_upgrade_step(data, *, step: UpgradeStep, upgrader_context=None) -> Result[Any, str]`
+- `run_upgrade_step(data, *, step: UpgradeStep, upgrader_context=None) -> Result[Any, UpgradeError]`
 - `shall_we_upgrade(step, *, current_version, strategy) -> Result[bool, UpgradeError]` lives in `r2x_core.utils`, not top-level `r2x_core`.
 
 ## Do
@@ -84,7 +84,10 @@ if result.is_err():
 payload = result.ok()
 ```
 
-`run_upgrade_step(...)` catches exceptions and returns `Err("Failed <step>: ...")`.
+`run_upgrade_step(...)` catches `UpgradeError`, `OSError`, and `ValueError` from
+the transformation and returns `Err(UpgradeError("Failed <step>: ..."))`. The
+original exception is retained as `error.__cause__`. Unexpected programming
+errors and signature introspection failures propagate to the caller.
 It passes `upgrader_context=` only when the step function accepts an
 `upgrader_context` parameter or `**kwargs`.
 

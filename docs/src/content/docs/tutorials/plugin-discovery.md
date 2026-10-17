@@ -9,7 +9,7 @@ This tutorial first inspects a complete class without requiring external model d
 
 ## Inspect a complete plugin
 
-```python doctest requires-python=3.12
+```python doctest
 >>> import inspect
 >>> from r2x_core import Plugin, PluginConfig, PluginContext, System
 >>> from rust_ok import Ok, Result
@@ -42,7 +42,7 @@ The `... def` line is valid here: it continues the statement started by
 The type parameter bound supports static checking; it is not a replacement for
 runtime validation of plugin configuration.
 
-```python doctest
+```python doctest requires-python=3.12
 >>> from r2x_core import expose_plugin, PluginConfig, System
 >>> from rust_ok import Ok, Result
 

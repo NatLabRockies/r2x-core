@@ -14,7 +14,7 @@
 rule mappings, and unit-aware systems for model translators.
 Model packages implement parsers and exporters;
 [r2x-cli](https://github.com/NatLabRockies/r2x-cli) installs and runs them in its own managed Python environment.
-Core is a library; it does not install the `r2x` executable.
+`r2x-core` is a library; it does not install the `r2x` executable.
 
 ## Quick Start
 

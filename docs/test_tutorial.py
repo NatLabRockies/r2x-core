@@ -44,6 +44,14 @@ class CsvTutorialTest(unittest.TestCase):
         self.assertGreater(checked, 0)
 
     def test_declared_syntax_and_expectations(self) -> None:
+        page = Path(__file__).parent / "src/content/docs/tutorials/plugin-discovery.md"
+        blocks = list(
+            re.finditer(r"^```python([^\n]*)\n(.*?)^```", page.read_text(encoding="utf-8"), re.M | re.S)
+        )
+        generic = next(block for block in blocks if "def generic_transform[" in block[2])
+        self.assertEqual(minimum_python(generic[1]), (3, 12))
+        ordinary = next(block for block in blocks if "class BuildDemo(" in block[2])
+        self.assertEqual(minimum_python(ordinary[1]), (3, 11))
         code = ">>> def identity[T](value: T) -> T:\n...     return value\n>>> identity(7)\n7\n"
         result = run_block(code, name="generic", filename=__file__, minimum=(3, 12))
         self.assertEqual(result.failed, 0)

@@ -33,18 +33,18 @@ jobs:
     timeout-minutes: 20
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # required by peaceiris/actions-gh-pages to push to gh-pages branch
+      contents: read
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
-          version: "latest"
+          version: "0.9.4"
 
       - name: Install the project
-        run: uv sync --locked --group docs
+        run: uv sync --group docs --locked
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
@@ -64,9 +64,31 @@ jobs:
           test -s docs/dist/references/api/index.html
           test -s docs/dist/pagefind/pagefind-entry.json
 
+      - name: Store documentation
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: documentation
+          path: docs/dist/
+          if-no-files-found: error
+
+  deploy:
+    name: Deploy docs
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write  # required to publish the built documentation to gh-pages
+    steps:
+      - name: Download documentation
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: documentation
+          path: docs/dist/
+
       - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4  # zizmor: ignore[unpinned-uses]
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4
         with:
           publish_branch: gh-pages
           github_token: ${{ secrets.GITHUB_TOKEN }}

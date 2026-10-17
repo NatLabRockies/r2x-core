@@ -53,20 +53,20 @@ See the [documentation site](https://natlabrockies.github.io/r2x-core/) for the 
 
 ## Development
 
-Install `uv`, a supported Python version, Node.js 22.22 or newer for the docs, and `just`.
+Install `uv`, a supported Python version, Node.js 22.22 or newer for the docs, and `mise`.
 From a source checkout:
 
 ```bash
-just setup
-just hooks
-just test
+mise run setup
+mise run hooks
+mise run test
 ```
 
 Build the searchable documentation site:
 
 ```bash
 npm ci --prefix docs
-just docs
+mise run docs
 ```
 
 See [Contributing](CONTRIBUTING.md) for setup and checks, and the [r2x-core agent skill](skills/r2x-core/SKILL.md) for additional development workflows.

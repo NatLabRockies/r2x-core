@@ -36,11 +36,11 @@
 
 ## Tooling & Workflow
 
-- **Task runner preference**. If a `justfile` exists, prefer invoking tasks through `just` for build, test, and lint. Do not add a `justfile` unless asked. If no `justfile` exists and there is a `Makefile` you can use that.
+- **Task runner preference**. Use the tasks defined in `mise.toml` through `mise run` for build, test, and lint.
 - Default lint/test commands:
-  - Rust: use `just` targets if present; otherwise run `cargo fmt`, `cargo clippy --all --benches --tests --examples --all-features`, then the targeted `cargo test` commands.
-  - TypeScript: use `just` targets; if none exist, confirm with the user before running `npm` or `pnpm` scripts.
-  - Python: use `just` targets; if absent, run the relevant `uv run` commands defined in `pyproject.toml`.
+  - Rust: use `mise run` tasks if present; otherwise run `cargo fmt`, `cargo clippy --all --benches --tests --examples --all-features`, then the targeted `cargo test` commands.
+  - TypeScript: use `mise run` tasks; if none exist, confirm with the user before running `npm` or `pnpm` scripts.
+  - Python: use `mise run` tasks; if absent, run the relevant `uv run` commands defined in `pyproject.toml`.
 - **AST-first where it helps**. Prefer `ast-grep` for tree-safe edits when it is better than regex.
 - Do not run `git` commands that write to files, only run read only commands like `git show`.
 - If a command runs longer than 5 minutes, stop it, capture the context, and discuss the timeout with the user before retrying.
@@ -131,7 +131,7 @@
 
 1. Run `cargo fmt`.
 1. Run `cargo clippy --all --benches --tests --examples --all-features` and address warnings.
-1. Execute the relevant `cargo test` or `just` targets to cover unit and end-to-end paths.
+1. Execute the relevant `cargo test` or `mise run` tasks to cover unit and end-to-end paths.
 
 ## Final Handoff
 

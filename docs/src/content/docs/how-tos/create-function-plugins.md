@@ -167,9 +167,9 @@ Call exposed functions directly with explicit arguments:
 Success: original
 ```
 
-### Advanced: Python 3.12 Type Parameters (PEP 695)
+### Advanced: Generic Configuration Types
 
-Use PEP 695 type parameter syntax for generic plugin functions with constrained config types:
+Use a bounded type variable for generic plugin functions across all supported Python versions:
 
 ```python doctest
 >>> from r2x_core import expose_plugin, PluginConfig, System
@@ -189,9 +189,10 @@ Use PEP 695 type parameter syntax for generic plugin functions with constrained 
 ...     """Config for rotation operations."""
 ...     angle: float = Field(default=0.0)
 
->>> # Python 3.12 type parameter syntax with constraint
+>>> from typing import TypeVar
+>>> C = TypeVar("C", bound=BaseTransformConfig)
 >>> @expose_plugin
-... def transform_system[C: BaseTransformConfig](
+... def transform_system(
 ...     system: System,
 ...     config: C,
 ... ) -> Result[System, str]:
@@ -214,13 +215,13 @@ Use PEP 695 type parameter syntax for generic plugin functions with constrained 
 True
 ```
 
-**PEP 695 Type Parameter Syntax Benefits**:
+**Generic Configuration Benefits**:
 
-The `[C: BaseTransformConfig]` bound describes the accepted configuration type to static type checkers. Pydantic validates configuration values when constructing the model; the type parameter does not add runtime validation. Python 3.12 or later is required for this syntax.
+The bound on `C` lets type checkers require a `BaseTransformConfig` subclass while inferring the specific config type from each argument. Pydantic validates values when constructing the configuration model; the type bound does not add runtime validation.
 
 **When to Use**:
 
-Use PEP 695 for plugins accepting multiple config types with a common interface. Use simple `config: SpecificConfig` for single config types. Use `config: C` with TypeVar for backward compatibility with Python versions earlier than 3.12.
+Use a bounded type variable for plugins accepting multiple config types with a common interface. Use `config: SpecificConfig` for a single config type. Projects requiring Python 3.12 or later can instead declare the bound inline with `def transform_system[C: BaseTransformConfig](...)`.
 
 ## CLI Registration via Entry Points
 

@@ -3,24 +3,103 @@
 from __future__ import annotations
 
 import sqlite3
+from datetime import datetime, timedelta
 from pathlib import Path
-from uuid import uuid4
 
 import numpy as np
 import pytest
 from fixtures.source_system import BusComponent
 from fixtures.target_system import NodeComponent
-from infrasys import SingleTimeSeries
+from infrasys import Component, SingleTimeSeries, component_associations
 from infrasys.time_series_manager import TimeSeriesManager
 from infrasys.time_series_models import TimeSeriesStorageType
 from infrasys.utils.sqlite import create_in_memory_db
 
-from r2x_core import PluginContext, System, apply_rules_to_context
+from r2x_core import PluginConfig, PluginContext, Rule, System, apply_rules_to_context
 from r2x_core.time_series import (
     _main_db_path,
     replace_single_time_series,
     transfer_time_series_metadata,
 )
+
+
+class ConnectedBusComponent(Component):
+    bus: BusComponent
+
+
+@pytest.mark.parametrize("component_count", [0, 1, 33_000])
+@pytest.mark.parametrize("with_time_series", [False, True])
+def test_rules_translate_components_beyond_sql_variable_limit(
+    component_count: int, with_time_series: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def create_variable_limited_db(database: str = ":memory:") -> sqlite3.Connection:
+        connection = create_in_memory_db(database)
+        connection.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 32_766)
+        return connection
+
+    monkeypatch.setattr(component_associations, "create_in_memory_db", create_variable_limited_db)
+    source = System(name="source")
+    source.add_components(*(BusComponent(name=f"bus_{index}") for index in range(component_count)))
+    if with_time_series and component_count:
+        profile = SingleTimeSeries.from_array(
+            data=np.array([100.0, 110.0]),
+            name="load_profile",
+            initial_timestamp=datetime(2024, 1, 1),
+            resolution=timedelta(hours=1),
+        )
+        source.add_time_series(profile, source.get_component(BusComponent, "bus_0"))
+    target = System(name="target")
+    rule = Rule(
+        source_type="BusComponent",
+        target_type="NodeComponent",
+        version=1,
+        field_map={"name": "name", "uuid": "uuid"},
+    )
+    context = PluginContext(
+        config=PluginConfig(models=("fixtures.source_system", "fixtures.target_system")),
+        source_system=source,
+        target_system=target,
+        rules=(rule,),
+    )
+
+    result = apply_rules_to_context(context)
+
+    assert len(list(target.get_components(NodeComponent))) == component_count
+    assert {component.uuid for component in target.iter_all_components()} == {
+        component.uuid for component in source.iter_all_components()
+    }
+    assert result.total_converted == component_count
+    assert result.failed_rules == 0
+    assert result.time_series_transferred == int(with_time_series and component_count > 0)
+    if with_time_series and component_count:
+        node = target.get_component(NodeComponent, "bus_0")
+        metadata = target.list_time_series_metadata(node, name="load_profile")
+        assert len(metadata) == 1
+        assert metadata[0].time_series_uuid == profile.uuid
+
+
+def test_time_series_transfer_maps_only_associations_of_target_components(
+    context_example: PluginContext,
+) -> None:
+    source = context_example.source_system
+    target = context_example.target_system
+    assert source is not None
+    assert target is not None
+    bus = source.get_component(BusComponent, "bus_a")
+    unrelated_bus = BusComponent(name="untranslated")
+    connected = ConnectedBusComponent(name="connected", bus=bus)
+    unrelated = ConnectedBusComponent(name="unrelated", bus=unrelated_bus)
+    source.add_components(unrelated_bus, connected, unrelated)
+    target.add_component(NodeComponent(name=bus.name, uuid=bus.uuid))
+
+    result = transfer_time_series_metadata(context_example)
+
+    assert result.children_remapped == 1
+    assert result.transferred == 1
+    assert source.list_parent_components(bus) == [connected]
+    assert source.list_parent_components(unrelated_bus) == [unrelated]
+    assert target.has_time_series(target.get_component(NodeComponent, bus.name))
+    assert transfer_time_series_metadata(context_example).transferred == 0
 
 
 def test_time_series_transfer_via_fixture_context(context_example: PluginContext):
@@ -233,16 +312,8 @@ def test_time_series_transfer_logs_post_remap_cleanup(monkeypatch, context_examp
     assert source_system is not None
     assert target_system is not None
 
-    parent = next(iter(target_system.get_components(NodeComponent)))
-    parent_uuid = str(parent.uuid)
-    child_uuid = str(uuid4())
-
-    assoc_con = source_system._component_mgr._associations._con
-    assoc_con.execute(
-        "INSERT INTO component_associations VALUES (?, ?, ?, ?, ?)",
-        (None, child_uuid, "ChildComponent", parent_uuid, type(parent).__name__),
-    )
-    assoc_con.commit()
+    source_bus = source_system.get_component(BusComponent, "bus_a")
+    source_system.add_component(ConnectedBusComponent(name="connected", bus=source_bus))
 
     call_counts = {"count": 0}
 

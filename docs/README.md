@@ -6,7 +6,7 @@ Use Node.js 22.22 or newer and the locked Python documentation environment:
 ```bash
 uv sync --locked --group docs --group dev
 npm ci --prefix docs
-just docs
+mise run docs
 ```
 
 The deployable static output is `docs/dist/`.
@@ -38,7 +38,7 @@ The public build uses Astro; no Sphinx theme or standalone Sphinx site is publis
 
 ## Validation and publishing
 
-Run `just docs`, then use `npm run preview` from this directory to inspect the production output.
+Run `mise run docs`, then use `npm run preview` from this directory to inspect the production output.
 Verify guide and API links, signatures, configuration tables, source links, and Pagefind search.
 Run the repository hooks on changed source files.
 The existing GitHub documentation workflow builds this Astro output and publishes `docs/dist/` through the unchanged gh-pages provider.

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from r2x_core.plugin_config import PluginConfig
-from r2x_core.utils.overrides import override_dictionary
+from r2x_core.utils import merge_with_overrides
 
 FILE_MAPPING = "file_mapping.json"
 DEFAULTS = "defaults.json"
@@ -142,27 +142,27 @@ def test_load_config_missing_asset_raises(tmp_path):
         SampleConfig(param1="test").load_config(config_path=tmp_path)
 
 
-def test_override_dictionary_merges_scalars():
+def test_merge_with_overrides_merges_scalars():
     base = {"a": 1, "b": 2}
     overrides = {"a": 10}
-    result = override_dictionary(base, overrides=overrides)
+    result = merge_with_overrides(base, overrides=overrides)
     assert result["a"] == 10
     assert result["b"] == 2
 
 
-def test_override_dictionary_merges_lists():
+def test_merge_with_overrides_merges_lists():
     base = {"items": ["a", "b", "c"]}
     overrides = {"items": ["x", "y"]}
-    result = override_dictionary(base, overrides=overrides)
+    result = merge_with_overrides(base, overrides=overrides)
     assert result["items"][0] == "x"
     assert result["items"][1] == "y"
     assert result["items"][2:] == ["c"]
 
 
-def test_override_dictionary_merges_nested_dicts():
+def test_merge_with_overrides_merges_nested_dicts():
     base = {"nested": {"value": 1, "extra": 2}}
     overrides = {"nested": {"value": 10, "new": 5}}
-    result = override_dictionary(base, overrides=overrides)
+    result = merge_with_overrides(base, overrides=overrides)
     assert result["nested"]["value"] == 10
     assert result["nested"]["extra"] == 2
     assert result["nested"]["new"] == 5

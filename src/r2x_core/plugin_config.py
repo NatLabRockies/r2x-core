@@ -14,7 +14,7 @@ import orjson
 from loguru import logger
 from pydantic import BaseModel, Field, field_validator
 
-from .utils.overrides import override_dictionary
+from .utils.overrides import merge_with_overrides
 
 
 class PluginConfigAsset(str, Enum):
@@ -226,7 +226,7 @@ class PluginConfig(BaseModel):
         if not overrides:
             return asset_data
 
-        return override_dictionary(base=asset_data, overrides=overrides)
+        return merge_with_overrides(base=asset_data, overrides=overrides)
 
     @classmethod
     def _package_config_path(cls) -> Path:

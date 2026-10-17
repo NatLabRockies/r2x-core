@@ -167,7 +167,7 @@ True
 ```
 
 ```{eval-rst}
-.. autofunction:: r2x_core.utils.filter_valid_kwargs
+.. autofunction:: r2x_core.utils.filter_kwargs_for
 ```
 
 ```{eval-rst}

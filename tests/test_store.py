@@ -1,6 +1,7 @@
 """Tests for DataStore class."""
 
 import json
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -618,3 +619,13 @@ def test_store_add_multiple_data_invalid_type(tmp_path):
 
     with pytest.raises(TypeError):
         store.add_data(["not_datafile"])  # type: ignore[arg-type]
+
+
+def test_to_json_accepts_scalar_model_dump_options(data_store_example: "DataStore", tmp_path: Path) -> None:
+    json_path = tmp_path / "config.json"
+
+    data_store_example.to_json(json_path, exclude_none=True)
+
+    data = json.loads(json_path.read_text())
+    assert [item["name"] for item in data] == ["test1", "test2"]
+    assert all("reader" not in item and "proc_spec" not in item for item in data)

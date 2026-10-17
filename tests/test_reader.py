@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 
@@ -362,3 +364,23 @@ def test_non_csv_reader_rejects_multiple_header_rows(reader_example, sample_json
 
     with pytest.raises(ValueError, match="only supported for CSV/TSV"):
         reader_example.read_data_file(data_file, folder_path=tmp_path)
+
+
+def test_custom_reader_receives_configured_keyword_values(
+    reader_example, sample_csv: Path, tmp_path: Path
+) -> None:
+    from r2x_core import DataFile, ReaderConfig
+
+    def custom_reader(path: Path, *, limit: int, uppercase: bool, prefix: str) -> str:
+        text = path.read_text()[:limit]
+        return prefix + (text.upper() if uppercase else text)
+
+    data_file = DataFile(
+        name="custom",
+        fpath=sample_csv,
+        reader=ReaderConfig(
+            function=custom_reader, kwargs={"limit": 3, "uppercase": True, "prefix": "data:"}
+        ),
+    )
+
+    assert reader_example.read_data_file(data_file, folder_path=tmp_path) == "data:A,B"

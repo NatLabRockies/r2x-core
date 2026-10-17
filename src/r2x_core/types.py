@@ -1,7 +1,6 @@
 """Helpful types."""
 
-from typing import Any, TypeAlias
+from typing import TypeAlias
 
-JSONType: TypeAlias = dict[str, "JSONType"] | list["JSONType"]
-JSONScalar = str | int | float | bool | None
-JSONValue = JSONScalar | dict[str, Any] | list[Any]
+JSONScalar: TypeAlias = str | int | float | bool | None
+JSONValue: TypeAlias = JSONScalar | dict[str, "JSONValue"] | list["JSONValue"]

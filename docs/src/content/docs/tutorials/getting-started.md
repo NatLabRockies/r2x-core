@@ -64,6 +64,11 @@ Retired,25,retired
 The retired row must not appear in the result.
 `tutorial_model.py` defines the small schema used in this exercise:
 
+The Python blocks on this page are excerpts from the linked fixture scripts, not
+standalone doctests: they omit surrounding setup and lifecycle calls.
+The documentation build runs the complete fixture and its independent inspection
+script, checking the component names, capacities, and validation failure below.
+
 ```python
 from infrasys import Component
 from pydantic import Field

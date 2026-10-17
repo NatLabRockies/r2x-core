@@ -2,7 +2,7 @@
 title: "Plugin Developer Utilities"
 ---
 
-R2X Core provides a collection of utilities to help plugin developers work with
+r2x-core provides a collection of utilities to help plugin developers work with
 components, validation, and data export. These utilities are now part of the
 public API and available for direct import.
 
@@ -390,7 +390,7 @@ def safe_create_components(component_data_list, component_class) -> ComponentBat
 
 ## API Compatibility
 
-These utilities follow R2X Core's design principles:
+These utilities follow the r2x-core design principles:
 
 - **Result-based error handling**: Functions that can fail return `Result` types
 - **Functional composition**: Filter functions allow flexible component

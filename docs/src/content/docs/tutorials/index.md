@@ -14,13 +14,13 @@ sidebar:
 
 ## Learning Path
 
-These tutorials are designed to help you learn R2X Core from the ground up. They are learning-oriented and take you through building real, working examples.
+These tutorials are designed to help you learn r2x-core from the ground up. They are learning-oriented and take you through building real, working examples.
 
 ### Getting Started
 
-Start here if you're new to R2X Core:
+Start here if you're new to r2x-core:
 
-- **[Getting Started with R2X Core](/r2x-core/tutorials/getting-started/)** - Build your first power system model translator from scratch. Learn the core concepts by creating a complete working example.
+- **[Getting Started with r2x-core](/r2x-core/tutorials/getting-started/)** - Build your first power system model translator from scratch. Learn the core concepts by creating a complete working example.
 
 ### Working with Units
 

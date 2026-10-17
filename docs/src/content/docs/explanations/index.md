@@ -4,7 +4,7 @@ sidebar:
   hidden: true
 ---
 
-Explanations provide background and context about r2x-core's design and architecture. These documents help you understand **why** things are the way they are.
+Explanations provide background and context about the r2x-core design and architecture. These documents help you understand **why** things are the way they are.
 
 ## Architecture & Design
 

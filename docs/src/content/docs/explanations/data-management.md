@@ -4,7 +4,7 @@ title: "Data Management: Design Philosophy"
 
 ## Overview
 
-r2x-core's data management system ([`DataStore`](/r2x-core/references/api/),
+The r2x-core data management system ([`DataStore`](/r2x-core/references/api/),
 [`DataFile`](/r2x-core/references/api/), [`DataReader`](/r2x-core/references/api/)) embodies three
 core design principles: configuration-driven workflows, lazy evaluation, and
 composable processing. Understanding these principles helps you build

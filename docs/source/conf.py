@@ -42,3 +42,16 @@ def linkcode_resolve(domain, info):
     except (AttributeError, ImportError, OSError, TypeError, ValueError, subprocess.CalledProcessError):
         return None
     return f"https://github.com/NatLabRockies/r2x-core/blob/{revision}/{relative}#L{start}-L{start + len(lines) - 1}"
+
+
+def normalize_package_label(_app, _what, name, _obj, _options, lines):
+    """Use the package name in System prose without changing runtime source or examples."""
+    if name not in {"r2x_core.System", "r2x_core.system.System"}:
+        return
+    for index, line in enumerate(lines):
+        if line in {"R2X Core System class extending infrasys.System.", "Initialize R2X Core System."}:
+            lines[index] = line.replace("R2X Core", "r2x-core")
+
+
+def setup(app):
+    app.connect("autodoc-process-docstring", normalize_package_label)

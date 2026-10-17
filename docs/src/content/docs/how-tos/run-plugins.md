@@ -2,7 +2,7 @@
 title: "Using Plugins"
 ---
 
-Execute plugins in your R2X Core workflows.
+Execute plugins in your r2x-core workflows.
 
 ## Basic Usage
 

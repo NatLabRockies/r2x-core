@@ -1,6 +1,6 @@
 # Reference
 
-R2X Core provides data file management, plugin configuration, and system management classes:
+r2x-core provides data file management, plugin configuration, and system management classes:
 
 ## Core Classes
 

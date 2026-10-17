@@ -3,7 +3,7 @@ title: "Unit System Design and Architecture"
 ---
 
 This document explains the design philosophy and implementation of the unit
-handling system in R2X Core, providing insight into how it works and why certain
+handling system in r2x-core, providing insight into how it works and why certain
 architectural decisions were made.
 
 ## Purpose and Motivation
@@ -12,7 +12,7 @@ Power system analysis fundamentally relies on per-unit normalization to enable
 meaningful comparisons across equipment with vastly different ratings. A 500 MVA
 generator and a 10 MVA generator cannot be directly compared using absolute
 power values, but expressing both as fractions of their respective rated
-capacities provides immediate insight into their operating states. The R2X Core
+capacities provides immediate insight into their operating states. The r2x-core
 unit system addresses the challenge of managing these normalizations while
 maintaining flexibility for different analysis contexts.
 
@@ -21,7 +21,7 @@ requires manual calculation by users. This approach introduces several problems.
 Data imported from external sources arrives in natural units that must be
 converted before use. Components moving between systems with different base
 values require recalculation. Display and reporting tools must handle multiple
-unit representations. The R2X Core unit system solves these challenges through
+unit representations. The r2x-core unit system solves these challenges through
 automatic conversion, flexible display modes, and type-safe field annotations.
 
 ## Core Design Principles
@@ -283,7 +283,7 @@ reloading a saved system.
 
 ## Pint Integration for Unit Conversion
 
-The R2X Core unit system leverages the Pint library for dimensional analysis and
+The r2x-core unit system leverages the Pint library for dimensional analysis and
 unit conversion. Pint provides a registry of known units and the mathematical
 relationships between them. When a user provides input in natural units that
 differ from the base unit (such as kW when the base is MVA), the conversion
@@ -359,7 +359,7 @@ information to improve numerical conditioning through automatic scaling.
 
 ## Conclusion
 
-The R2X Core unit system provides a robust foundation for handling the diverse
+The r2x-core unit system provides a robust foundation for handling the diverse
 unit requirements of power system analysis. By separating internal storage from
 external display, leveraging type annotations for safety, and integrating
 carefully with both Pydantic validation and the System class lifecycle, it

@@ -2,13 +2,13 @@
 title: "Contributing"
 ---
 
-We welcome contributions to R2X Core! This guide will help you get started with contributing to the project.
+We welcome contributions to r2x-core! This guide will help you get started with contributing to the project.
 
 ## Development Setup
 
 ### How to set up a development environment
 
-Set up a development environment for contributing to R2X Core:
+Set up a development environment for contributing to r2x-core:
 
 ```console
 # Clone the repository
@@ -81,7 +81,7 @@ Add new content to the documentation:
 
 ## Contributing Guidelines
 
-### How to contribute to R2X Core
+### How to contribute to r2x-core
 
 Follow these steps to contribute:
 

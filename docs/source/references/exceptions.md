@@ -1,6 +1,6 @@
 # Exceptions Reference
 
-R2X Core provides custom exceptions for different error scenarios. All exceptions inherit from `R2XCoreError` and provide clear, actionable error messages.
+r2x-core provides custom exceptions for different error scenarios. All exceptions inherit from `R2XCoreError` and provide clear, actionable error messages.
 
 ## Validation Errors
 

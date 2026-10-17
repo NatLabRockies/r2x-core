@@ -4,11 +4,11 @@ sidebar:
   hidden: true
 ---
 
-Task-focused guides for accomplishing specific goals with R2X Core.
+Task-focused guides for accomplishing specific goals with r2x-core.
 
 ## Data Management
 
-Learn how to configure and manage data in R2X Core.
+Learn how to configure and manage data in r2x-core.
 
 - [configure data settings](/r2x-core/how-tos/configure-data-settings/)
 - [configure data files](/r2x-core/how-tos/configure-data-files/)
@@ -31,7 +31,7 @@ Learn how to work with system components, time series, and export/import operati
 
 ## Plugin Development
 
-Learn how to develop and use plugins with R2X Core.
+Learn how to develop and use plugins with r2x-core.
 
 - [create function plugins](/r2x-core/how-tos/create-function-plugins/)
 - [structure plugin directories](/r2x-core/how-tos/structure-plugin-directories/)
@@ -51,7 +51,7 @@ Learn how to use rules for component translation between model formats.
 
 ## Versioning
 
-Learn how to manage versions and upgrade data in R2X Core.
+Learn how to manage versions and upgrade data in r2x-core.
 
 - [manage versions](/r2x-core/how-tos/manage-versions/)
 - [upgrade data files](/r2x-core/how-tos/upgrade-data-files/)

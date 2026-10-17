@@ -3,7 +3,7 @@ title: "Rule System Architecture"
 ---
 
 This document explains the design philosophy and implementation of the
-rule-based translation system in R2X Core. For practical usage, see the
+rule-based translation system in r2x-core. For practical usage, see the
 [define rule mappings](/r2x-core/how-tos/define-rule-mappings/) guide.
 
 ## Purpose and Motivation

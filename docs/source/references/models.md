@@ -1,6 +1,6 @@
 # Data Models
 
-Core data models for file management, system representation, and configuration in R2X Core.
+Core data models for file management, system representation, and configuration in r2x-core.
 
 ## Quick Reference
 

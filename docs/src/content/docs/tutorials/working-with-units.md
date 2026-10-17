@@ -12,7 +12,7 @@ Complete [Installation](/r2x-core/install/) and [environment setup](/r2x-core/ge
 ## Step 1: Create a Component with Per-Unit Fields
 
 Define a generator with per-unit fields using the `HasPerUnit` mixin and `Unit`
-annotations. R2X Core stores all per-unit quantities internally in device-base
+annotations. r2x-core stores all per-unit quantities internally in device-base
 per-unit, so display modes only affect how values appear, not how they're
 calculated.
 

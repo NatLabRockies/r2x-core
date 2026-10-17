@@ -2,11 +2,11 @@
 title: "Upgrade Systems Between Versions"
 ---
 
-R2X Core provides a framework for defining version upgrades using [`UpgradeStep`](/r2x-core/references/api/) and [`UpgradeType`](/r2x-core/references/api/). Upgrades are staged to handle both raw data files and system objects.
+r2x-core provides a framework for defining version upgrades using [`UpgradeStep`](/r2x-core/references/api/) and [`UpgradeType`](/r2x-core/references/api/). Upgrades are staged to handle both raw data files and system objects.
 
 ## Understand Upgrade Types
 
-R2X Core supports two types of upgrades through [`UpgradeType`](/r2x-core/references/api/):
+r2x-core supports two types of upgrades through [`UpgradeType`](/r2x-core/references/api/):
 
 ```python doctest
 >>> from r2x_core import UpgradeType

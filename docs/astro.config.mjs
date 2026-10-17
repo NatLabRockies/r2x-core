@@ -11,6 +11,7 @@ export default defineConfig({
     mermaid({ enableLog: false, mermaidConfig: { theme: "base", fontFamily: "system-ui, sans-serif" } }),
     starlight({
       title: 'r2x-core',
+      routeMiddleware: './src/routeData.ts',
       logo: {
         light: './src/assets/r2x-logo-full-color.svg',
         dark: './src/assets/r2x-logo-white.svg',

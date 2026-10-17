@@ -17,7 +17,8 @@ No hosting or repository settings are changed by these commands.
 
 Edit task-focused pages under `src/content/docs/` using standard Markdown and Starlight frontmatter.
 Links are rooted at `/r2x-core/`.
-Historical `.html` page paths redirect to current pages.
+Historical `.html` page paths redirect to current pages, retaining query strings and member anchors.
+Use `python doctest` fences with `>>>` prompts and checked output or assertions for self-contained runnable examples. Each block runs in a fresh namespace. Label context-dependent sketches as illustrative instead of treating imports or commented calls as verified behavior.
 The version guide links to actual Git tags without claiming separately hosted snapshots.
 
 ## API contracts
@@ -29,6 +30,7 @@ Replacing these with hand-maintained contracts would duplicate source and lose c
 
 `generate_api.py` builds JSON in `build/api-json/`, then wraps each reference body in generated Starlight content under `src/content/docs/references/`.
 It resolves relative links into Astro routes and retains API anchor IDs.
+The Sphinx contents tree also generates `src/generated/api-toc.json`; Starlight route middleware uses it for the native desktop sidebar and mobile contents dropdown. Do not hand-maintain a second member list.
 Implementation links are pinned to the build checkout's Git commit.
 Generated content is ignored by Git and must not be edited.
 Root `CHANGELOG.md` similarly generates the release-notes page without a maintained duplicate.

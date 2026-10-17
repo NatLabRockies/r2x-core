@@ -5,28 +5,26 @@ title: "Export a system"
 Use `System.to_json()` for an infrasys-compatible system artifact.
 The output includes serialization metadata; model-specific target formats still need an exporter supplied by their model package.
 Install the library as described in [install](/r2x-core/install/).
-Save this as `export_example.py` and run `uv run python export_example.py`:
+This checked example exports a generic named component and verifies an independent reload:
 
-```python
-from pathlib import Path
-from tempfile import TemporaryDirectory
-
-from infrasys import Component
-from r2x_core import System
-
-
-class Generator(Component):
-    capacity_mw: float
-
-
-with TemporaryDirectory() as folder:
-    output = Path(folder) / "system.json"
-    system = System(name="example")
-    system.add_component(Generator(name="Generator1", capacity_mw=100))
-    system.to_json(output)
-    assert output.is_file()
-    restored = System.from_json(output)
-    assert restored.name == "example"
+```python doctest
+>>> from pathlib import Path
+>>> from tempfile import TemporaryDirectory
+>>> from infrasys import Component
+>>> from r2x_core import System
+>>> with TemporaryDirectory() as folder:
+...     output = Path(folder) / "system.json"
+...     system = System(name="example")
+...     system.add_component(Component(name="Generator1"))
+...     system.to_json(output)
+...     assert output.is_file()
+...     restored = System.from_json(output)
+...     assert restored.name == "example"
+...
+>>> restored.name
+'example'
+>>> [component.name for component in restored.get_components(Component)]
+['Generator1']
 ```
 
 The round trip verifies that the exported system can be loaded.

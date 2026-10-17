@@ -323,12 +323,15 @@ The [`summary`](/r2x-core/references/api/) method prints a formatted table of re
 
 Use [`apply_rules_to_context`](/r2x-core/references/api/) to apply all rules in a translation context:
 
-```python doctest
->>> from r2x_core import Rule, apply_rules_to_context
->>> # rules = [rule1, rule2, rule3]
->>> # context = TranslationContext(rules=rules, source_components=[...])
->>> # result = apply_rules_to_context(context)
->>> # result.total_converted contains the total number of components converted
+Illustrative integration sketch: a model package must supply the populated context.
+This block is not a standalone execution example.
+
+```python
+from r2x_core import Rule, apply_rules_to_context
+# rules = [rule1, rule2, rule3]
+# context = TranslationContext(rules=rules, source_components=[...])
+# result = apply_rules_to_context(context)
+# result.total_converted contains the total number of components converted
 ```
 
 ## Apply a Single Rule
@@ -340,6 +343,9 @@ Apply one rule at a time using [`apply_single_rule`](/r2x-core/references/api/):
 >>> rule = Rule(source_type="Gen", target_type="Unit", version=1, field_map={"name": "name"})
 >>> # result = apply_single_rule(rule, source_components=[...])
 >>> # result.converted contains how many components were translated by this rule
+
+>>> rule.source_type
+'Gen'
 ```
 
 ## See Also

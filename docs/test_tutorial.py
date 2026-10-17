@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import doctest
+import re
 import shutil
 import subprocess
 import sys
@@ -13,6 +15,28 @@ FIXTURE = Path(__file__).parent / "examples/csv-system"
 
 
 class CsvTutorialTest(unittest.TestCase):
+    def test_marked_examples_have_checked_expectations(self) -> None:
+        content = Path(__file__).parent / "src/content/docs"
+        checked = 0
+        for page in content.rglob("*.md"):
+            if "references" in page.relative_to(content).parts:
+                continue
+            text = page.read_text(encoding="utf-8")
+            for index, block in enumerate(re.finditer(r"^```python([^\n]*)\n(.*?)^```", text, re.M | re.S)):
+                marker, code = block.groups()
+                if ">>>" not in code:
+                    continue
+                self.assertIn("doctest", marker.split(), f"{page}: Python prompts need a doctest fence")
+                example = doctest.DocTestParser().get_doctest(code, {}, f"{page.name}:{index}", str(page), 0)
+                self.assertTrue(
+                    any(item.want or re.search(r"\bassert\s", item.source) for item in example.examples),
+                    f"{page}: doctest must check output or assert a value",
+                )
+                result = doctest.DocTestRunner().run(example)
+                self.assertEqual(result.failed, 0, str(page))
+                checked += result.attempted
+        self.assertGreater(checked, 0)
+
     def test_export_reload_and_invalid_capacity(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -486,3 +486,5 @@ PAPERCUTS.md
 docs/.astro/
 docs/src/content/docs/references/
 docs/src/content/docs/release-notes.md
+
+docs/src/generated/

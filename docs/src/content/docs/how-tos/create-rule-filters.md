@@ -55,6 +55,10 @@ If you load rules from JSON or another record format, store the getter name in t
 ...         },
 ...     }
 ... ])
+>>> len(rules)
+1
+>>> rules[0].source_type
+'PlantComponent'
 ```
 
 Case-insensitive matching is the default; the `casefold` flag controls whether string inputs are normalized.

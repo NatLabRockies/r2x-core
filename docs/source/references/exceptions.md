@@ -79,17 +79,5 @@ Caught plugin error: Plugin 'my_plugin' not found in registry
 
 ## Error Handling Best Practices
 
-All r2x-core exceptions inherit from a common base, making it easy to catch r2x-core-specific errors:
-
-```python doctest
->>> from r2x_core import ValidationError, ComponentCreationError, UpgradeError
->>> def handle_r2x_errors():
-...     try:
-...         raise ComponentCreationError("Example error")
-...     except (ValidationError, ComponentCreationError, UpgradeError) as e:
-...         print(f"Caught r2x-core error: {type(e).__name__}")
->>> handle_r2x_errors()
-Caught r2x-core error: ComponentCreationError
-```
-
-This approach allows for both specific error handling and grouping related exception types together.
+For symptom-led diagnosis and minimal recovery checks, see [Troubleshooting](/r2x-core/troubleshooting/).
+Exception inheritance supports catching specific types or their common `R2XCoreError` base; choose the boundary based on which failures the caller can handle.

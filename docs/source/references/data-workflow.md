@@ -1,7 +1,10 @@
-# Data and serialization contracts used by the tutorial
+# Data and serialization contracts
 
-Use this page to choose the boundary to test; the generated [full API](/r2x-core/references/api/) supplies complete inherited members and configuration fields.
+This reference specifies data registration, lifecycle and serialization boundaries; the generated [full API](/r2x-core/references/api/) supplies complete inherited members and configuration fields.
 The [DataStore source](https://github.com/NatLabRockies/r2x-core/blob/0b904d7cc8e9dde1a87d849b1cd3298bbcf34a82/src/r2x_core/store.py) and [System source](https://github.com/NatLabRockies/r2x-core/blob/0b904d7cc8e9dde1a87d849b1cd3298bbcf34a82/src/r2x_core/system.py) define these contracts.
+
+The Python blocks below show signature notation for lookup, not executable calls.
+Use the linked how-to guides for runnable examples.
 
 ## File registration and reading
 

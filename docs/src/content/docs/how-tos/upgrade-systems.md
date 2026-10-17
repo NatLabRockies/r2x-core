@@ -35,6 +35,25 @@ View the [`UpgradeStep`](/r2x-core/references/api/) structure to understand how 
 Upgrade step class: UpgradeStep
 ```
 
+## Execute a single step
+
+Define the transformation and execute it against a small system before using it in a workflow.
+This example checks the returned result and changed system name:
+
+```python doctest
+>>> from r2x_core import System, UpgradeStep, UpgradeType, run_upgrade_step
+>>> def rename(system: System) -> System:
+...     system.name = "upgraded"
+...     return system
+>>> step = UpgradeStep(name="rename", func=rename, target_version="2.0.0", upgrade_type=UpgradeType.SYSTEM)
+>>> result = run_upgrade_step(System(name="original"), step=step)
+>>> result.is_ok()
+True
+>>> result.unwrap().name
+'upgraded'
+```
+Selection, version comparison and rollback are separate concerns; see the [upgrade error contract](/r2x-core/references/upgrader/).
+
 ## See Also
 
 - [upgrade data files](/r2x-core/how-tos/upgrade-data-files/) - Upgrade raw data files between versions

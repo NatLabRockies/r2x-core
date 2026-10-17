@@ -15,25 +15,8 @@ An `UpgradeError`, `OSError`, or `ValueError` raised by the transformation retur
 Other exceptions, including `TypeError`, propagate to the caller instead of becoming an `Err`.
 It does not roll back mutations or filesystem writes and does not itself compare versions.
 
-```python
-from r2x_core import System, UpgradeStep, UpgradeType, run_upgrade_step
+For a checked runnable example, see [execute a single system upgrade](/r2x-core/how-tos/upgrade-systems/#execute-a-single-step).
 
-
-def rename(system: System) -> System:
-    system.name = "upgraded"
-    return system
-
-
-step = UpgradeStep(
-    name="rename",
-    func=rename,
-    target_version="2.0.0",
-    upgrade_type=UpgradeType.SYSTEM,
-)
-result = run_upgrade_step(System(name="original"), step=step)
-assert result.is_ok()
-assert result.unwrap().name == "upgraded"
-```
 
 Run the example in the project environment from [install](/r2x-core/install/).
 Version selection belongs to the upgrade coordinator and its version strategy.

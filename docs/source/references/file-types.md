@@ -307,66 +307,13 @@ except ValueError as e:
 
 ## Adding New File Types
 
-To add support for a new file format:
-
-1. **Create a new FileType subclass:**
-
-```python
-@dataclass(slots=True)
-class NetCDFFile(FileType):
-    """Data model for NetCDF data."""
-
-    supports_timeseries: bool = True  # If it supports time series
-```
-
-2. **Add to EXTENSION_MAPPING:**
-
-```python
-EXTENSION_MAPPING: dict[str, type[FileType]] = {
-    # ... existing mappings ...
-    ".nc": NetCDFFile,
-    ".netcdf": NetCDFFile,
-}
-```
-
-3. **Update TableDataFileType if needed:**
-
-```python
-# If the new type represents tabular data
-TableDataFileType: TypeAlias = TableFile | H5File | NetCDFFile
-```
-
-That's it! The validation and type checking will work automatically.
+This changes the core format registry and reader support; it is a contributor task, not a runtime plugin setting.
+See [add a file format](/r2x-core/how-tos/add-file-format/).
 
 ## Best Practices
 
-1. **Set supports_timeseries correctly**: This determines what kinds of data can be stored in this format.
-
-2. **Use type hints**: When writing functions that work with specific file types, use type hints for better IDE support:
-
-   ```python
-   def process_csv(file_type: TableFile) -> None:
-       ...
-   ```
-
-3. **Pattern matching**: Use structural pattern matching to handle different file types:
-
-   ```python
-   match datafile.file_type:
-       case TableFile():
-           ...
-       case H5File():
-           ...
-       case ParquetFile():
-           ...
-   ```
-
-4. **Check supports_timeseries**: Before processing time series, verify the file type supports it:
-   ```python
-   if datafile.info and datafile.info.is_timeseries:
-       assert datafile.file_type.supports_timeseries
-       # Safe to process as time series
-   ```
+For format validation and reader checks, see [add a file format](/r2x-core/how-tos/add-file-format/#verify-the-new-format).
+The supported classes, extension mapping and time-series constraints above remain the reference contract.
 
 ## See Also
 

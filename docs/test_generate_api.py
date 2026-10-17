@@ -4,10 +4,25 @@ import re
 import unittest
 from functools import partial
 
-from generate_api import link_code_names, rewrite_link
+from generate_api import SphinxContents, link_code_names, rewrite_link
 
 
 class ApiLinksTest(unittest.TestCase):
+    def test_contents_preserve_section_class_and_member_anchors(self) -> None:
+        parser = SphinxContents()
+        parser.feed(
+            '<ul><li><a href="#">API</a><ul><li><a href="#system">System</a><ul>'
+            '<li><a href="#r2x_core.System"><code>System</code></a><ul><li>'
+            '<a href="#r2x_core.System.to_json">System.to_json()</a>'
+            "</li></ul></li></ul></li></ul></li></ul>"
+        )
+        section = parser.navigation()[0]
+        self.assertEqual(section["slug"], "system")
+        component = section["children"][0]
+        self.assertEqual(component["slug"], "r2x_core.System")
+        self.assertEqual(component["children"][0]["slug"], "r2x_core.System.to_json")
+        self.assertEqual(component["children"][0]["text"], "System.to_json()")
+
     def test_sphinx_and_explicit_file_routes(self) -> None:
         for source in ("../api/#r2x_core.System", "api.html#r2x_core.System", "api.md#r2x_core.System"):
             with self.subTest(source=source):

@@ -38,3 +38,7 @@
 .api-contracts .sig-name { color: var(--sl-color-text-accent); font-weight: 600; }
 .api-contracts .sig-param { font-style: normal; }
 .api-contracts .viewcode-link { margin-inline-start: .75em; font-size: .85em; }
+
+/* Long Python member names remain readable in the native responsive contents tree. */
+starlight-toc a, mobile-starlight-toc a { overflow-wrap: anywhere; }
+starlight-toc a { padding-inline-start: min(calc(1rem * var(--depth) + .5rem), 2rem); }

@@ -16,6 +16,8 @@ flowchart TD
   Export --> Reload[Fresh process reloads and verifies components]
 ```
 
+<span id="prerequisites"></span>
+
 ## Prepare the example
 
 Complete [Getting started: prerequisites and environment](/r2x-core/getting-started/environment/) first.
@@ -85,6 +87,8 @@ This educational schema is defined by the example, not a built-in electrical gen
 For native model schemas and parsers, use packages such as [r2x-sienna](https://github.com/NatLabRockies/r2x-sienna) or [r2x-plexos](https://github.com/NatLabRockies/r2x-plexos).
 For ReEDS inputs, start with [r2x-reeds](https://github.com/NatLabRockies/r2x-reeds).
 
+<span id="working-with-data-files"></span>
+
 ## Understand the data boundary
 
 `build_system.py` creates an existing-directory `DataStore` and registers a named file definition:
@@ -112,6 +116,10 @@ Registration alone does not prove that an input is readable.
 See [file configuration](/r2x-core/how-tos/configure-data-files/) for reader options and [data contracts](/r2x-core/references/data-workflow/) for return types and failure boundaries.
 
 <span id="working-with-systems"></span>
+
+<span id="plugin-configuration"></span>
+
+<span id="creating-a-plugin"></span>
 
 ## Follow the three implemented hooks
 
@@ -216,6 +224,12 @@ For CLI-managed inspection of an installed model package, follow [the CLI artifa
 | JSON exists but companion storage is missing | Copy the whole output bundle, then rerun inspection. |
 
 See [troubleshooting](/r2x-core/troubleshooting/) for file registration, lifecycle failures, and environment diagnosis.
+
+<span id="working-with-rules"></span>
+
+<span id="version-management"></span>
+
+<span id="next-steps"></span>
 
 ## Continue with a real workflow
 

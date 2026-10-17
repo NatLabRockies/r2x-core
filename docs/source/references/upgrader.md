@@ -1,12 +1,20 @@
 # Upgrade steps
 
+<span id="quick-reference"></span>
+
+<span id="overview"></span>
+
 `UpgradeStep` describes a callable transformation and its target version.
 Its required fields are `name`, `func`, `target_version`, and `upgrade_type`.
 `priority` defaults to `100`; `min_version` and `max_version` default to `None`.
+<span id="upgrade-types"></span>
+
 `UpgradeType` has two values: `FILE` for file operations and `SYSTEM` for system changes.
 See [api](/r2x-core/references/api/) for generated types and the pinned source link.
 
 <span id="define-an-upgrade-step"></span>
+
+<span id="usage-examples"></span>
 
 ## Execute a step
 
@@ -26,4 +34,6 @@ Run the example in the project environment from [install](/r2x-core/install/).
 <span id="apply-upgrades"></span>
 
 Version selection belongs to the upgrade coordinator and its version strategy.
+<span id="see-also"></span>
+
 Inspect [versioning](/r2x-core/references/versioning/) before composing multiple version transitions.

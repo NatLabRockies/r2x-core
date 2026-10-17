@@ -129,3 +129,26 @@ called. Unknown placeholder names are errors.
 - {doc}`manage-datastores` - Manage multiple data files
 - {py:class}`~r2x_core.TabularProcessing` - Tabular processing class
 - {py:class}`~r2x_core.DataFile` - DataFile API reference
+
+## Inspect a tabular transform result
+
+Individual tabular transforms return `TabularTransformResult`, containing a lazy
+frame and its ordered column names. The full `process_tabular_data` pipeline
+continues to return a `LazyFrame`.
+
+```python doctest
+>>> import polars as pl
+>>> from r2x_core import DataFile, TabularProcessing, TabularTransformResult
+>>> from r2x_core.processors import pl_lowercase
+>>> result = pl_lowercase(
+...     pl.LazyFrame({"NAME": ["ALPHA"]}),
+...     data_file=DataFile(name="example", relative_fpath="example.csv"),
+...     proc_spec=TabularProcessing(lowercase=True),
+... )
+>>> isinstance(result, TabularTransformResult)
+True
+>>> result.schema_names
+['name']
+>>> result.data_frame.collect().to_dicts()
+[{'name': 'alpha'}]
+```

@@ -210,3 +210,17 @@ def test_git_versioning_many_commits():
     assert strategy.compare_versions(commits[0], target=commits[1]) == -1
     assert strategy.compare_versions(commits[-1], target=commits[-2]) == 1
     assert strategy.compare_versions(commits[50], target=commits[75]) == -1
+
+
+@pytest.mark.parametrize("current,target,expected", [("a", "b", -1), ("b", "a", 1), ("a", "a", 0)])
+def test_git_versioning_duplicate_commits_use_first_position(
+    current: str, target: str, expected: int
+) -> None:
+    from r2x_core import GitVersioningStrategy
+
+    commits = ["a", "b", "a"]
+    strategy = GitVersioningStrategy(commits)
+    commits[:] = ["b", "a", "a"]
+
+    assert strategy.compare_versions(current, target=target) == expected
+    assert strategy.commit_history == ("a", "b", "a")

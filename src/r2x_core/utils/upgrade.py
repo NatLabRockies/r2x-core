@@ -81,27 +81,30 @@ def shall_we_upgrade(
 
 def run_upgrade_step(
     data: Any, *, step: UpgradeStep, upgrader_context: Any | None = None
-) -> Result[Any, str]:
+) -> Result[Any, UpgradeError]:
     """Execute a single upgrade transformation on data.
 
     Automatically detects whether the step function accepts an upgrader_context
-    parameter via introspection.
+    parameter via introspection. Expected upgrade, file I/O, and invalid-data
+    failures return an UpgradeError retaining the original exception as its
+    cause. Unexpected programming errors propagate to the caller.
     """
     logger.debug("Applying upgrade step: {}", step.name)
-    try:
-        sig = step._sig
-        if sig is None:
-            sig = inspect.signature(step.func)
-            object.__setattr__(step, "_sig", sig)
+    sig = step._sig
+    if sig is None:
+        sig = inspect.signature(step.func)
+        object.__setattr__(step, "_sig", sig)
 
-        if "upgrader_context" in sig.parameters or any(
-            p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
-        ):
-            data = step.func(data, upgrader_context=upgrader_context)
-        else:
-            data = step.func(data)
-    except Exception as e:
-        return Err(f"Failed {step.name}: {e}")
+    accepts_context = "upgrader_context" in sig.parameters or any(
+        p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+    )
+    try:
+        data = step.func(data, upgrader_context=upgrader_context) if accepts_context else step.func(data)
+    except (UpgradeError, OSError, ValueError) as exc:
+        msg = f"Failed {step.name}: {exc}"
+        error = UpgradeError(msg)
+        error.__cause__ = exc
+        return Err(error)
     logger.info("Successfully applied upgrade: {} -> {}", step.name, step.target_version)
     return Ok(data)
 
@@ -204,13 +207,19 @@ class UpgradeCoordinator:
             "folder": store.folder,
         }
 
+        handler_kwargs = filter_kwargs_for(self.handler, kwargs=kwargs)
         result: Any
         try:
-            result = self.handler(**filter_kwargs_for(self.handler, kwargs=kwargs))
-        except Exception as exc:
-            raise UpgradeError(f"Upgrade handler failed: {exc}") from exc
+            result = self.handler(**handler_kwargs)
+        except (UpgradeError, OSError, ValueError) as exc:
+            msg = f"Upgrade handler failed: {exc}"
+            raise UpgradeError(msg) from exc
 
         if isinstance(result, Err):
-            raise UpgradeError(str(result.err()))
+            error = result.err()
+            if isinstance(error, Exception):
+                raise error
+            msg = str(error)
+            raise UpgradeError(msg)
 
         self.ran = True

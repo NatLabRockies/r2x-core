@@ -46,7 +46,7 @@ if TYPE_CHECKING:
     from .plugin_context import PluginContext
     from .plugin_expose import expose_plugin
     from .reader import DataReader
-    from .result import RuleResult, TranslationResult
+    from .result import RuleResult, TabularTransformResult, TranslationResult
     from .rules import Rule, RuleFilter, SupplementalAttributeRule
     from .rules_executor import (
         apply_rules_to_context,
@@ -99,6 +99,7 @@ _LAZY_IMPORTS: dict[str, str] = {
     "SourceProvenance": ".provenance",
     "DataReader": ".reader",
     "RuleResult": ".result",
+    "TabularTransformResult": ".result",
     "TranslationResult": ".result",
     "Rule": ".rules",
     "RuleFilter": ".rules",
@@ -177,6 +178,7 @@ __all__ = [
     "SupplementalAttributeRule",
     "System",
     "TabularProcessing",
+    "TabularTransformResult",
     "TranslationResult",
     "Unit",
     "UnitSystem",

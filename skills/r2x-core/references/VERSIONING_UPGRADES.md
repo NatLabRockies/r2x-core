@@ -8,7 +8,7 @@ Use this when detecting dataset versions or applying schema/data migrations with
 - `VersionStrategy.compare_versions(current, *, target) -> int`
 - `VersionReader.read_version(folder_path: Path) -> str | None` (protocol)
 - `UpgradeStep(name, func, target_version, upgrade_type, priority=100, min_version=None, max_version=None)`
-- `run_upgrade_step(data, *, step: UpgradeStep, upgrader_context=None) -> Result[Any, str]`
+- `run_upgrade_step(data, *, step: UpgradeStep, upgrader_context=None) -> Result[Any, UpgradeError]`
 - `shall_we_upgrade(step, *, current_version, strategy) -> Result[bool, UpgradeError]` lives in `r2x_core.utils`, not top-level `r2x_core`.
 
 ## Do
@@ -80,11 +80,14 @@ from r2x_core import run_upgrade_step
 
 result = run_upgrade_step(payload, step=rename_capacity_field)
 if result.is_err():
-    raise RuntimeError(result.err())
+    raise result.err()
 payload = result.ok()
 ```
 
-`run_upgrade_step(...)` catches exceptions and returns `Err("Failed <step>: ...")`.
+`run_upgrade_step(...)` catches `UpgradeError`, `OSError`, and `ValueError` from
+the transformation and returns `Err(UpgradeError("Failed <step>: ..."))`. The
+original exception is retained as `error.__cause__`. Unexpected programming
+errors and signature introspection failures propagate to the caller.
 It passes `upgrader_context=` only when the step function accepts an
 `upgrader_context` parameter or `**kwargs`.
 
@@ -94,7 +97,7 @@ Use `shall_we_upgrade(...)` from `r2x_core.utils` to respect `target_version`,
 `min_version`, and `max_version`. It returns `Result[bool, UpgradeError]`.
 
 ```python
-from r2x_core import UpgradeError, run_upgrade_step
+from r2x_core import run_upgrade_step
 from r2x_core.utils import shall_we_upgrade
 
 
@@ -104,7 +107,7 @@ def upgrade_chain(steps, payload, current_version, strategy, upgrader_context=No
     for step in ordered:
         decision = shall_we_upgrade(step, current_version=current_version, strategy=strategy)
         if decision.is_err():
-            raise UpgradeError(decision.err())
+            raise decision.err()
         if not decision.ok():
             continue
 
@@ -114,7 +117,7 @@ def upgrade_chain(steps, payload, current_version, strategy, upgrader_context=No
             upgrader_context=upgrader_context,
         )
         if result.is_err():
-            raise UpgradeError(result.err())
+            raise result.err()
 
         payload = result.ok()
         current_version = step.target_version

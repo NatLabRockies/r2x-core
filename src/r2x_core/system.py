@@ -227,8 +227,6 @@ class System(InfrasysSystem):
         ValueError
             If a component already has a different _system_base set.
         """
-        super().add_components(*components, **kwargs)
-
         for component in components:
             if isinstance(component, units.HasPerUnit):
                 existing_base = component._get_system_base()
@@ -241,6 +239,10 @@ class System(InfrasysSystem):
                     )
                     raise ValueError(msg)
 
+        super().add_components(*components, **kwargs)
+
+        for component in components:
+            if isinstance(component, units.HasPerUnit):
                 component._system_base = self.base_power
                 logger.trace(
                     "Set _system_base = {} MVA on component '{}'",

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from typing import Any, cast
+from pathlib import Path
 from uuid import uuid4
 
 import numpy as np
@@ -261,28 +261,28 @@ def test_time_series_transfer_logs_post_remap_cleanup(monkeypatch, context_examp
     assert any("after remapping" in record.message for record in caplog.records)
 
 
-def test_main_db_path_handles_errors():
-    """_main_db_path returns None if the connection errors."""
-
-    class FailingConn:
-        def execute(self, *_args, **_kwargs):
-            raise RuntimeError("boom")
-
-    assert _main_db_path(cast(Any, FailingConn())) is None
+def test_main_db_path_propagates_closed_connection_error() -> None:
+    conn = sqlite3.connect(":memory:")
+    conn.close()
+    with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
+        _main_db_path(conn)
 
 
-def test_main_db_path_returns_path():
-    """_main_db_path returns stringified path when PRAGMA data exists."""
+def test_main_db_path_returns_none_for_memory_database() -> None:
+    conn = sqlite3.connect(":memory:")
+    try:
+        assert _main_db_path(conn) is None
+    finally:
+        conn.close()
 
-    class Conn:
-        def execute(self, _query):
-            class Cursor:
-                def fetchall(self):
-                    return [(0, "main", "/tmp/test.db")]
 
-            return Cursor()
-
-    assert _main_db_path(cast(Any, Conn())) == "/tmp/test.db"
+def test_main_db_path_returns_path(tmp_path: Path) -> None:
+    path = tmp_path / "metadata.db"
+    conn = sqlite3.connect(path)
+    try:
+        assert _main_db_path(conn) == str(path)
+    finally:
+        conn.close()
 
 
 def test_transfer_time_series_requires_systems(context_example: PluginContext):

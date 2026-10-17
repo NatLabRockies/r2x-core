@@ -18,13 +18,12 @@ jobs:
     permissions:
       contents: read
       pull-requests: write  # required by actions/labeler to apply labels to PRs
-      issues: write       # required by actions/labeler to sync labels
     runs-on: [ubuntu-latest]
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/labeler@v7.0.0  # zizmor: ignore[unpinned-uses]
+      - uses: actions/labeler@bf12e9b00b37c5c0ca2b87b79b2daf7891dbda13 # v7.0.0
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           configuration-path: .github/labeler.yaml
@@ -35,16 +34,16 @@ jobs:
     timeout-minutes: 5
     runs-on: [ubuntu-latest]
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 0
+          fetch-depth: 2
           persist-credentials: false
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: "0.9.4"
       - name: Commitizen check
-        run: uvx --from commitizen cz check --rev-range HEAD^!
+        run: uvx --from commitizen==4.16.2 cz check --rev-range HEAD^!
 
   lint-pr-title:
     name: lint pr title

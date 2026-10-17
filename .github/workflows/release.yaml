@@ -26,7 +26,7 @@ jobs:
     steps:
       - name: Run release-please
         id: release
-        uses: googleapis/release-please-action@v5  # zizmor: ignore[unpinned-uses]
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           config-file: .release-please-config.json
@@ -39,14 +39,12 @@ jobs:
     if: needs.release-please.outputs.release_created
     permissions:
       contents: read   # required for checkout
-      actions: read     # required for upload-artifact
     runs-on: ubuntu-latest
     steps:
       - name: Checkout release commit
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.release-please.outputs.release_tag }}
-          fetch-depth: 0
           persist-credentials: false
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -58,14 +56,11 @@ jobs:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
 
-      - name: Install dependencies
-        run: uv sync --all-groups
-
       - name: Build package
         run: uv build
 
       - name: Store the distribution packages
-        uses: actions/upload-artifact@v7  # zizmor: ignore[unpinned-uses]
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: python-package-distributions
           path: dist/
@@ -78,17 +73,16 @@ jobs:
       name: testpypi
       url: https://test.pypi.org/p/r2x-core
     permissions:
-      contents: read   # required for download-artifact
       id-token: write  # required by pypa/gh-action-pypi-publish for trusted publishing
     steps:
       - name: Download all the dists
-        uses: actions/download-artifact@v8  # zizmor: ignore[unpinned-uses]
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: python-package-distributions
           path: dist/
 
       - name: Publish package to TestPyPI
-        uses: pypa/gh-action-pypi-publish@release/v1  # zizmor: ignore[unpinned-uses]
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
 
@@ -102,13 +96,12 @@ jobs:
       name: pypi
       url: https://pypi.org/p/r2x-core
     permissions:
-      contents: read   # required for download-artifact
       id-token: write  # required by pypa/gh-action-pypi-publish for trusted publishing
     steps:
       - name: Download all the dists
-        uses: actions/download-artifact@v8  # zizmor: ignore[unpinned-uses]
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: python-package-distributions
           path: dist/
       - name: Publish distribution to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1  # zizmor: ignore[unpinned-uses]
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1

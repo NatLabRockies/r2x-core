@@ -1,4 +1,9 @@
+import csv
+import tracemalloc
+from pathlib import Path
+
 from infrasys import Component
+from pydantic import field_serializer
 
 from r2x_core.system import System
 from r2x_core.utils import components_to_records, export_components_to_csv
@@ -82,3 +87,62 @@ def test_export_components_to_csv_empty(tmp_path):
     export_components_to_csv(system, file_path=output_file, filter_func=lambda c: False)
 
     assert not output_file.exists()
+
+
+class LargeExportComponent(Component):
+    payload: int = 0
+
+    @field_serializer("payload")
+    def serialize_payload(self, value: int) -> str:
+        return str(value) + "x" * 32768
+
+
+def test_export_components_to_csv_streams_records(tmp_path: Path) -> None:
+    system = System(name="Streaming")
+    system.add_components(*(LargeExportComponent(name=f"component-{i}") for i in range(1000)))
+    output_file = tmp_path / "streamed.csv"
+
+    tracemalloc.start()
+    try:
+        export_components_to_csv(system, file_path=output_file, fields=["name", "payload"])
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    # Eager serialization retains over 32 MB of payloads for this export.
+    assert peak < 4_000_000
+    with output_file.open(newline="") as stream:
+        names = [row["name"] for row in csv.DictReader(stream)]
+    assert names == [component.name for component in system.get_components(Component)]
+
+
+def test_export_components_to_csv_options(tmp_path: Path) -> None:
+    system = System(name="Options")
+    system.add_components(Component(name="keep2"), Component(name="skip"), Component(name="keep1"))
+    output_file = tmp_path / "nested" / "components.csv"
+    export_components_to_csv(
+        system,
+        file_path=output_file,
+        fields=["name"],
+        key_mapping={"name": "label"},
+        filter_func=lambda component: component.name.startswith("keep"),
+        delimiter=";",
+    )
+    with output_file.open(newline="") as stream:
+        assert list(csv.DictReader(stream, delimiter=";")) == [{"label": "keep2"}, {"label": "keep1"}]
+
+
+def test_export_components_to_csv_empty_preserves_existing_file(tmp_path: Path) -> None:
+    system = System(name="Empty")
+    output_file = tmp_path / "existing.csv"
+    output_file.write_text("original")
+    export_components_to_csv(system, file_path=output_file)
+    assert output_file.read_text() == "original"
+
+
+def test_export_components_to_csv_empty_fields_writes_rows(tmp_path: Path) -> None:
+    system = System(name="EmptyFields")
+    system.add_components(Component(name="first"), Component(name="second"))
+    output_file = tmp_path / "empty-fields.csv"
+    export_components_to_csv(system, file_path=output_file, fields=[])
+    assert output_file.read_bytes() == b"\r\n\r\n\r\n"

@@ -80,7 +80,7 @@ from r2x_core import run_upgrade_step
 
 result = run_upgrade_step(payload, step=rename_capacity_field)
 if result.is_err():
-    raise RuntimeError(result.err())
+    raise result.err()
 payload = result.ok()
 ```
 
@@ -97,7 +97,7 @@ Use `shall_we_upgrade(...)` from `r2x_core.utils` to respect `target_version`,
 `min_version`, and `max_version`. It returns `Result[bool, UpgradeError]`.
 
 ```python
-from r2x_core import UpgradeError, run_upgrade_step
+from r2x_core import run_upgrade_step
 from r2x_core.utils import shall_we_upgrade
 
 
@@ -107,7 +107,7 @@ def upgrade_chain(steps, payload, current_version, strategy, upgrader_context=No
     for step in ordered:
         decision = shall_we_upgrade(step, current_version=current_version, strategy=strategy)
         if decision.is_err():
-            raise UpgradeError(decision.err())
+            raise decision.err()
         if not decision.ok():
             continue
 
@@ -117,7 +117,7 @@ def upgrade_chain(steps, payload, current_version, strategy, upgrader_context=No
             upgrader_context=upgrader_context,
         )
         if result.is_err():
-            raise UpgradeError(result.err())
+            raise result.err()
 
         payload = result.ok()
         current_version = step.target_version

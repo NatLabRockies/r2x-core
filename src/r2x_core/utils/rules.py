@@ -30,17 +30,18 @@ if TYPE_CHECKING:
     from ..rules import Rule, RuleFilter, RuleLike
 
 
-_COMPONENT_TYPE_CACHE: dict[str, type] = {}
+_COMPONENT_TYPE_CACHE: dict[tuple[tuple[str, ...], str], type] = {}
 
 
 def resolve_component_type(type_name: str, *, context: PluginContext) -> Result[type, TypeError]:
     """Resolve a component type name to a class.
 
-    Uses cache to avoid repeated module imports for the same type.
+    Caches successful lookups by ordered module search scope and type name.
     Searches modules specified in config.models.
     """
-    if type_name in _COMPONENT_TYPE_CACHE:
-        return Ok(_COMPONENT_TYPE_CACHE[type_name])
+    cache_key = (context.config.models, type_name)
+    if cache_key in _COMPONENT_TYPE_CACHE:
+        return Ok(_COMPONENT_TYPE_CACHE[cache_key])
 
     modules_to_search: list[str] = list(context.config.models)
 
@@ -49,7 +50,7 @@ def resolve_component_type(type_name: str, *, context: PluginContext) -> Result[
             module = importlib.import_module(module_name)
             if hasattr(module, type_name):
                 component_type = getattr(module, type_name)
-                _COMPONENT_TYPE_CACHE[type_name] = component_type
+                _COMPONENT_TYPE_CACHE[cache_key] = component_type
                 return Ok(component_type)
         except ImportError:
             continue

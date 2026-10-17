@@ -11,13 +11,13 @@ Thanks for contributing.
 ## Development setup
 
 ```bash
-just setup
+mise run setup
 ```
 
 ## Validation
 
 ```bash
-just verify
+mise run verify
 ```
 
 ## Pull requests

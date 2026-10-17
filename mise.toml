@@ -1,0 +1,52 @@
+[tasks.default]
+description = "List available tasks"
+run = "mise tasks ls"
+
+[tasks.setup]
+description = "Install all locked dependency groups"
+alias = "sync"
+run = "uv sync --all-groups --locked"
+
+[tasks.lock]
+description = "Update uv.lock"
+run = "uv lock"
+
+[tasks.hooks-install]
+description = "Install git hooks"
+run = "uv run --locked prek install"
+
+[tasks.format]
+description = "Format Python code with Ruff"
+run = "uv run --locked ruff format"
+
+[tasks.lint]
+description = "Lint Python code with Ruff"
+run = "uv run --locked ruff check --config=pyproject.toml"
+
+[tasks.type]
+description = "Check types with ty"
+run = "uv run --locked ty check"
+
+[tasks.docstrings]
+description = "Check docstring coverage"
+run = "uv run --locked docstr-coverage src --badge docs/source/_static --percentage-only"
+
+[tasks.test]
+description = "Run tests with coverage"
+run = "uv run --locked pytest -q --cov-report=term-missing:skip-covered"
+
+[tasks.docs]
+description = "Build Sphinx documentation"
+run = "uv run --locked sphinx-build -M html docs/source docs/build"
+
+[tasks.hooks]
+description = "Run all pre-commit hooks"
+run = "uv run --locked prek run --all-files --stage pre-commit --show-diff-on-failure"
+
+[tasks.verify]
+description = "Run hooks, docstring coverage, and tests"
+run = [
+  "mise run hooks",
+  "mise run docstrings",
+  "uv run --locked pytest --tb=short --cov-report=term-missing:skip-covered",
+]

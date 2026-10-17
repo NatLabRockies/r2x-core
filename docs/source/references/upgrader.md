@@ -8,9 +8,11 @@ See [api](/r2x-core/references/api/) for generated types and the pinned source l
 
 ## Execute a step
 
-`run_upgrade_step(data, *, step, upgrader_context=None)` returns `Result[Any, str]`.
+`run_upgrade_step(data, *, step, upgrader_context=None)` returns `Result[Any, UpgradeError]`.
 It invokes `step.func(data)`, passing `upgrader_context` when the callable accepts it.
-The helper returns `Ok(transformed_data)` on success or `Err("Failed ...")` if the callable raises an exception.
+The helper returns `Ok(transformed_data)` on success.
+An `UpgradeError`, `OSError`, or `ValueError` raised by the transformation returns `Err(UpgradeError(...))`, with the original exception retained as `result.error.__cause__`.
+Other exceptions, including `TypeError`, propagate to the caller instead of becoming an `Err`.
 It does not roll back mutations or filesystem writes and does not itself compare versions.
 
 ```python

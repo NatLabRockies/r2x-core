@@ -7,11 +7,7 @@ per-unit normalization, multiple base values, and automatic unit conversions.
 
 ## Prerequisites
 
-Install R2X Core:
-
-```console
-pip install r2x-core
-```
+Complete [Installation](/r2x-core/install/) and [environment setup](/r2x-core/getting-started/environment/) first.
 
 ## Step 1: Create a Component with Per-Unit Fields
 
@@ -39,6 +35,15 @@ calculated.
 ... )
 >>> print(gen.name)
 Coal Plant 1
+>>> import json
+>>> fields = {"name", "base_power", "rated_voltage", "output"}
+>>> snapshot = gen.model_dump(include=fields)
+>>> snapshot
+{'name': 'Coal Plant 1', 'base_power': 500.0, 'rated_voltage': 22.0, 'output': 0.85}
+>>> json.loads(gen.model_dump_json(include=fields)) == snapshot
+True
+>>> Generator.model_fields["output"].metadata
+[UnitSpec(unit='pu', base='base_power')]
 ```
 
 The `output` field stores the value in per-unit normalized to `base_power`.
@@ -115,6 +120,56 @@ management.
 >>> print(load.name)
 Load 1
 ```
+
+## Inspect the serialized generator
+
+Use the `gen` instance from Step 1. `model_dump()` returns a Python dictionary;
+`model_dump_json()` returns a JSON string. The focused view below includes the
+name, physical base values, and per-unit output. It deliberately omits the
+component's `uuid`; calling either method without `include` retains that field.
+
+```python
+fields = {"name", "base_power", "rated_voltage", "output"}
+snapshot = gen.model_dump(include=fields)
+json_text = gen.model_dump_json(include=fields, indent=2)
+print(json_text)
+```
+
+The JSON string prints as:
+
+```json
+{
+  "name": "Coal Plant 1",
+  "base_power": 500.0,
+  "rated_voltage": 22.0,
+  "output": 0.85
+}
+```
+
+The Python dictionary contains the same names and numeric values, as shown in
+Step 1. Neither representation expands these fields into `{value, unit}` objects:
+`output` remains **0.85 per-unit**, with the physical base value **500.0** retained
+in `base_power`. For this generator, that corresponds to 425 MW.
+The units (`MVA`, `kV`, `pu`) and `output`'s link to `base_power` belong to the
+`Generator` class's `Unit(...)` annotations; those annotations are **not** embedded
+in this model dump. The numbers alone do not tell an independent reader their units.
+
+Verify the dict and JSON agree:
+
+```python
+import json
+
+assert json.loads(json_text) == snapshot
+assert snapshot["output"] == 0.85
+assert snapshot["output"] * snapshot["base_power"] == 425.0
+```
+
+Keep the matching component class available when interpreting or validating this
+representation. Changing display mode does not replace the internally stored
+per-unit value with MW in these dumps.
+For a complete persisted system, use [System serialization](/r2x-core/references/data-workflow/#system-serialization)
+and retain its companion storage; `System.to_json()` serves that different purpose.
+A component's `model_dump_json()` is not a substitute for a complete system artifact.
 
 ## Summary
 

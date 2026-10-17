@@ -289,3 +289,22 @@ def test_export_components_to_csv_supports_long_filenames(tmp_path: Path) -> Non
 
     assert output_file.read_bytes() == b"name\r\nfirst\r\n"
     assert list(tmp_path.iterdir()) == [output_file]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file permission semantics")
+def test_export_components_to_csv_preserves_read_only_destination(tmp_path: Path) -> None:
+    if os.geteuid() == 0:
+        pytest.skip("Root can write read-only files")
+    system = System(name="ReadOnly")
+    system.add_components(Component(name="first"))
+    output_file = tmp_path / "components.csv"
+    output_file.write_bytes(b"original")
+    output_file.chmod(0o444)
+    try:
+        with pytest.raises(PermissionError):
+            export_components_to_csv(system, file_path=output_file)
+        assert output_file.read_bytes() == b"original"
+        assert stat.S_IMODE(output_file.stat().st_mode) == 0o444
+        assert list(tmp_path.iterdir()) == [output_file]
+    finally:
+        output_file.chmod(0o600)

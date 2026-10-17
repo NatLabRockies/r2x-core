@@ -6,6 +6,7 @@ import csv
 from collections.abc import Callable, Iterator
 from itertools import chain
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Any
 
 from infrasys import Component
@@ -97,11 +98,18 @@ def export_components_to_csv(
 
     fieldnames = list(first_record.keys())
 
-    with open(fpath, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore", **dict_writer_kwargs)
-        writer.writeheader()
-        count = 0
-        for record in chain((first_record,), records):
-            writer.writerow(record)
-            count += 1
+    temporary_path: Path | None = None
+    try:
+        with NamedTemporaryFile(mode="w", newline="", dir=fpath.parent, delete=False) as f:
+            temporary_path = Path(f.name)
+            writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore", **dict_writer_kwargs)
+            writer.writeheader()
+            count = 0
+            for record in chain((first_record,), records):
+                writer.writerow(record)
+                count += 1
+        temporary_path.replace(fpath)
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
     logger.info("Exported {} components to {}", count, fpath)

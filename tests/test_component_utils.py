@@ -2,8 +2,10 @@ import csv
 import tracemalloc
 from pathlib import Path
 
+import pytest
 from infrasys import Component
 from pydantic import field_serializer
+from pydantic_core import PydanticSerializationError
 
 from r2x_core.system import System
 from r2x_core.utils import components_to_records, export_components_to_csv
@@ -130,6 +132,7 @@ def test_export_components_to_csv_options(tmp_path: Path) -> None:
     )
     with output_file.open(newline="") as stream:
         assert list(csv.DictReader(stream, delimiter=";")) == [{"label": "keep2"}, {"label": "keep1"}]
+    assert list(output_file.parent.iterdir()) == [output_file]
 
 
 def test_export_components_to_csv_empty_preserves_existing_file(tmp_path: Path) -> None:
@@ -146,3 +149,56 @@ def test_export_components_to_csv_empty_fields_writes_rows(tmp_path: Path) -> No
     output_file = tmp_path / "empty-fields.csv"
     export_components_to_csv(system, file_path=output_file, fields=[])
     assert output_file.read_bytes() == b"\r\n\r\n\r\n"
+
+
+class FailingExportComponent(Component):
+    payload: int = 0
+
+    @field_serializer("payload")
+    def serialize_payload(self, value: int) -> int:
+        if value < 0:
+            raise ValueError("Cannot serialize negative payload")
+        return value
+
+
+@pytest.mark.parametrize("existing", [False, True])
+@pytest.mark.parametrize("failure", ["serialization", "filter"])
+def test_export_components_to_csv_failure_preserves_destination(
+    tmp_path: Path, existing: bool, failure: str
+) -> None:
+    system = System(name="Failure")
+    system.add_components(
+        FailingExportComponent(name="first", payload=1),
+        FailingExportComponent(name="second", payload=-1 if failure == "serialization" else 2),
+    )
+    output_file = tmp_path / "components.csv"
+    if existing:
+        output_file.write_bytes(b"original\r\n")
+
+    def filter_component(component: Component) -> bool:
+        if failure == "filter" and component.name == "second":
+            raise ValueError("Cannot filter second component")
+        return True
+
+    expected_error = PydanticSerializationError if failure == "serialization" else ValueError
+    with pytest.raises(expected_error):
+        export_components_to_csv(system, file_path=output_file, filter_func=filter_component)
+
+    if existing:
+        assert output_file.read_bytes() == b"original\r\n"
+    else:
+        assert not output_file.exists()
+    assert list(tmp_path.iterdir()) == ([output_file] if existing else [])
+
+
+def test_export_components_to_csv_replaces_existing_file(tmp_path: Path) -> None:
+    system = System(name="Replacement")
+    system.add_components(Component(name="second"), Component(name="first"))
+    output_file = tmp_path / "components.csv"
+    output_file.write_text("original")
+
+    export_components_to_csv(system, file_path=output_file, fields=["name"])
+
+    with output_file.open(newline="") as stream:
+        assert list(csv.DictReader(stream)) == [{"name": "second"}, {"name": "first"}]
+    assert list(tmp_path.iterdir()) == [output_file]

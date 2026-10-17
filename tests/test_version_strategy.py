@@ -220,7 +220,7 @@ def test_git_versioning_duplicate_commits_use_first_position(
 
     commits = ["a", "b", "a"]
     strategy = GitVersioningStrategy(commits)
-    commits.reverse()
+    commits[:] = ["b", "a", "a"]
 
     assert strategy.compare_versions(current, target=target) == expected
     assert strategy.commit_history == ("a", "b", "a")

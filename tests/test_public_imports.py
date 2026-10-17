@@ -1,7 +1,9 @@
 """Fresh-process checks for the lazy public API."""
 
+import os
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -21,4 +23,5 @@ assert r2x_core.h5_readers is h5_readers
 assert 'h5py' in sys.modules
 assert 'h5_readers' in r2x_core.__all__
 """
-    subprocess.run([sys.executable, "-c", code], check=True, timeout=30)
+    env = os.environ | {"PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")}
+    subprocess.run([sys.executable, "-c", code], check=True, timeout=30, env=env)

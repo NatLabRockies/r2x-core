@@ -6,6 +6,8 @@ A data version describes the input schema or model state, independently of the i
 An upgrade step transforms that state toward a named target version.
 Keeping the transformation separate from version selection makes each step easier to exercise on a small input.
 
+<span id="version-comparison-strategies"></span>
+
 ## Selection and execution are separate
 
 `UpgradeStep` records a callable, a target version, its `FILE` or `SYSTEM` category, an optional version range, and a priority.

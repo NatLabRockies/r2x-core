@@ -64,18 +64,20 @@ Retired,25,retired
 The retired row must not appear in the result.
 `tutorial_model.py` defines the small schema used in this exercise:
 
-The Python blocks on this page are excerpts from the linked fixture scripts, not
-standalone doctests: they omit surrounding setup and lifecycle calls.
-The documentation build runs the complete fixture and its independent inspection
-script, checking the component names, capacities, and validation failure below.
+The checks below are self-contained versions of the fixture's model, data and transform boundaries.
+The documentation build also executes the complete fixture and its independent reload.
 
-```python
-from infrasys import Component
-from pydantic import Field
-
-
-class Generator(Component):
-    capacity_mw: float = Field(ge=0)
+```python doctest
+>>> from infrasys import Component
+>>> from pydantic import Field
+>>> class Generator(Component):
+...     capacity_mw: float = Field(ge=0)
+...
+>>> generator = Generator(name="Alpha", capacity_mw=100)
+>>> assert generator.capacity_mw >= 0
+>>> # Expected: this boundary produces the tutorial's named components or capacity.
+>>> generator.name, generator.capacity_mw
+('Alpha', 100.0)
 ```
 
 `Component` supplies identity and the required name; the field adds nonnegative capacity in MW.
@@ -87,15 +89,20 @@ For ReEDS inputs, start with [r2x-reeds](https://github.com/NatLabRockies/r2x-re
 
 `build_system.py` creates an existing-directory `DataStore` and registers a named file definition:
 
-```python
-store = DataStore(Path("inputs"))
-store.add_data([
-    DataFile(
-        name="generators",
-        relative_fpath="generators.csv",
-        proc_spec=TabularProcessing(filter_by={"status": "active"}),
-    ),
-])
+```python doctest
+>>> from pathlib import Path
+>>> from tempfile import TemporaryDirectory
+>>> from r2x_core import DataFile, DataStore, TabularProcessing
+>>> with TemporaryDirectory() as directory:
+...     root = Path(directory)
+...     _ = (root / "generators.csv").write_text("name,capacity_mw,status\nAlpha,100,active\nBravo,50,active\nRetired,25,retired\n", encoding="utf-8")
+...     store = DataStore(root)
+...     store.add_data([DataFile(name="generators", relative_fpath="generators.csv", proc_spec=TabularProcessing(filter_by={"status": "active"}))])
+...     rows = store.read_data("generators").collect().to_dicts()
+...
+>>> # Expected: this boundary produces the tutorial's named components or capacity.
+>>> [row["name"] for row in rows]
+['Alpha', 'Bravo']
 ```
 
 `generators` is the logical lookup name; `relative_fpath` is resolved under the store root.
@@ -103,6 +110,8 @@ The filter runs when the reader loads that data.
 A CSV read returns a Polars lazy frame, so the build hook calls `collect()` before iterating rows.
 Registration alone does not prove that an input is readable.
 See [file configuration](/r2x-core/how-tos/configure-data-files/) for reader options and [data contracts](/r2x-core/references/data-workflow/) for return types and failure boundaries.
+
+<span id="working-with-systems"></span>
 
 ## Follow the three implemented hooks
 
@@ -117,11 +126,31 @@ Only the hooks implemented by this plugin run:
 
 The transformation is deliberately small:
 
-```python
-def on_transform(self) -> Result[System, str]:
-    for generator in self.system.get_components(Generator):
-        generator.capacity_mw *= self.config.scale
-    return Ok(self.system)
+```python doctest
+>>> from infrasys import Component
+>>> from pydantic import Field
+>>> from r2x_core import Plugin, PluginConfig, PluginContext, System
+>>> from rust_ok import Ok, Result
+>>> class Generator(Component):
+...     capacity_mw: float = Field(ge=0)
+...
+>>> class ScaleConfig(PluginConfig):
+...     scale: float = 1.1
+...
+>>> class Scale(Plugin[ScaleConfig]):
+...     def on_transform(self) -> Result[System, str]:
+...         for generator in self.system.get_components(Generator):
+...             generator.capacity_mw *= self.config.scale
+...         return Ok(self.system)
+...
+>>> system = System(name="scale-demo")
+>>> system.add_component(Generator(name="Alpha", capacity_mw=100))
+>>> system.add_component(Generator(name="Bravo", capacity_mw=50))
+>>> result = Scale.from_context(PluginContext(config=ScaleConfig(), system=system)).run()
+>>> assert result.system is not None
+>>> # Expected: this boundary produces the tutorial's named components or capacity.
+>>> round(sum(item.capacity_mw for item in result.system.get_components(Generator)), 1)
+165.0
 ```
 
 `self.system` is the system created by `on_build`; `Ok(system)` updates the shared context.

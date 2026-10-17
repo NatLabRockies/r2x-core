@@ -1,216 +1,83 @@
 ---
-title: "Data Management: Design Philosophy"
+title: "Why file definitions are separate from loaded data"
 ---
 
-## Overview
+`DataFile` describes an input, `DataStore` registers definitions relative to a root,
+and `DataReader` loads and processes the selected input. A definition is not the
+loaded data and registration is not proof that every file can be read.
 
-The r2x-core data management system ([`DataStore`](/r2x-core/references/api/),
-[`DataFile`](/r2x-core/references/api/), [`DataReader`](/r2x-core/references/api/)) embodies three
-core design principles: configuration-driven workflows, lazy evaluation, and
-composable processing. Understanding these principles helps you build
-maintainable, debuggable data pipelines.
+## Separate configuration from I/O
 
-## Configuration-Driven Approach
+A file root must exist when constructing a store. Reader errors occur when the
+input is read; processing and component validation are later boundaries.
+The separation lets a parser request only the inputs it needs.
 
-The core insight is: **data workflows should be expressed as configuration, not
-code**. This separation enables several benefits:
-
-### Reproducibility
-
-When your data transformations are defined in JSON/YAML, they become
-version-controllable artifacts alongside your code. You can:
-
-- Track changes to data workflows in git
-- Associate data configurations with specific code versions
-- Run the same parser against different data configs without recompilation
-
-Example workflow:
-
-```text
-repo/
-├── src/
-│   └── my_parser.py (fixed logic)
-├── configs/
-│   ├── dev_config.json (development data)
-│   ├── staging_config.json (staging data)
-│   └── prod_config.json (production data)
+```python doctest
+>>> from pathlib import Path
+>>> from tempfile import TemporaryDirectory
+>>> from r2x_core import DataFile, DataStore, TabularProcessing
+>>> with TemporaryDirectory() as directory:
+...     root = Path(directory)
+...     _ = (root / "generators.csv").write_text("name,capacity_mw,status\nAlpha,100,active\nRetired,25,retired\n", encoding="utf-8")
+...     store = DataStore(root)
+...     store.add_data([DataFile(name="generators", relative_fpath="generators.csv", proc_spec=TabularProcessing(filter_by={"status": "active"}))])
+...     names = store.list_data()
+...     records = store.read_data("generators").collect().to_dicts()
+>>> # Expected: registration exposes a logical name, while reading applies the filter.
+>>> names
+['generators']
+>>> records
+[{'name': 'Alpha', 'capacity_mw': 100, 'status': 'active'}]
 ```
 
-### Flexibility Without Redeployment
+## Processing is a separate contract
 
-In deployment scenarios, particularly cloud-native ones, the ability to change
-which files are processed or how they're transformed at runtime is invaluable.
-You can update the configuration and restart the application, and the data
-pipeline adapts immediately. This eliminates the need to recompile or redeploy
-code just to handle a new data source or adjust a transformation rule.
+The CSV result is a Polars lazy frame; `collect()` materializes its rows.
+`TabularProcessing` describes operations such as filtering and reshaping, and
+`ReaderConfig` holds reader-specific arguments. Keeping these apart avoids
+mixing file-format options with transformations.
+The [processor reference](/r2x-core/references/processors/) specifies operation
+order and constraints; [process file data](/r2x-core/how-tos/process-file-data/)
+shows how to configure them.
 
-### Separation of Concerns
+## Validation does not imply availability
 
-Data engineers who understand data schemas and business logic (but may not know
-Python) can configure data files. Python developers focus on the parser logic.
-The JSON configuration becomes a contract between teams.
+A valid configuration can still refer to unavailable or malformed input.
+Diagnose the root path, registered logical name, physical input and processed
+schema in that order. The [troubleshooting guide](/r2x-core/troubleshooting/)
+provides checks for each boundary.
+For a complete data-to-artifact journey, use the [CSV capacity scenario](/r2x-core/tutorials/getting-started/).
 
-## Lazy Evaluation
+<span id="overview"></span>
 
-[`DataStore`](/r2x-core/references/api/) uses lazy evaluation: data is read and processed
-only when requested.
+<span id="configuration-driven-approach"></span>
 
-### Why Lazy?
+<span id="reproducibility"></span>
 
-Lazy evaluation provides several practical benefits. First, efficiency: large
-projects often configure hundreds of data files but only need a subset in any
-given run. Without lazy evaluation, you'd pay the cost of reading all files
-upfront, which is wasteful. Second, error localization: if a data file is
-broken, you discover it only when you try to read it. This is actually desirable
-in some workflows where you want to continue processing even if certain optional
-files fail. Third, composition: you can create a DataStore with all possible
-data files, then selectively read what you need based on runtime parameters like
-solver year, region, or scenario. This pattern enables flexible, parameterized
-workflows without configuration duplication.
+<span id="flexibility-without-redeployment"></span>
 
-### Example
+<span id="separation-of-concerns"></span>
 
-```python
-from r2x_core import DataStore
+<span id="lazy-evaluation"></span>
 
-# Create store with 50 data file configs
-store = DataStore("data_folder")
+<span id="why-lazy"></span>
 
-# Only the files you actually read are loaded
-data1 = store.read_data("file1")  # File1 loaded now
-data2 = store.read_data("file2")  # File2 loaded now
-# Files 3-50 are never touched
-```
+<span id="example"></span>
 
-This is distinct from eager loading, where all files would be read at
-initialization time.
+<span id="composable-processing"></span>
 
-## Composable Processing
+<span id="processing-pipeline-order"></span>
 
-Data transformations (filtering, column selection, pivoting, etc.) are expressed
-declaratively through [`TabularProcessing`](/r2x-core/references/api/) and
-[`JSONProcessing`](/r2x-core/references/api/) objects. These compose naturally:
+<span id="configuration-validation"></span>
 
-### Processing Pipeline Order
+<span id="placeholders-and-runtime-parameterization"></span>
 
-1. **File Selection**: Locate the file (absolute path, relative path, or glob
-   pattern).
-2. **Reading**: Use the configured reader with its keyword arguments.
-3. **Tabular transformations**: Optionally lowercase names and string values,
-   drop columns, then apply reshape-aware rename, replacement, string cleanup,
-   casting, scaling, filling, filtering, aggregation, deduplication, sorting,
-   and selection.
+<span id="trade-offs-and-design-decisions"></span>
 
-The operation order is fixed and documented in [processors](/r2x-core/references/processors/).
-`unpivot_on` explicitly reshapes wide data to long form before rename, cast, and
-filter operations. `pivot_on` requires an existing input column and performs a
-long-to-wide pivot. Set `lowercase=True` only when the mapping requires
-lowercased names and string values; case is preserved by default.
+<span id="why-not-automatic-discovery"></span>
 
-Each step builds on previous ones. The design ensures transformations are
-readable (looking at a processing spec tells you exactly what happens to the
-data), debuggable (if something's wrong, each transformation step can be tested
-independently), reusable (a processing spec can be applied to multiple similar
-files), and version-controllable (processing pipelines are data, not code, so
-they live in config files and track with git history).
+<span id="why-separate-reader-config-from-file-path"></span>
 
-### Example
+<span id="why-json-configuration"></span>
 
-```python
-from r2x_core import DataFile, TabularProcessing
-
-processing = TabularProcessing(
-    column_mapping={"sales": "revenue"},
-    column_schema={"date": "datetime"},
-    filter_by={"region": "North"},
-    sort_by={"date": "ascending"},
-)
-
-data_file = DataFile(
-    name="north_sales",
-    relative_fpath="all_sales.csv",
-    proc_spec=processing
-)
-```
-
-When you read this file, the exact transformation sequence is clear. You can
-debug by disabling each step and observing the effect.
-
-## Configuration Validation
-
-[`DataStore`](/r2x-core/references/api/) uses Pydantic models for validation. This
-catches errors early:
-
-```python
-# Bad config: file doesn't exist, glob is invalid, etc.
-# Error raised at initialization, not at runtime
-store = DataStore("config.json")
-
-# Or: caught when you add a data file
-store.add_data(bad_file)  # Raises ValidationError with clear message
-```
-
-This "fail fast" approach saves debugging time. Configuration errors surface
-immediately with helpful error messages, not mysterious failures deep in data
-processing.
-
-## Placeholders and Runtime Parameterization
-
-Lazy evaluation enables another pattern: runtime parameterization through
-placeholders:
-
-```python
-processing = TabularProcessing(
-    filter_by={"year": "{solve_year}"}  # Placeholder
-)
-
-# At read time, provide the value
-data = store.read_data("file", placeholders={"solve_year": 2024})
-```
-
-This allows a single DataStore configuration to work across multiple years,
-scenarios, or regions without modification.
-
-## Trade-offs and Design Decisions
-
-### Why Not Automatic Discovery?
-
-You might ask: why not automatically discover CSV files and create DataFile
-configs? The answer is intentionality. Automatic discovery is convenient for
-one-off scripts but problematic in production:
-
-- Brittle: Adding a file to a folder unexpectedly changes behavior
-- Unclear: You can't see at a glance which files are being processed
-- Problematic: Temporary or debug files might get accidentally included
-
-By requiring explicit configuration, you get clarity and control at the cost of
-slightly more setup.
-
-### Why Separate Reader Config from File Path?
-
-[`ReaderConfig`](/r2x-core/references/api/) lets you specify how to read a file
-independently of where it is. This enables:
-
-- Using different reader functions for similar files
-- Passing reader-specific kwargs (CSV delimiter, HDF5 dataset name, etc.)
-- Testing readers in isolation
-
-### Why JSON Configuration?
-
-JSON is chosen as the configuration format because:
-
-- Human-readable
-- Language-independent (non-Python tools can generate configs)
-- Native git-friendly (diffs are clear)
-- Supported by Pydantic for validation
-
-Python APIs are also provided for programmatic creation.
-
-## See Also
-
-- [manage datastores](/r2x-core/how-tos/manage-datastores/) - How-to guide for DataStore
-- [configure data files](/r2x-core/how-tos/configure-data-files/) - How-to guide for DataFile and
-  transformations
-- [`DataStore`](/r2x-core/references/api/) - API reference
-- [`DataFile`](/r2x-core/references/api/) - API reference
-- [`DataReader`](/r2x-core/references/api/) - API reference
+<span id="see-also"></span>

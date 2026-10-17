@@ -323,15 +323,23 @@ The [`summary`](/r2x-core/references/api/) method prints a formatted table of re
 
 Use [`apply_rules_to_context`](/r2x-core/references/api/) to apply all rules in a translation context:
 
-Illustrative integration sketch: a model package must supply the populated context.
-This block is not a standalone execution example.
+This independent example supplies both systems, the model module and one named component.
+It tests the executor with generic components rather than requiring an external model dataset.
 
-```python
-from r2x_core import Rule, apply_rules_to_context
-# rules = [rule1, rule2, rule3]
-# context = TranslationContext(rules=rules, source_components=[...])
-# result = apply_rules_to_context(context)
-# result.total_converted contains the total number of components converted
+```python doctest
+>>> from infrasys import Component
+>>> from r2x_core import PluginConfig, PluginContext, Rule, System, apply_single_rule, apply_rules_to_context
+>>> source = System(name="source")
+>>> target = System(name="target")
+>>> source.add_component(Component(name="Alpha"))
+>>> rule = Rule(source_type="Component", target_type="Component", version=1, field_map={"name": "name"})
+>>> context = PluginContext(config=PluginConfig(models=("infrasys",)), source_system=source, target_system=target, rules=(rule,))
+>>> result = apply_rules_to_context(context)
+>>> # Expected: one rule successfully converts one generic component.
+>>> result.success, result.total_converted
+(True, 1)
+>>> sorted(item.name for item in target.get_components(Component))
+['Alpha']
 ```
 
 ## Apply a Single Rule
@@ -339,13 +347,19 @@ from r2x_core import Rule, apply_rules_to_context
 Apply one rule at a time using [`apply_single_rule`](/r2x-core/references/api/):
 
 ```python doctest
->>> from r2x_core import Rule, apply_single_rule
->>> rule = Rule(source_type="Gen", target_type="Unit", version=1, field_map={"name": "name"})
->>> # result = apply_single_rule(rule, source_components=[...])
->>> # result.converted contains how many components were translated by this rule
-
->>> rule.source_type
-'Gen'
+>>> from infrasys import Component
+>>> from r2x_core import PluginConfig, PluginContext, Rule, System, apply_single_rule, apply_rules_to_context
+>>> source = System(name="source")
+>>> target = System(name="target")
+>>> source.add_component(Component(name="Alpha"))
+>>> rule = Rule(source_type="Component", target_type="Component", version=1, field_map={"name": "name"})
+>>> context = PluginContext(config=PluginConfig(models=("infrasys",)), source_system=source, target_system=target, rules=(rule,))
+>>> result = apply_single_rule(rule, context=context)
+>>> # Expected: the single-rule result records one constructed component.
+>>> result.unwrap().converted
+1
+>>> sorted(item.name for item in target.get_components(Component))
+['Alpha']
 ```
 
 ## See Also

@@ -32,11 +32,21 @@ uv run --no-dev python -c "from pathlib import Path; print(Path.cwd()); p=Path('
 ```
 
 The final line must be `True`. If false, correct the working directory or provide the actual input root. Do not create an empty replacement input just to satisfy lookup.
-For an already constructed store, check registration separately:
+For your actual store, compare `store.folder` and `store.list_data()` with the expected root and logical names.
+This self-contained check shows an existing but empty root:
 
-```python
-print(store.folder)
-print(store.list_data())
+```python doctest
+>>> from pathlib import Path
+>>> from tempfile import TemporaryDirectory
+>>> from r2x_core import DataStore
+>>> with TemporaryDirectory() as directory:
+...     store = DataStore(directory)
+...     root_matches = store.folder == Path(directory).resolve()
+...     names = store.list_data()
+...
+>>> # Expected: the empty example store resolves its root but has no registered inputs.
+>>> root_matches, names
+(True, [])
 ```
 
 A name missing from `list_data()` explains a `KeyError` from `read_data(name)`; register its actual `DataFile` before reading it.
@@ -78,7 +88,7 @@ Do not disable model validation to make bad data load.
 For unit-aware fields, inspect the declared `Unit(...)` annotation and the supplied value together.
 A structured unit value must contain both keys:
 
-```python
+```json
 {"value": 80.0, "unit": "MW"}
 ```
 

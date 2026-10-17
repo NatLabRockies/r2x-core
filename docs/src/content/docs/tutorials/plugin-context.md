@@ -1,298 +1,86 @@
 ---
-title: "Plugin Context"
+title: "Pass configuration and state through PluginContext"
 ---
 
-The `PluginContext` is the unified interface for passing data to plugins. It uses immutable, copy-on-write semantics to efficiently pass large objects (like `System`) through plugin pipelines.
+`PluginContext` carries configuration, optional systems/store, rules and metadata
+between lifecycle hooks. It is mutable shared state, not a copy of each system.
+This example needs only the [installed library](/r2x-core/install/).
 
-## Context Fields
+## Inspect the public fields
 
-```python
-from r2x_core import PluginContext, PluginConfig, System, DataStore
-
-class Config(PluginConfig):
-    name: str
-
-# Minimal context (just config)
-ctx = PluginContext(config=Config(name="test"))
-ctx.config.name
-'test'
-
-# Context with system (for transform/export)
-system = System(name="my_system")
-ctx2 = PluginContext(config=Config(name="test"), system=system)
-ctx2.system.name
-'my_system'
-
-# Context with data store (for build/export)
-store = DataStore()
-ctx3 = PluginContext(config=Config(name="test"), store=store)
-ctx3.store is not None
+```python doctest
+>>> from r2x_core import PluginConfig, PluginContext, System
+>>> class ScenarioConfig(PluginConfig):
+...     scenario: str = "reference"
+>>> original = System(name="source")
+>>> context = PluginContext(config=ScenarioConfig(), system=original)
+>>> # Expected: configuration is available without accessing private context fields.
+>>> context.config.scenario
+'reference'
+>>> context.system is original
 True
+>>> context.store is None, context.source_system is None, context.target_system is None
+(True, True, True)
+>>> context.rules
+()
+>>> context.metadata["stage"] = "validated"
+>>> context.metadata["stage"]
+'validated'
+>>> context.system.name = "changed"
+>>> # Expected: both references point to the same mutable system.
+>>> original.name
+'changed'
 ```
 
-### Field Summary
+## Bind a plugin to that state
 
-| Field                          | Type                | Required | Purpose                          |
-| ------------------------------ | ------------------- | -------- | -------------------------------- |
-| `config`                       | `ConfigT`           | Always   | Plugin configuration (typed)     |
-| `store`                        | `DataStore \| None` | Optional | File I/O operations              |
-| `system`                       | `System \| None`    | Optional | System object (created/modified) |
-| `source_system`                | `System \| None`    | Optional | Source for translation           |
-| `target_system`                | `System \| None`    | Optional | Output of translation            |
-| `rules`                        | `Sequence[Rule]`    | Optional | Transformation rules             |
-| `metadata`                     | `dict[str, Any]`    | Optional | Arbitrary metadata               |
-| `skip_validation`              | `bool`              | Optional | Skip Pydantic validation         |
-| `auto_add_composed_components` | `bool`              | Optional | Auto-add composed components     |
+The following independent example supplies an existing system to a transform.
+Inside a class plugin, use `self.config` and `self.system`, not `self._ctx`.
 
-## Direct Attribute Updates
-
-Context fields can be updated directly for memory efficiency. Since `PluginContext` uses `__slots__`, memory overhead is minimal:
-
-```python
-from r2x_core import PluginContext, PluginConfig, System
-
-class Config(PluginConfig):
-    pass
-
-# Create context
-ctx = PluginContext(config=Config())
-
-# Update system directly
-system = System(name="new")
-ctx.system = system
-ctx.system.name
-'new'
-
-# Update metadata
-ctx.metadata["step"] = 1
-ctx.metadata
-{'step': 1}
+```python doctest
+>>> from r2x_core import Plugin, PluginConfig, PluginContext, System
+>>> from rust_ok import Ok, Result
+>>> class RenameConfig(PluginConfig):
+...     name: str = "renamed"
+>>> class Rename(Plugin[RenameConfig]):
+...     def on_transform(self) -> Result[System, str]:
+...         self.system.name = self.config.name
+...         return Ok(self.system)
+>>> context = PluginContext(config=RenameConfig(), system=System(name="original"))
+>>> result = Rename.from_context(context).run()
+>>> # Expected: the public system property exposes the supplied context system.
+>>> result.system.name
+'renamed'
+>>> assert result.system is context.system
 ```
 
-This is memory-efficient: the `System` object is not copied, only referenced. The `__slots__` design minimizes context overhead.
+A hook that uses a missing system/store receives the public API's `PluginError`;
+supply that dependency or build it in an earlier hook.
+Translation plugins can use separate `source_system` and `target_system` fields.
+See [lifecycle contracts](/r2x-core/references/plugins/) for which successful hooks
+populate these fields, and [workflow boundaries](/r2x-core/explanations/workflow-boundaries/)
+for their role in a translation pipeline.
 
-## Plugin Pipeline Pattern
+<span id="context-fields"></span>
 
-Pass context through a plugin pipeline. Context is updated in-place for efficiency:
+<span id="field-summary"></span>
 
-```python
-from r2x_core import Plugin, PluginContext, PluginConfig, System
-from rust_ok import Ok
+<span id="direct-attribute-updates"></span>
 
-class Config(PluginConfig):
-    pass
+<span id="plugin-pipeline-pattern"></span>
 
-class BuildPlugin(Plugin[Config]):
-    def on_build(self):
-        return Ok(System(name="built"))
+<span id="metadata-for-custom-data"></span>
 
-class TransformPlugin(Plugin[Config]):
-    def on_transform(self):
-        # Modify system
-        return Ok(self.system)
+<span id="parser-specific-options"></span>
 
-class ExportPlugin(Plugin[Config]):
-    def on_export(self):
-        return Ok(None)
+<span id="translation-workflows"></span>
 
-# Build
-ctx = PluginContext(config=Config())
-build_plugin = BuildPlugin.from_context(ctx)
-ctx = build_plugin.run()
-ctx.system.name
-'built'
+<span id="creating-context-from-command-line-arguments"></span>
 
-# Transform
-transform_plugin = TransformPlugin.from_context(ctx)
-ctx = transform_plugin.run()
-ctx.system.name
-'built'
+<span id="stdin-handling-pattern"></span>
 
-# Export
-export_plugin = ExportPlugin.from_context(ctx)
-ctx = export_plugin.run()
-ctx.system.name
-'built'
-```
+<span id="memory-efficiency"></span>
 
-## Metadata for Custom Data
+<span id="performance-considerations"></span>
 
-Use `metadata` dict for plugins to exchange custom data:
-
-```python
-from r2x_core import PluginContext, PluginConfig
-
-class Config(PluginConfig):
-    pass
-
-ctx = PluginContext(config=Config())
-
-# Add metadata
-ctx.metadata["step"] = "build"
-ctx.metadata["duration_ms"] = 1234
-ctx.metadata["step"]
-'build'
-
-# Extend metadata
-ctx.metadata["exported"] = True
-ctx.metadata
-{'step': 'build', 'duration_ms': 1234, 'exported': True}
-```
-
-## Parser-Specific Options
-
-Some fields control parser behavior:
-
-```python
-from r2x_core import PluginContext, PluginConfig
-
-class Config(PluginConfig):
-    pass
-
-# Skip validation for faster parsing
-ctx = PluginContext(
-    config=Config(),
-    skip_validation=True,
-    auto_add_composed_components=False
-)
-ctx.skip_validation
-True
-ctx.auto_add_composed_components
-False
-
-# Update options
-ctx.skip_validation = False
-ctx.skip_validation
-False
-```
-
-## Translation Workflows
-
-Translation plugins use `source_system`, `target_system`, and `rules`:
-
-```python
-from r2x_core import PluginContext, PluginConfig, System
-
-class Config(PluginConfig):
-    pass
-
-source = System(name="plexos")
-rules = []  # Translation rules
-
-ctx = PluginContext(
-    config=Config(),
-    source_system=source,
-    rules=tuple(rules)
-)
-ctx.source_system.name
-'plexos'
-```
-
-After translation, update target:
-
-```python
-from r2x_core import PluginContext, PluginConfig, System
-
-class Config(PluginConfig):
-    pass
-
-ctx = PluginContext(
-    config=Config(),
-    source_system=System(name="plexos")
-)
-
-# After translation
-target = System(name="sienna")
-ctx.target_system = target
-ctx.target_system.name
-'sienna'
-```
-
-## Creating Context from Command-Line Arguments
-
-In your Rust CLI, deserialize arguments and create context:
-
-```python
-import json
-from pathlib import Path
-from r2x_core import PluginContext, PluginConfig, DataStore
-import tempfile
-
-class MyConfig(PluginConfig):
-    model_year: int
-
-# From Rust CLI args
-args = json.loads('{"model_year": 2030}')
-config = MyConfig(**args)
-# Use temp directory for DataStore
-with tempfile.TemporaryDirectory() as tmpdir:
-    ctx = PluginContext(
-        config=config,
-        store=DataStore(path=tmpdir)
-    )
-    print(ctx.config.model_year)
-2030
-```
-
-## Stdin Handling Pattern
-
-When Rust CLI pipes a system via stdin, deserialize at the orchestrator level:
-
-```python
-from r2x_core import PluginContext, PluginConfig, System
-
-class Config(PluginConfig):
-    pass
-
-# In practice, the CLI deserializes a system from stdin
-# For this example, we just create one directly
-system = System(name="piped_system")
-ctx = PluginContext(config=Config(), system=system)
-ctx.system.name
-'piped_system'
-```
-
-The plugin never sees raw stdin - it just sees a populated `ctx.system`.
-
-## Memory Efficiency
-
-`PluginContext` uses `__slots__` to minimize memory overhead. Fields are mutable for efficiency:
-
-```python
-from r2x_core import PluginContext, PluginConfig, System
-
-class Config(PluginConfig):
-    pass
-
-ctx = PluginContext(config=Config())
-
-# Update fields directly
-ctx.metadata["key"] = "value"
-ctx.metadata
-{'key': 'value'}
-
-# System references are not copied
-system = System(name="test")
-ctx.system = system
-ctx.system.name
-'test'
-```
-
-The `__slots__` design minimizes memory overhead while allowing efficient updates.
-
-## Performance Considerations
-
-- \***\*slots** design\*\* - Minimal memory overhead per context instance
-- **Direct assignment** - O(1) field updates, no copying
-- **Shared references** - System objects are passed by reference, not copied
-- **Type-checked** - Generic `ConfigT` provides static type safety
-
-For large systems being passed through many plugins, context updates are efficient.
-
-## Best Practices
-
-1. **Update fields directly** - Simple and efficient
-2. **Declare type hints for context fields** - Indicates required vs optional
-3. **Use metadata for cross-plugin data** - Plugins can exchange custom data
-4. **Deserialize stdin at orchestrator level** - Plugins see populated context
-5. **Pass context to plugins** - Use `from_context()` or `run(ctx)`
+<span id="best-practices"></span>

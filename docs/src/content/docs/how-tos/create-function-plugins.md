@@ -216,7 +216,7 @@ True
 
 **PEP 695 Type Parameter Syntax Benefits**:
 
-Constraint checking with `[C: BaseTransformConfig]` ensures config type validity, type parameters are automatically inferred from the config argument, full auto-completion and type checking support in IDEs, cleaner and more readable syntax compared to the `TypeVar` approach, and constraints clearly visible in the function signature for self-documenting code.
+The `[C: BaseTransformConfig]` bound describes the accepted configuration type to static type checkers. Pydantic validates configuration values when constructing the model; the type parameter does not add runtime validation. Python 3.12 or later is required for this syntax.
 
 **When to Use**:
 

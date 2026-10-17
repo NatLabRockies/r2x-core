@@ -75,8 +75,8 @@ Use [`DataReader`](/r2x-core/references/api/) to load a configured HDF5 file:
 ...     with h5py.File(h5_file, "w") as f:
 ...         columns = np.array(["generation", "load"], dtype="S")
 ...         data = np.array([[100.0, 80.0], [200.0, 150.0], [150.0, 120.0], [175.0, 140.0]])
-...         f.create_dataset("columns", data=columns)
-...         f.create_dataset("data", data=data)
+...         _ = f.create_dataset("columns", data=columns)
+...         _ = f.create_dataset("data", data=data)
 ...
 ...     # Read using DataReader with configuration
 ...     data_file = DataFile(
@@ -91,9 +91,7 @@ Use [`DataReader`](/r2x-core/references/api/) to load a configured HDF5 file:
 ...     result = df.collect()
 ...     print("Columns:", result.columns)
 ...     print("Shape:", result.shape)
-...     print("First row:", result.row(0))  # doctest: +ELLIPSIS
-<HDF5 dataset "columns": shape (2,), type "|S10">
-<HDF5 dataset "data": shape (4, 2), type "<f8">
+...     print("First row:", result.row(0))
 Columns: ['generation', 'load']
 Shape: (4, 2)
 First row: (100.0, 80.0)

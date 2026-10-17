@@ -12,7 +12,7 @@ Use the [file type reference](/r2x-core/references/file-types/) to check whether
 
 ## Extend the registry and reader together
 
-Add a `FileType` subclass with the appropriate `supports_timeseries` value, map its extensions in `EXTENSION_MAPPING`, and update `TableDataFileType` if the format is tabular.
+Add a `FileFormat` subclass with the appropriate `supports_timeseries` value, map its extensions in `EXTENSION_MAPPING`, and update `TableDataFormat` if the format is tabular.
 These are edits to core's source definitions, not a public runtime registration API.
 Implement the matching reading path in [file_readers.py](https://github.com/NatLabRockies/r2x-core/blob/main/src/r2x_core/file_readers.py).
 A recognized extension alone does not make a file readable.

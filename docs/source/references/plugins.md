@@ -27,9 +27,13 @@ The first `Err` raises `PluginError` and stops execution, so cleanup is not a gu
 Arbitrary exceptions raised inside hooks propagate as well.
 See [getting started](/r2x-core/tutorials/getting-started/) for an executable class-plugin example.
 
+<span id="function-based-transform-plugins"></span>
+
 ## Function transforms
 
 A function transform accepts a `System` and a typed configuration, returning `Result[System, str]`.
 `@expose_plugin` publishes configuration metadata for discovery. A function transform is registered in the `r2x.transforms` entry-point group.
+<span id="entry-point-discovery"></span>
+
 The CLI owns installed-package discovery and execution; core owns the lifecycle and metadata contracts.
 For the procedure and checked examples, use [create function plugins](/r2x-core/how-tos/create-function-plugins/).

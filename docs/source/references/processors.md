@@ -8,6 +8,9 @@ pivot plan. `DataFile` validates processing settings against the file format:
 tabular formats require `TabularProcessing`, JSON requires `JSONProcessing`,
 and unknown fields are rejected. XML files do not support declarative processing.
 
+Configuration snippets below validate the declared settings, not the presence of external files.
+The placeholder read example creates its own CSV fixture and checks the filtered records.
+
 ## Case handling and operation order
 
 Column names and string values retain their original case by default. Set
@@ -34,28 +37,35 @@ raises a `ReaderError` with the processing failure.
 values, remaining columns stay as identifiers, and the generated columns are
 named `variable` and `value`:
 
-```python
-from r2x_core import DataFile, TabularProcessing
-
-processing = TabularProcessing(
-    unpivot_on=["2025", "2030"],
-    column_mapping={"variable": "year", "value": "capacity_mw"},
-    column_schema={"year": "int"},
-    filter_by={"year": "{solve_year}"},
-)
-file_spec = DataFile(name="capacity", relative_fpath="capacity.csv", proc_spec=processing)
+```python doctest
+>>> from r2x_core import DataFile, TabularProcessing, ReaderConfig, JSONProcessing
+>>> from r2x_core import DataFile, TabularProcessing
+>>> processing = TabularProcessing(
+...     unpivot_on=["2025", "2030"],
+...     column_mapping={"variable": "year", "value": "capacity_mw"},
+...     column_schema={"year": "int"},
+...     filter_by={"year": "{solve_year}"},
+... )
+>>> file_spec = DataFile(name="capacity", relative_fpath="capacity.csv", proc_spec=processing)
+>>> # Expected: the declared configuration validates, or the created fixture filters to the requested year.
+>>> file_spec.name
+'capacity'
 ```
 
 For generated compound labels, `split_column` splits a column on a literal
 separator before rename, cast, and filter operations:
 
-```python
-processing = TabularProcessing(
-    unpivot_on=["2025|NYISO_A", "2030|NYISO_A"],
-    split_column={"variable": {"separator": "|", "into": ["year", "zone"]}},
-    column_schema={"year": "int"},
-    filter_by={"year": "{solve_year}"},
-)
+```python doctest
+>>> from r2x_core import DataFile, TabularProcessing, ReaderConfig, JSONProcessing
+>>> processing = TabularProcessing(
+...     unpivot_on=["2025|NYISO_A", "2030|NYISO_A"],
+...     split_column={"variable": {"separator": "|", "into": ["year", "zone"]}},
+...     column_schema={"year": "int"},
+...     filter_by={"year": "{solve_year}"},
+... )
+>>> # Expected: the declared configuration validates, or the created fixture filters to the requested year.
+>>> type(processing).__name__
+'TabularProcessing'
 ```
 
 `pivot_on` is the explicit long-to-wide operation. Its value must name an input
@@ -76,18 +86,22 @@ Use `replace_values` for exact tokens, `strip_chars` for literal strings to
 remove, `column_schema` to cast, and `scale` for unit conversion. `strip_chars`
 also trims surrounding whitespace.
 
-```python
-processing = TabularProcessing(
-    replace_values={"-": "0"},
-    strip_chars={"limit": [","], "price": ["$"], "share": ["%"]},
-    column_schema={
-        "limit": "float",
-        "price": "float",
-        "share": "float",
-        "count": "float",
-    },
-    scale={"share": 0.01},
-)
+```python doctest
+>>> from r2x_core import DataFile, TabularProcessing, ReaderConfig, JSONProcessing
+>>> processing = TabularProcessing(
+...     replace_values={"-": "0"},
+...     strip_chars={"limit": [","], "price": ["$"], "share": ["%"]},
+...     column_schema={
+...         "limit": "float",
+...         "price": "float",
+...         "share": "float",
+...         "count": "float",
+...     },
+...     scale={"share": 0.01},
+... )
+>>> # Expected: the declared configuration validates, or the created fixture filters to the requested year.
+>>> type(processing).__name__
+'TabularProcessing'
 ```
 
 This converts values such as `2,450`, `$4.99 `, `171.20%`, and `-` to numeric
@@ -99,14 +113,17 @@ casting and requires numeric columns.
 The built-in CSV/TSV reader can combine multiple header rows. The default
 separator is `|`:
 
-```python
-from r2x_core import DataFile, ReaderConfig
-
-file_spec = DataFile(
-    name="profiles",
-    relative_fpath="load_profiles.csv",
-    reader=ReaderConfig(header_rows=2, header_separator="|"),
-)
+```python doctest
+>>> from r2x_core import DataFile, TabularProcessing, ReaderConfig, JSONProcessing
+>>> from r2x_core import DataFile, ReaderConfig
+>>> file_spec = DataFile(
+...     name="profiles",
+...     relative_fpath="load_profiles.csv",
+...     reader=ReaderConfig(header_rows=2, header_separator="|"),
+... )
+>>> # Expected: the declared configuration validates, or the created fixture filters to the requested year.
+>>> file_spec.name
+'profiles'
 ```
 
 For example, the headers `2025` and `NYISO_A` become `2025|NYISO_A`. Use
@@ -122,20 +139,21 @@ placeholders are converted to strings. `lowercase` accepts a boolean placeholder
 and `scale` accepts numeric placeholders. Substituted values are validated
 before processing. Unknown names return an error.
 
-```python
-from r2x_core import DataFile, DataStore, TabularProcessing
-
-file_spec = DataFile(
-    name="transmission",
-    relative_fpath="{scenario} - New Transmission.csv",
-    proc_spec=TabularProcessing(filter_by={"year": "{solve_year}"}),
-)
-store = DataStore(path="/data")
-store.add_data([file_spec])
-data = store.read_data(
-    "transmission",
-    placeholders={"scenario": "Reference", "solve_year": 2030},
-)
+```python doctest
+>>> from pathlib import Path
+>>> from tempfile import TemporaryDirectory
+>>> from r2x_core import DataFile, DataStore, TabularProcessing
+>>> with TemporaryDirectory() as directory:
+...     root = Path(directory)
+...     _ = (root / "Reference - New Transmission.csv").write_text("year,capacity\n2030,10\n2040,20\n", encoding="utf-8")
+...     file_spec = DataFile(name="transmission", relative_fpath="{scenario} - New Transmission.csv", proc_spec=TabularProcessing(filter_by={"year": "{solve_year}"}))
+...     store = DataStore(root)
+...     store.add_data([file_spec])
+...     records = store.read_data("transmission", placeholders={"scenario": "Reference", "solve_year": 2030}).collect().to_dicts()
+...
+>>> # Expected: the declared configuration validates, or the created fixture filters to the requested year.
+>>> records
+[{'year': 2030, 'capacity': 10}]
 ```
 
 `fpath`, `relative_fpath`, and `glob` path sources support placeholders. JSON
@@ -144,13 +162,17 @@ records are resolved against the configured data folder.
 
 ## Value, null, sort, and distinct operations
 
-```python
-processing = TabularProcessing(
-    replace_values={"n/a": None, "west": "western"},
-    fill_null={"capacity": 0},
-    distinct_on=["region", "technology"],
-    sort_by={"region": "asc", "capacity": "desc"},
-)
+```python doctest
+>>> from r2x_core import DataFile, TabularProcessing, ReaderConfig, JSONProcessing
+>>> processing = TabularProcessing(
+...     replace_values={"n/a": None, "west": "western"},
+...     fill_null={"capacity": 0},
+...     distinct_on=["region", "technology"],
+...     sort_by={"region": "asc", "capacity": "desc"},
+... )
+>>> # Expected: the declared configuration validates, or the created fixture filters to the requested year.
+>>> type(processing).__name__
+'TabularProcessing'
 ```
 
 Sort directions are `asc`, `ascending`, `desc`, and `descending`.
@@ -172,15 +194,18 @@ continues to support `rename_index` for JSON object keys.
 
 JSON processing has a separate pipeline for nested JSON values:
 
-```python
-from r2x_core import JSONProcessing
-
-processing = JSONProcessing(
-    key_mapping={"old_name": "name"},
-    drop_keys=["internal_id"],
-    filter_by={"status": "active"},
-    select_keys=["name", "status"],
-)
+```python doctest
+>>> from r2x_core import DataFile, TabularProcessing, ReaderConfig, JSONProcessing
+>>> from r2x_core import JSONProcessing
+>>> processing = JSONProcessing(
+...     key_mapping={"old_name": "name"},
+...     drop_keys=["internal_id"],
+...     filter_by={"status": "active"},
+...     select_keys=["name", "status"],
+... )
+>>> # Expected: the declared configuration validates, or the created fixture filters to the requested year.
+>>> type(processing).__name__
+'JSONProcessing'
 ```
 
 See {py:class}`~r2x_core.TabularProcessing`,

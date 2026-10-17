@@ -132,7 +132,7 @@ Follow documentation standards:
 
 Use descriptive branch names following this pattern:
 
-```
+```text
 <type>/<scope>
 ```
 
@@ -154,7 +154,7 @@ Use descriptive branch names following this pattern:
 
 Follow the [Angular/Karma](https://karma-runner.github.io/6.4/dev/git-commit-msg.html) convention:
 
-```
+```text
 <type>[optional scope]: <description>
 
 [optional body]
@@ -174,7 +174,7 @@ Follow the [Angular/Karma](https://karma-runner.github.io/6.4/dev/git-commit-msg
 
 **Examples:**
 
-```
+```text
 feat(parser): add support for PLEXOS XML files
 fix(validation): handle missing data columns
 docs: update API reference for DataStore

@@ -87,6 +87,10 @@ def main() -> None:
         data = json.loads((output / f"{docname}.fjson").read_text(encoding="utf-8"))
         title = re.sub(r"<[^>]+>", "", data["title"])
         body = re.sub(r"<h1\b[^>]*>.*?</h1>", "", data["body"], count=1, flags=re.S)
+        body = body.replace(
+            'class="doctest highlight-default notranslate"',
+            'class="doctest highlight-pycon notranslate" data-language="pycon"',
+        )
         body = re.sub(r"""href=(["'])(.*?)\1""", partial(rewrite_link, docname=docname), body)
         body = re.sub(
             r'<div class="highlight[^>]*>.*?</pre>',

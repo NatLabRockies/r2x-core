@@ -210,7 +210,7 @@ Plugins are called during the system transformation process:
 Filters are optional transformations that can be applied during component
 creation:
 
-```
+```text
 Raw Data File
   ↓
 Filter 1: rename_columns()

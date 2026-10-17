@@ -12,6 +12,7 @@ extensions = [
 source_suffix = {".md": "markdown", ".rst": "restructuredtext"}
 myst_all_links_external = True
 autosummary_generate = True
+highlight_language = "python"
 autodoc_member_order = "bysource"
 autodoc_typehints = "description"
 autodoc_typehints_format = "short"

@@ -26,7 +26,7 @@ version-controllable artifacts alongside your code. You can:
 
 Example workflow:
 
-```
+```text
 repo/
 ├── src/
 │   └── my_parser.py (fixed logic)

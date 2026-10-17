@@ -6,7 +6,7 @@ All plugins follow a standard directory layout for consistency.
 
 ## Standard Layout
 
-```
+```text
 my_plugin/
 ├── __init__.py
 ├── config.py

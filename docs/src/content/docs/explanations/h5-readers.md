@@ -272,7 +272,7 @@ between zones.
 
 ### Typical Power System HDF5 Layout
 
-```
+```text
 power_system_results.h5
 ├── time_series_metric_1/
 │   ├── data                    # 2D array (time × space)
@@ -315,7 +315,7 @@ with nothing more than configuration changes.
 ReEDS (Regional Energy Deployment System) structures its hourly time series
 output in HDF5 with the following layout:
 
-```
+```text
 reeds_hourly_data.h5
 ├── hourly_demand/
 │   ├── data (8760 x 134)          # Hourly generation, 134 regions
@@ -359,7 +359,7 @@ reader_kwargs = {
 PLEXOS (energy market and operations model) stores interval-based results with
 this structure:
 
-```
+```text
 plexos_results.h5
 ├── Solution/
 │   ├── Generator Output (8760 x 500)    # Generation by unit
@@ -401,7 +401,7 @@ reader_kwargs = {
 
 ### Generic Energy Model Time Series
 
-```
+```text
 file.h5
 ├── data (8760 x 50)        # Hourly data, 50 regions
 ├── columns (50,)           # Region names
@@ -422,7 +422,7 @@ reader_kwargs = {
 
 ### Scientific Measurements
 
-```
+```text
 measurements.h5
 ├── temperature (1000,)     # 1D time series
 ├── pressure (1000,)        # 1D time series
@@ -443,7 +443,7 @@ reader_kwargs = {
 
 ### Simple Tabular Data
 
-```
+```text
 simple.h5
 └── values (100 x 3)        # Just a 2D array
 ```

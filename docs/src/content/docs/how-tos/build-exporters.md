@@ -7,6 +7,8 @@ The output includes serialization metadata; model-specific target formats still 
 Install the library as described in [install](/r2x-core/install/).
 This checked example exports a generic named component and verifies an independent reload:
 
+<span id="exporting-systems"></span>
+
 ```python doctest
 >>> from pathlib import Path
 >>> from tempfile import TemporaryDirectory
@@ -33,3 +35,7 @@ The temporary directory is deleted when the example exits; choose a durable path
 Keep the JSON entrypoint and any time-series sidecars together when transferring an artifact.
 A class-based exporter can place this operation in `on_export()` and return `Ok(None)` on success.
 See [api](/r2x-core/references/api/) for serialization options and [plugins](/r2x-core/references/plugins/) for lifecycle contracts.
+
+<span id="see-also"></span>
+
+Continue with the [plugin lifecycle contracts](/r2x-core/references/plugins/) and [API reference](/r2x-core/references/api/).

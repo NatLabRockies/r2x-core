@@ -6,6 +6,8 @@ Implement `on_build()` to read input data and return a populated `System`.
 Install the library as described in [install](/r2x-core/install/).
 The checked example below uses a temporary input file and verifies the resulting component:
 
+<span id="working-with-systems"></span>
+
 ```python doctest
 >>> from pathlib import Path
 >>> from tempfile import TemporaryDirectory
@@ -45,3 +47,7 @@ The assertions verify that the input row became a component.
 `Generator` is an example model defined here, not a built-in electrical component.
 Use your model package's component classes and validate units when building a real parser.
 Register the parser through [register plugins](/r2x-core/how-tos/register-plugins/) when it needs CLI discovery.
+
+<span id="see-also"></span>
+
+Continue with the [plugin lifecycle contracts](/r2x-core/references/plugins/) and [API reference](/r2x-core/references/api/).

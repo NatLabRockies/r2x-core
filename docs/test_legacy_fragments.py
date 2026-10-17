@@ -23,6 +23,19 @@ class LegacyFragmentsTest(unittest.TestCase):
     def test_bookmarks_reach_final_anchors(self) -> None:
         root = Path(__file__).parent / "dist"
         bookmarks = {
+            "install": (
+                "python-version-support",
+                "installation-options",
+                "installation-with-pip",
+                "installation-with-uv",
+                "upgrading-options",
+                "upgrading-with-uv",
+                "upgrading-with-pip",
+                "verify-installation",
+                "next-steps",
+            ),
+            "how-tos/build-parsers": ("working-with-systems", "see-also"),
+            "how-tos/build-exporters": ("exporting-systems", "see-also"),
             "tutorials/getting-started": (
                 "prerequisites",
                 "working-with-systems",

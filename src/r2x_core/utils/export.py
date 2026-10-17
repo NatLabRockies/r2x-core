@@ -6,8 +6,8 @@ import csv
 from collections.abc import Callable, Iterator
 from itertools import chain
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 from typing import Any
+from uuid import uuid4
 
 from infrasys import Component
 from loguru import logger
@@ -98,16 +98,19 @@ def export_components_to_csv(
 
     fieldnames = list(first_record.keys())
 
+    candidate_path = fpath.with_name(f".{fpath.name}.{uuid4().hex}.tmp")
     temporary_path: Path | None = None
     try:
-        with NamedTemporaryFile(mode="w", newline="", dir=fpath.parent, delete=False) as f:
-            temporary_path = Path(f.name)
+        with candidate_path.open("x", newline="") as f:
+            temporary_path = candidate_path
             writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore", **dict_writer_kwargs)
             writer.writeheader()
             count = 0
             for record in chain((first_record,), records):
                 writer.writerow(record)
                 count += 1
+        if fpath.exists():
+            temporary_path.chmod(fpath.stat().st_mode)
         temporary_path.replace(fpath)
     finally:
         if temporary_path is not None:

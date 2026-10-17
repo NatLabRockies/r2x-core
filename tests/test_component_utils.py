@@ -1,4 +1,8 @@
 import csv
+import os
+import stat
+import subprocess
+import sys
 import tracemalloc
 from pathlib import Path
 
@@ -202,3 +206,35 @@ def test_export_components_to_csv_replaces_existing_file(tmp_path: Path) -> None
     with output_file.open(newline="") as stream:
         assert list(csv.DictReader(stream)) == [{"name": "second"}, {"name": "first"}]
     assert list(tmp_path.iterdir()) == [output_file]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file permission semantics")
+def test_export_components_to_csv_preserves_existing_permissions(tmp_path: Path) -> None:
+    system = System(name="Permissions")
+    system.add_components(Component(name="first"))
+    output_file = tmp_path / "components.csv"
+    output_file.write_text("original")
+    output_file.chmod(0o640)
+
+    export_components_to_csv(system, file_path=output_file, fields=["name"])
+
+    assert stat.S_IMODE(output_file.stat().st_mode) == 0o640
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file permission semantics")
+def test_export_components_to_csv_respects_umask(tmp_path: Path) -> None:
+    output_file = tmp_path / "components.csv"
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import os, sys; from infrasys import Component; "
+            "from r2x_core import System, export_components_to_csv; "
+            "os.umask(0o022); system = System(name='Permissions'); "
+            "system.add_components(Component(name='first')); "
+            "export_components_to_csv(system, file_path=sys.argv[1], fields=['name'])",
+            str(output_file),
+        ],
+        check=True,
+    )
+    assert stat.S_IMODE(output_file.stat().st_mode) == 0o644

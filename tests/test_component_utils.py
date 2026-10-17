@@ -1,4 +1,15 @@
+import csv
+import os
+import stat
+import subprocess
+import sys
+import tracemalloc
+from pathlib import Path
+
+import pytest
 from infrasys import Component
+from pydantic import field_serializer
+from pydantic_core import PydanticSerializationError
 
 from r2x_core.system import System
 from r2x_core.utils import components_to_records, export_components_to_csv
@@ -82,3 +93,254 @@ def test_export_components_to_csv_empty(tmp_path):
     export_components_to_csv(system, file_path=output_file, filter_func=lambda c: False)
 
     assert not output_file.exists()
+
+
+class LargeExportComponent(Component):
+    payload: int = 0
+
+    @field_serializer("payload")
+    def serialize_payload(self, value: int) -> str:
+        return str(value) + "x" * 32768
+
+
+def test_export_components_to_csv_streams_records(tmp_path: Path) -> None:
+    system = System(name="Streaming")
+    system.add_components(*(LargeExportComponent(name=f"component-{i}") for i in range(1000)))
+    output_file = tmp_path / "streamed.csv"
+
+    tracemalloc.start()
+    try:
+        export_components_to_csv(system, file_path=output_file, fields=["name", "payload"])
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    # Eager serialization retains over 32 MB of payloads for this export.
+    assert peak < 4_000_000
+    with output_file.open(newline="") as stream:
+        names = [row["name"] for row in csv.DictReader(stream)]
+    assert names == [component.name for component in system.get_components(Component)]
+
+
+def test_export_components_to_csv_options(tmp_path: Path) -> None:
+    system = System(name="Options")
+    system.add_components(Component(name="keep2"), Component(name="skip"), Component(name="keep1"))
+    output_file = tmp_path / "nested" / "components.csv"
+    export_components_to_csv(
+        system,
+        file_path=output_file,
+        fields=["name"],
+        key_mapping={"name": "label"},
+        filter_func=lambda component: component.name.startswith("keep"),
+        delimiter=";",
+    )
+    with output_file.open(newline="") as stream:
+        assert list(csv.DictReader(stream, delimiter=";")) == [{"label": "keep2"}, {"label": "keep1"}]
+    assert list(output_file.parent.iterdir()) == [output_file]
+
+
+def test_export_components_to_csv_empty_preserves_existing_file(tmp_path: Path) -> None:
+    system = System(name="Empty")
+    output_file = tmp_path / "existing.csv"
+    output_file.write_text("original")
+    export_components_to_csv(system, file_path=output_file)
+    assert output_file.read_text() == "original"
+
+
+def test_export_components_to_csv_empty_fields_writes_rows(tmp_path: Path) -> None:
+    system = System(name="EmptyFields")
+    system.add_components(Component(name="first"), Component(name="second"))
+    output_file = tmp_path / "empty-fields.csv"
+    export_components_to_csv(system, file_path=output_file, fields=[])
+    assert output_file.read_bytes() == b"\r\n\r\n\r\n"
+
+
+class FailingExportComponent(Component):
+    payload: int = 0
+
+    @field_serializer("payload")
+    def serialize_payload(self, value: int) -> int:
+        if value < 0:
+            raise ValueError("Cannot serialize negative payload")
+        return value
+
+
+@pytest.mark.parametrize("existing", [False, True])
+@pytest.mark.parametrize("failure", ["serialization", "filter"])
+def test_export_components_to_csv_failure_preserves_destination(
+    tmp_path: Path, existing: bool, failure: str
+) -> None:
+    system = System(name="Failure")
+    system.add_components(
+        FailingExportComponent(name="first", payload=1),
+        FailingExportComponent(name="second", payload=-1 if failure == "serialization" else 2),
+    )
+    output_file = tmp_path / "components.csv"
+    if existing:
+        output_file.write_bytes(b"original\r\n")
+
+    def filter_component(component: Component) -> bool:
+        if failure == "filter" and component.name == "second":
+            raise ValueError("Cannot filter second component")
+        return True
+
+    expected_error = PydanticSerializationError if failure == "serialization" else ValueError
+    with pytest.raises(expected_error):
+        export_components_to_csv(system, file_path=output_file, filter_func=filter_component)
+
+    if existing:
+        assert output_file.read_bytes() == b"original\r\n"
+    else:
+        assert not output_file.exists()
+    assert list(tmp_path.iterdir()) == ([output_file] if existing else [])
+
+
+def test_export_components_to_csv_updates_existing_file_in_place(tmp_path: Path) -> None:
+    system = System(name="Replacement")
+    system.add_components(Component(name="second"), Component(name="first"))
+    output_file = tmp_path / "components.csv"
+    output_file.write_text("original")
+    original_inode = output_file.stat().st_ino
+
+    export_components_to_csv(system, file_path=output_file, fields=["name"])
+
+    with output_file.open(newline="") as stream:
+        assert list(csv.DictReader(stream)) == [{"name": "second"}, {"name": "first"}]
+    assert list(tmp_path.iterdir()) == [output_file]
+    assert output_file.stat().st_ino == original_inode
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file permission semantics")
+def test_export_components_to_csv_preserves_existing_permissions(tmp_path: Path) -> None:
+    system = System(name="Permissions")
+    system.add_components(Component(name="first"))
+    output_file = tmp_path / "components.csv"
+    output_file.write_text("original")
+    output_file.chmod(0o640)
+
+    export_components_to_csv(system, file_path=output_file, fields=["name"])
+
+    assert stat.S_IMODE(output_file.stat().st_mode) == 0o640
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file permission semantics")
+def test_export_components_to_csv_respects_umask(tmp_path: Path) -> None:
+    output_file = tmp_path / "components.csv"
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import os, sys; from infrasys import Component; "
+            "from r2x_core import System, export_components_to_csv; "
+            "os.umask(0o022); system = System(name='Permissions'); "
+            "system.add_components(Component(name='first')); "
+            "export_components_to_csv(system, file_path=sys.argv[1], fields=['name'])",
+            str(output_file),
+        ],
+        check=True,
+    )
+    assert stat.S_IMODE(output_file.stat().st_mode) == 0o644
+
+
+def test_export_components_to_csv_prepares_before_opening_destination(tmp_path: Path) -> None:
+    system = System(name="Restricted")
+    system.add_components(Component(name="first"), Component(name="second"))
+    output_file = tmp_path / "components.csv"
+    output_file.write_text("original")
+    observed_contents: list[str] = []
+
+    def inspect_staging(component: Component) -> bool:
+        if component.name == "second":
+            assert list(tmp_path.iterdir()) == [output_file]
+            observed_contents.append(output_file.read_text())
+        return True
+
+    export_components_to_csv(system, file_path=output_file, filter_func=inspect_staging)
+
+    assert observed_contents == ["original"]
+    assert list(tmp_path.iterdir()) == [output_file]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX symlink semantics")
+def test_export_components_to_csv_preserves_symlink(tmp_path: Path) -> None:
+    system = System(name="Symlink")
+    system.add_components(Component(name="first"))
+    target = tmp_path / "target" / "components.csv"
+    target.parent.mkdir()
+    target.write_text("original")
+    link = tmp_path / "linked.csv"
+    link.symlink_to(target.relative_to(tmp_path))
+
+    export_components_to_csv(system, file_path=link, fields=["name"])
+
+    assert link.is_symlink()
+    assert link.read_bytes() == target.read_bytes() == b"name\r\nfirst\r\n"
+    assert list(target.parent.iterdir()) == [target]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX filename length semantics")
+def test_export_components_to_csv_supports_long_filenames(tmp_path: Path) -> None:
+    system = System(name="LongFilename")
+    system.add_components(Component(name="first"))
+    output_file = tmp_path / ("x" * 236 + ".csv")
+
+    export_components_to_csv(system, file_path=output_file, fields=["name"])
+
+    assert output_file.read_bytes() == b"name\r\nfirst\r\n"
+    assert list(tmp_path.iterdir()) == [output_file]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file permission semantics")
+def test_export_components_to_csv_preserves_read_only_destination(tmp_path: Path) -> None:
+    if os.geteuid() == 0:
+        pytest.skip("Root can write read-only files")
+    system = System(name="ReadOnly")
+    system.add_components(Component(name="first"))
+    output_file = tmp_path / "components.csv"
+    output_file.write_bytes(b"original")
+    output_file.chmod(0o444)
+    try:
+        with pytest.raises(PermissionError):
+            export_components_to_csv(system, file_path=output_file)
+        assert output_file.read_bytes() == b"original"
+        assert stat.S_IMODE(output_file.stat().st_mode) == 0o444
+        assert list(tmp_path.iterdir()) == [output_file]
+    finally:
+        output_file.chmod(0o600)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX directory permission semantics")
+def test_export_components_to_csv_writes_in_read_only_directory(tmp_path: Path) -> None:
+    if os.geteuid() == 0:
+        pytest.skip("Root can write read-only directories")
+    system = System(name="ReadOnlyDirectory")
+    system.add_components(Component(name="first"))
+    directory = tmp_path / "restricted"
+    directory.mkdir()
+    output_file = directory / "components.csv"
+    output_file.write_text("original")
+    output_file.chmod(0o666)
+    directory.chmod(0o555)
+    try:
+        export_components_to_csv(system, file_path=output_file, fields=["name"])
+        assert output_file.read_bytes() == b"name\r\nfirst\r\n"
+    finally:
+        directory.chmod(0o755)
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS ACL regression")
+def test_export_components_to_csv_preserves_access_acl(tmp_path: Path) -> None:
+    system = System(name="AccessControl")
+    system.add_components(Component(name="first"))
+    output_file = tmp_path / "components.csv"
+    output_file.write_text("original")
+    subprocess.run(["chmod", "+a", "everyone deny read", str(output_file)], check=True)
+    try:
+        export_components_to_csv(system, file_path=output_file, fields=["name"])
+        permissions = subprocess.run(
+            ["ls", "-le", str(output_file)], check=True, capture_output=True, text=True
+        ).stdout
+        assert "everyone deny read" in permissions
+    finally:
+        subprocess.run(["chmod", "-N", str(output_file)], check=True)
+    assert output_file.read_bytes() == b"name\r\nfirst\r\n"

@@ -38,7 +38,7 @@ from polars.datatypes.classes import DataTypeClass
 from pydantic import ValidationError as PydanticValidationError
 from rust_ok import Err, Ok, Result
 
-from r2x_core.types import JSONType
+from r2x_core.types import JSONValue
 
 from .datafile import DataFile, FileProcessing, JSONProcessing, TabularProcessing
 from .exceptions import ValidationError
@@ -260,7 +260,7 @@ def process_tabular_data(
     return data_frame
 
 
-def process_json_data(json_data: JSONType, *, data_file: DataFile, proc_spec: JSONProcessing) -> JSONType:
+def process_json_data(json_data: JSONValue, *, data_file: DataFile, proc_spec: JSONProcessing) -> JSONValue:
     """Apply JSON data transformations sequentially.
 
     Executes a pipeline of transformations (rename_keys, drop_columns, select_columns,
@@ -269,7 +269,7 @@ def process_json_data(json_data: JSONType, *, data_file: DataFile, proc_spec: JS
 
     Parameters
     ----------
-    json_data : JSONType
+    json_data : JSONValue
         Input JSON data (dict, list of dicts, or nested structures).
     data_file : DataFile
         File configuration providing context for logging and validation.
@@ -278,7 +278,7 @@ def process_json_data(json_data: JSONType, *, data_file: DataFile, proc_spec: JS
 
     Returns
     -------
-    JSONType
+    JSONValue
         Transformed JSON data with all operations applied in sequence.
 
     See Also
@@ -846,7 +846,7 @@ def pl_select_columns(
     return TabularTransformResult(data_frame=data_frame.select(cols_to_select), schema_names=cols_to_select)
 
 
-def json_rename_keys(json_data: JSONType, *, data_file: DataFile, proc_spec: JSONProcessing) -> JSONType:
+def json_rename_keys(json_data: JSONValue, *, data_file: DataFile, proc_spec: JSONProcessing) -> JSONValue:
     """Rename keys based on key mapping from JSONProcessing.
 
     Applies renaming recursively to nested dictionaries.
@@ -856,17 +856,17 @@ def json_rename_keys(json_data: JSONType, *, data_file: DataFile, proc_spec: JSO
 
     mapping = proc_spec.key_mapping
 
-    def rename_keys_recursive(obj: JSONType) -> JSONType:
+    def rename_keys_recursive(obj: JSONValue) -> JSONValue:
         """Recursively rename keys in nested JSON structure.
 
         Parameters
         ----------
-        obj : JSONType
+        obj : JSONValue
             JSON object (dict, list, or scalar) to process.
 
         Returns
         -------
-        JSONType
+        JSONValue
             Object with renamed keys applied recursively.
         """
         if isinstance(obj, dict):
@@ -879,24 +879,24 @@ def json_rename_keys(json_data: JSONType, *, data_file: DataFile, proc_spec: JSO
     return rename_keys_recursive(json_data)
 
 
-def json_drop_columns(json_data: JSONType, *, data_file: DataFile, proc_spec: JSONProcessing) -> JSONType:
+def json_drop_columns(json_data: JSONValue, *, data_file: DataFile, proc_spec: JSONProcessing) -> JSONValue:
     """Drop specified columns/keys from JSON data recursively."""
     if not proc_spec or not proc_spec.drop_keys:
         return json_data
 
     drop_keys = proc_spec.drop_keys
 
-    def drop_keys_recursive(obj: JSONType) -> JSONType:
+    def drop_keys_recursive(obj: JSONValue) -> JSONValue:
         """Recursively remove specified keys from nested JSON structure.
 
         Parameters
         ----------
-        obj : JSONType
+        obj : JSONValue
             JSON object (dict, list, or scalar) to process.
 
         Returns
         -------
-        JSONType
+        JSONValue
             Object with specified keys removed recursively.
         """
         if isinstance(obj, dict):
@@ -909,24 +909,24 @@ def json_drop_columns(json_data: JSONType, *, data_file: DataFile, proc_spec: JS
     return drop_keys_recursive(json_data)
 
 
-def json_select_columns(json_data: JSONType, *, data_file: DataFile, proc_spec: JSONProcessing) -> JSONType:
+def json_select_columns(json_data: JSONValue, *, data_file: DataFile, proc_spec: JSONProcessing) -> JSONValue:
     """Select specific columns/keys from JSON data."""
     if not proc_spec or not proc_spec.select_keys:
         return json_data
 
     columns_to_select = proc_spec.select_keys
 
-    def select_keys_recursive(obj: JSONType) -> JSONType:
+    def select_keys_recursive(obj: JSONValue) -> JSONValue:
         """Recursively select specified keys from nested JSON structure.
 
         Parameters
         ----------
-        obj : JSONType
+        obj : JSONValue
             JSON object (dict, list, or scalar) to process.
 
         Returns
         -------
-        JSONType
+        JSONValue
             Object with only selected keys preserved recursively.
         """
         if isinstance(obj, dict):
@@ -940,23 +940,23 @@ def json_select_columns(json_data: JSONType, *, data_file: DataFile, proc_spec: 
 
 
 def json_apply_filters(
-    json_data: JSONType,
+    json_data: JSONValue,
     *,
     data_file: DataFile,
     proc_spec: JSONProcessing | None,
-) -> JSONType:
+) -> JSONValue:
     """Filter JSON data by key-value pairs."""
     if not proc_spec or not proc_spec.filter_by:
         return json_data
 
     filters = proc_spec.filter_by
 
-    def matches(obj: JSONType) -> bool:
+    def matches(obj: JSONValue) -> bool:
         """Check if object matches all filter criteria.
 
         Parameters
         ----------
-        obj : JSONType
+        obj : JSONValue
             Object to check against filters.
 
         Returns
@@ -985,11 +985,11 @@ def json_apply_filters(
 
 
 def json_select_keys(
-    json_data: JSONType,
+    json_data: JSONValue,
     *,
     data_file: DataFile,
     proc_spec: JSONProcessing | None,
-) -> JSONType:
+) -> JSONValue:
     """Select specific keys from JSON data (dict or list of dicts)."""
     if not proc_spec or not proc_spec.select_keys:
         return json_data

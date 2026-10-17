@@ -147,3 +147,35 @@ def test_upgrade_coordinator_should_attempt() -> None:
 
     coordinator = UpgradeCoordinator(handler=handler)
     assert coordinator.should_attempt(exc)
+
+
+@pytest.mark.parametrize("as_result", [False, True])
+def test_upgrade_coordinator_preserves_exception_cause(tmp_path: Path, as_result: bool) -> None:
+    cause = FileNotFoundError("missing input")
+
+    def handler(*, store: DataStore) -> Err[None, FileNotFoundError]:
+        if as_result:
+            return Err(cause)
+        raise cause
+
+    coordinator = UpgradeCoordinator(handler=handler)
+    with pytest.raises((UpgradeError, FileNotFoundError)) as exc_info:
+        coordinator.run(store=DataStore(path=tmp_path), reason="test")
+    if as_result:
+        assert exc_info.value is cause
+    else:
+        assert exc_info.value.__cause__ is cause
+    assert coordinator.ran is False
+
+
+def test_upgrade_coordinator_propagates_programming_errors(tmp_path: Path) -> None:
+    cause = TypeError("invalid handler")
+
+    def handler(*, store: DataStore) -> None:
+        raise cause
+
+    coordinator = UpgradeCoordinator(handler=handler)
+    with pytest.raises(TypeError) as exc_info:
+        coordinator.run(store=DataStore(path=tmp_path), reason="test")
+    assert exc_info.value is cause
+    assert coordinator.ran is False

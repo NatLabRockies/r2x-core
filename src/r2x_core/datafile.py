@@ -78,8 +78,10 @@ class ReaderConfig(BaseModel):
 
     Attributes
     ----------
-    function : Callable[[Path], Any] | None
-        Custom reader function that takes file path and returns loaded data.
+    function : Callable[..., Any] | None
+        Custom reader function that takes a file path and configured keyword
+        arguments and returns loaded data. The argument types are dynamic
+        because each reader defines its own options.
         If None, uses the default reader for the file type. Default is None.
     kwargs : dict[str, Any]
         Keyword arguments passed to the reader function. Default is empty.
@@ -95,7 +97,7 @@ class ReaderConfig(BaseModel):
     """
 
     kwargs: Annotated[dict[str, Any], Field(default_factory=dict, description="Keyword arguments for reader")]
-    function: Annotated[Callable[[Path], Any] | None, Field(description="Custom reader function")] = None
+    function: Annotated[Callable[..., Any] | None, Field(description="Custom reader function")] = None
     header_rows: Annotated[int, Field(ge=1, description="Number of CSV/TSV header rows to combine")] = 1
     header_separator: Annotated[
         str, Field(min_length=1, description="Separator used to combine multi-row headers")

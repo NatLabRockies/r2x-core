@@ -6,7 +6,17 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    import polars as pl
+
     from .rules import Rule
+
+
+@dataclass
+class TabularTransformResult:
+    """Lazy tabular frame and its ordered output column names."""
+
+    data_frame: pl.LazyFrame
+    schema_names: list[str]
 
 
 @dataclass(frozen=True, slots=True)

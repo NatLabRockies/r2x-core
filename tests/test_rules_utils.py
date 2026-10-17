@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
+from types import ModuleType
 from typing import Any, cast
+from uuid import uuid4
 
 import pytest
 from fixtures.source_system import BusComponent
 from fixtures.target_system import NodeComponent
 from rust_ok import Err, Ok, Result
 
-from r2x_core import Rule
+from r2x_core import PluginConfig, PluginContext, Rule
 from r2x_core.utils import (
     build_attr_getter,
     build_component_kwargs,
@@ -27,6 +30,39 @@ def test_resolve_component_type_success(context_example):
 
     assert result.is_ok()
     assert result.unwrap() is BusComponent
+
+
+@pytest.mark.parametrize("change_config", [False, True])
+def test_resolve_component_type_cache_respects_model_scope(
+    monkeypatch: pytest.MonkeyPatch, *, change_config: bool
+) -> None:
+    first = ModuleType(f"models_first_{uuid4().hex}")
+    second = ModuleType(f"models_second_{uuid4().hex}")
+    first_type = type("SharedType", (), {})
+    second_type = type("SharedType", (), {})
+    first.SharedType = first_type
+    second.SharedType = second_type
+    monkeypatch.setitem(sys.modules, first.__name__, first)
+    monkeypatch.setitem(sys.modules, second.__name__, second)
+    config = PluginConfig(models=(first.__name__, second.__name__))
+    context = PluginContext(config=config)
+
+    assert resolve_component_type("SharedType", context=context).ok() is first_type
+    assert resolve_component_type("SharedType", context=context).ok() is first_type
+
+    reversed_config = PluginConfig(models=(second.__name__, first.__name__))
+    if change_config:
+        context.config = reversed_config
+    else:
+        context = PluginContext(config=reversed_config)
+    assert resolve_component_type("SharedType", context=context).ok() is second_type
+
+    context.config = PluginConfig(models=(first.__name__,))
+    assert resolve_component_type("SharedType", context=context).ok() is first_type
+    context.config = PluginConfig(models=())
+    result = resolve_component_type("SharedType", context=context)
+    assert result.is_err()
+    assert "not found in modules: []" in str(result.err())
 
 
 def test_resolve_component_type_skips_import_errors(monkeypatch, context_example):

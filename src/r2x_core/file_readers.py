@@ -27,7 +27,7 @@ _HEADER_READ_OPTIONS = frozenset(
 
 
 @singledispatch
-def read_file_by_type(file_type_instance: Any, *, file_path: Path, **reader_kwargs: dict[str, Any]) -> Any:
+def read_file_by_type(file_type_instance: Any, *, file_path: Path, **reader_kwargs: Any) -> Any:
     """Read file based on FileFormat instance using single dispatch.
 
     This is the main dispatch function that routes to specific readers
@@ -216,7 +216,7 @@ def _(file_type_class: JSONFormat, *, file_path: Path, **reader_kwargs: Any) -> 
 
 
 @read_file_by_type.register
-def _(file_type_class: XMLFormat, *, file_path: Path, **reader_kwargs: dict[str, Any]) -> ElementTree.Element:
+def _(file_type_class: XMLFormat, *, file_path: Path, **reader_kwargs: Any) -> ElementTree.Element:
     """Read XML files and return the root element.
 
     Parameters

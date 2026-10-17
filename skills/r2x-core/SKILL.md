@@ -151,7 +151,7 @@ def rename_system(system: System, config: RenameConfig) -> Result[System, str]:
 4. **Implement a small vertical slice:** keep configuration, domain models,
    translator logic, and boundary serialization separate. Reuse existing APIs.
 5. **Validate narrowly, then expand:** run focused tests first, then the
-   repository's `just` target or required `prek`/pytest checks. Round-trip real
+   repository's `mise run` task or required `prek`/pytest checks. Round-trip real
    systems when persistence is involved.
 6. **Report evidence:** include public behaviors changed, exact commands and
    outcomes, assumptions, and remaining risks.

@@ -11,7 +11,7 @@ on:
       - "uv.lock"
       - ".github/workflows/ci.yaml"
       - ".pre-commit-config.yaml"
-      - "justfile"
+      - "mise.toml"
   pull_request:
     paths:
       - "src/**"
@@ -20,7 +20,7 @@ on:
       - "uv.lock"
       - ".github/workflows/ci.yaml"
       - ".pre-commit-config.yaml"
-      - "justfile"
+      - "mise.toml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref_name }}

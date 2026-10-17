@@ -295,27 +295,27 @@ including tutorials, how-to guides, and the API reference.
 
 ## Development
 
-This repository uses [uv](https://docs.astral.sh/uv/) and `just` for local
+This repository uses [uv](https://docs.astral.sh/uv/) and [mise](https://mise.jdx.dev/) for local
 automation.
 
 ```console
-just setup
-just hooks
-just test
-just docs
+mise run setup
+mise run hooks
+mise run test
+mise run docs
 ```
 
 Common tasks:
 
 | Command        | Purpose                                   |
 | -------------- | ----------------------------------------- |
-| `just setup`   | Install all dependency groups.            |
-| `just format`  | Format Python code with Ruff.             |
-| `just lint`    | Run Ruff checks.                          |
-| `just type`    | Run `ty` type checks.                     |
-| `just test`    | Run pytest.                               |
-| `just docs`    | Build Sphinx docs.                        |
-| `just verify`  | Run hooks, docstring coverage, and tests. |
+| `mise run setup`   | Install all dependency groups.            |
+| `mise run format`  | Format Python code with Ruff.             |
+| `mise run lint`    | Run Ruff checks.                          |
+| `mise run type`    | Run `ty` type checks.                     |
+| `mise run test`    | Run pytest.                               |
+| `mise run docs`    | Build Sphinx docs.                        |
+| `mise run verify`  | Run hooks, docstring coverage, and tests. |
 
 ## Roadmap
 

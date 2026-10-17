@@ -195,17 +195,19 @@ def test_export_components_to_csv_failure_preserves_destination(
     assert list(tmp_path.iterdir()) == ([output_file] if existing else [])
 
 
-def test_export_components_to_csv_replaces_existing_file(tmp_path: Path) -> None:
+def test_export_components_to_csv_updates_existing_file_in_place(tmp_path: Path) -> None:
     system = System(name="Replacement")
     system.add_components(Component(name="second"), Component(name="first"))
     output_file = tmp_path / "components.csv"
     output_file.write_text("original")
+    original_inode = output_file.stat().st_ino
 
     export_components_to_csv(system, file_path=output_file, fields=["name"])
 
     with output_file.open(newline="") as stream:
         assert list(csv.DictReader(stream)) == [{"name": "second"}, {"name": "first"}]
     assert list(tmp_path.iterdir()) == [output_file]
+    assert output_file.stat().st_ino == original_inode
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX file permission semantics")
@@ -240,25 +242,22 @@ def test_export_components_to_csv_respects_umask(tmp_path: Path) -> None:
     assert stat.S_IMODE(output_file.stat().st_mode) == 0o644
 
 
-@pytest.mark.skipif(os.name != "posix", reason="POSIX file permission semantics")
-def test_export_components_to_csv_stages_with_restricted_permissions(tmp_path: Path) -> None:
+def test_export_components_to_csv_prepares_before_opening_destination(tmp_path: Path) -> None:
     system = System(name="Restricted")
     system.add_components(Component(name="first"), Component(name="second"))
     output_file = tmp_path / "components.csv"
     output_file.write_text("original")
-    output_file.chmod(0o600)
-    observed_modes: list[int] = []
+    observed_contents: list[str] = []
 
     def inspect_staging(component: Component) -> bool:
         if component.name == "second":
-            staging_files = [path for path in tmp_path.iterdir() if path != output_file]
-            assert len(staging_files) == 1
-            observed_modes.append(stat.S_IMODE(staging_files[0].stat().st_mode))
+            assert list(tmp_path.iterdir()) == [output_file]
+            observed_contents.append(output_file.read_text())
         return True
 
     export_components_to_csv(system, file_path=output_file, filter_func=inspect_staging)
 
-    assert observed_modes == [0o600]
+    assert observed_contents == ["original"]
     assert list(tmp_path.iterdir()) == [output_file]
 
 
@@ -308,3 +307,40 @@ def test_export_components_to_csv_preserves_read_only_destination(tmp_path: Path
         assert list(tmp_path.iterdir()) == [output_file]
     finally:
         output_file.chmod(0o600)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX directory permission semantics")
+def test_export_components_to_csv_writes_in_read_only_directory(tmp_path: Path) -> None:
+    if os.geteuid() == 0:
+        pytest.skip("Root can write read-only directories")
+    system = System(name="ReadOnlyDirectory")
+    system.add_components(Component(name="first"))
+    directory = tmp_path / "restricted"
+    directory.mkdir()
+    output_file = directory / "components.csv"
+    output_file.write_text("original")
+    output_file.chmod(0o666)
+    directory.chmod(0o555)
+    try:
+        export_components_to_csv(system, file_path=output_file, fields=["name"])
+        assert output_file.read_bytes() == b"name\r\nfirst\r\n"
+    finally:
+        directory.chmod(0o755)
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS ACL regression")
+def test_export_components_to_csv_preserves_access_acl(tmp_path: Path) -> None:
+    system = System(name="AccessControl")
+    system.add_components(Component(name="first"))
+    output_file = tmp_path / "components.csv"
+    output_file.write_text("original")
+    subprocess.run(["chmod", "+a", "everyone deny read", str(output_file)], check=True)
+    try:
+        export_components_to_csv(system, file_path=output_file, fields=["name"])
+        permissions = subprocess.run(
+            ["ls", "-le", str(output_file)], check=True, capture_output=True, text=True
+        ).stdout
+        assert "everyone deny read" in permissions
+    finally:
+        subprocess.run(["chmod", "-N", str(output_file)], check=True)
+    assert output_file.read_bytes() == b"name\r\nfirst\r\n"

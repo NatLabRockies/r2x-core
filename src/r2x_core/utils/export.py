@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import csv
-import os
 from collections.abc import Callable, Iterator
 from itertools import chain
 from pathlib import Path
+from shutil import copyfileobj
+from tempfile import TemporaryFile
 from typing import Any
-from uuid import uuid4
 
 from infrasys import Component
 from loguru import logger
@@ -86,6 +86,13 @@ def export_components_to_csv(
         Mapping of component field names to CSV column names.
     **dict_writer_kwargs
         Additional arguments passed to csv.DictWriter.
+
+    Notes
+    -----
+    Serialization and filtering finish in a disk-backed temporary stream before
+    the destination is opened. Preparation failures leave existing output intact.
+    The final write retains normal file semantics; an I/O failure during copying
+    can leave partial output, as with a direct file write.
     """
     records = iter_component_records(system, filter_func=filter_func, fields=fields, key_mapping=key_mapping)
 
@@ -94,36 +101,19 @@ def export_components_to_csv(
         logger.warning("No components to export")
         return
 
-    fpath = Path(file_path).resolve()
+    fpath = Path(file_path)
     fpath.parent.mkdir(parents=True, exist_ok=True)
 
     fieldnames = list(first_record.keys())
 
-    destination_exists = fpath.exists()
-    if destination_exists:
-        descriptor = os.open(fpath, os.O_WRONLY)
-        os.close(descriptor)
-    destination_mode = 0o600 if destination_exists else 0o666
-    candidate_path = fpath.with_name(f".r2x-export-{uuid4().hex}.tmp")
-    temporary_path: Path | None = None
-    try:
-        with open(
-            candidate_path,
-            "x",
-            newline="",
-            opener=lambda path, flags: os.open(path, flags, mode=destination_mode),
-        ) as f:
-            temporary_path = candidate_path
-            writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore", **dict_writer_kwargs)
-            writer.writeheader()
-            count = 0
-            for record in chain((first_record,), records):
-                writer.writerow(record)
-                count += 1
-        if fpath.exists():
-            temporary_path.chmod(fpath.stat().st_mode)
-        temporary_path.replace(fpath)
-    finally:
-        if temporary_path is not None:
-            temporary_path.unlink(missing_ok=True)
+    with TemporaryFile(mode="w+", newline="") as prepared:
+        writer = csv.DictWriter(prepared, fieldnames=fieldnames, extrasaction="ignore", **dict_writer_kwargs)
+        writer.writeheader()
+        count = 0
+        for record in chain((first_record,), records):
+            writer.writerow(record)
+            count += 1
+        prepared.seek(0)
+        with fpath.open("w", newline="") as destination:
+            copyfileobj(prepared, destination, length=65536)
     logger.info("Exported {} components to {}", count, fpath)

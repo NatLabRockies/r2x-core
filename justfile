@@ -49,4 +49,4 @@ hooks:
 
 # Comprehensive verification: hooks + tests + docstring coverage.
 verify: hooks docstrings
-    uv run --locked pytest --tb=short --cov --cov-report=term-missing:skip-covered
+    uv run --locked pytest --tb=short --cov-report=term-missing:skip-covered

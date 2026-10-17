@@ -462,7 +462,7 @@ True
 'analysis_advanced_daily'
 ```
 
-#### 4. Configuration with Python 3.12 Type Parameters
+#### 4. Generic Configuration Types
 
 ```python doctest
 >>> from r2x_core import expose_plugin, PluginConfig, System
@@ -477,8 +477,11 @@ True
 >>> class RotateConfig(BaseTransformConfig):
 ...     angle: float = 0.0
 
+>>> from typing import TypeVar
+>>> C = TypeVar("C", bound=BaseTransformConfig)
+
 >>> @expose_plugin
-... def generic_transform[C: BaseTransformConfig](
+... def generic_transform(
 ...     system: System,
 ...     config: C,
 ... ) -> Result[System, str]:

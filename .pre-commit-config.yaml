@@ -58,7 +58,7 @@ repos:
         types_or: [python, pyi]
       - id: ty-check
         name: ty check
-        entry: uv run --locked ty check src/
+        entry: uv run --locked ty check
         language: system
         pass_filenames: false
         files: ^(src/|tests/|pyproject\.toml|uv\.lock)

@@ -9,7 +9,7 @@ alias sync := setup
 
 # Install dev dependencies.
 setup:
-    uv sync --all-groups --upgrade
+    uv sync --all-groups --locked
 
 # Update uv.lock.
 lock:
@@ -17,36 +17,36 @@ lock:
 
 # Install git hooks.
 hooks-install:
-    uv run prek install
+    uv run --locked prek install
 
 # Format code.
 format *ARGS:
-    uv run ruff format {{ARGS}}
+    uv run --locked ruff format {{ARGS}}
 
 # Lint code.
 lint *ARGS:
-    uv run ruff check --config=pyproject.toml {{ARGS}}
+    uv run --locked ruff check --config=pyproject.toml {{ARGS}}
 
 # Type check.
 type:
-    uv run ty check src/
+    uv run --locked ty check
 
 # Check docstring coverage.
 docstrings:
-    uv run docstr-coverage src --badge docs/source/_static --percentage-only
+    uv run --locked docstr-coverage src --badge docs/source/_static --percentage-only
 
 # Run tests.
 test *ARGS:
-    uv run pytest -q --cov-report=term-missing:skip-covered {{ARGS}}
+    uv run --locked pytest -q --cov-report=term-missing:skip-covered {{ARGS}}
 
 # Build documentation.
 docs:
-    uv run sphinx-build -M html docs/source docs/build
+    uv run --locked sphinx-build -M html docs/source docs/build
 
 # Run prek hooks (format, lint, type check, file hygiene).
 hooks:
-    uv run prek run --all-files
+    uv run --locked prek run --all-files --stage pre-commit --show-diff-on-failure
 
 # Comprehensive verification: hooks + tests + docstring coverage.
 verify: hooks docstrings
-    uv run pytest --tb=short --cov --cov-report=term-missing:skip-covered
+    uv run --locked pytest --tb=short --cov --cov-report=term-missing:skip-covered

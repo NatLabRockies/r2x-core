@@ -70,7 +70,6 @@ Changelog = "https://natlabrockies.github.io/r2x-core/CHANGELOG.html"
 [dependency-groups]
 dev = [
   "h5py-stubs>=0.1.2,<1.0.0",
-  "mypy>=1.18.2,<2.0.0",
   "prek>=0.4.1,<0.6.0",
   "pytest>=8.4.2,<10.0.0",
   "pytest-coverage>=0.0,<1.0.0",
@@ -95,10 +94,8 @@ docs = [
 requires = ["uv_build>=0.8.22,<0.10.0"]
 build-backend = "uv_build"
 
-[tool.mypy]
-strict = true
-exclude = ["tests/"]
-plugins = ["pydantic.mypy"]
+[tool.ty.src]
+include = ["src"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

@@ -71,6 +71,27 @@ def test_add_components_with_conflicting_system_base_raises():
     with pytest.raises(ValueError, match="already has _system_base"):
         system.add_components(component)
 
+    assert not system.has_component(component)
+    assert component._get_system_base() == 200.0
+
+
+@pytest.mark.parametrize("invalid_first", [False, True])
+def test_add_components_rejects_invalid_base_without_mutating_batch(invalid_first: bool) -> None:
+    system = System(100.0, name="Batch")
+    existing = Component(name="existing")
+    system.add_components(existing)
+    valid = PerUnitComponentFixture(name="valid")
+    invalid = PerUnitComponentFixture(name="invalid")
+    invalid._system_base = 200.0
+    batch = [invalid, valid] if invalid_first else [valid, invalid]
+
+    with pytest.raises(ValueError, match="already has _system_base"):
+        system.add_components(*batch)
+
+    assert list(system.get_components(Component)) == [existing]
+    assert valid._get_system_base() is None
+    assert invalid._get_system_base() == 200.0
+
 
 @pytest.mark.parametrize(
     "fname",

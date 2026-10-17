@@ -1,7 +1,7 @@
 # Utilities
 
 ```{eval-rst}
-.. autofunction:: r2x_core.utils.filter_valid_kwargs
+.. autofunction:: r2x_core.utils.filter_kwargs_for
    :noindex:
 ```
 
@@ -26,7 +26,7 @@
 ```
 
 ```{eval-rst}
-.. autofunction:: r2x_core.utils.override_dictionary
+.. autofunction:: r2x_core.utils.merge_with_overrides
    :noindex:
 ```
 

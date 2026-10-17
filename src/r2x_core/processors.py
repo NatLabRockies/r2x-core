@@ -38,10 +38,11 @@ from polars.datatypes.classes import DataTypeClass
 from pydantic import ValidationError as PydanticValidationError
 from rust_ok import Err, Ok, Result
 
-from r2x_core.types import JSONType
+from r2x_core.types import JSONValue
 
 from .datafile import DataFile, FileProcessing, JSONProcessing, TabularProcessing
 from .exceptions import ValidationError
+from .result import TabularTransformResult
 
 # Regex to find simple placeholders
 _PLACEHOLDER_PATTERN = re.compile(r"\{([^}]+)\}")
@@ -253,16 +254,13 @@ def process_tabular_data(
 
     for transform in pipeline:
         result = transform(data_frame, data_file=data_file, proc_spec=proc_spec, schema_names=schema_names)
-        if isinstance(result, tuple):
-            data_frame, schema_names = result
-        else:
-            data_frame = result
-            schema_names = list(data_frame.collect_schema().names())
+        data_frame = result.data_frame
+        schema_names = result.schema_names
 
     return data_frame
 
 
-def process_json_data(json_data: JSONType, *, data_file: DataFile, proc_spec: JSONProcessing) -> JSONType:
+def process_json_data(json_data: JSONValue, *, data_file: DataFile, proc_spec: JSONProcessing) -> JSONValue:
     """Apply JSON data transformations sequentially.
 
     Executes a pipeline of transformations (rename_keys, drop_columns, select_columns,
@@ -271,7 +269,7 @@ def process_json_data(json_data: JSONType, *, data_file: DataFile, proc_spec: JS
 
     Parameters
     ----------
-    json_data : JSONType
+    json_data : JSONValue
         Input JSON data (dict, list of dicts, or nested structures).
     data_file : DataFile
         File configuration providing context for logging and validation.
@@ -280,7 +278,7 @@ def process_json_data(json_data: JSONType, *, data_file: DataFile, proc_spec: JS
 
     Returns
     -------
-    JSONType
+    JSONValue
         Transformed JSON data with all operations applied in sequence.
 
     See Also
@@ -309,7 +307,7 @@ def pl_pivot_on(
     data_file: DataFile,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
-) -> pl.LazyFrame:
+) -> TabularTransformResult:
     """Pivot a DataFrame long-to-wide using the configured pivot column.
 
     Perform a long-to-wide pivot using grouped value aggregations. The pivot
@@ -320,7 +318,7 @@ def pl_pivot_on(
     if schema_names is None:
         schema_names = list(data_frame.collect_schema().names())
     if not proc_spec or not proc_spec.pivot_on:
-        return data_frame
+        return TabularTransformResult(data_frame=data_frame, schema_names=schema_names)
 
     value_name = proc_spec.pivot_on
     _require_columns(schema_names or [], [value_name], operation="pivot_on", data_file=data_file)
@@ -351,13 +349,14 @@ def pl_pivot_on(
             "drop or fill null pivot keys before pivoting."
         )
     logger.debug("Pivoting {} on {} in {}", value_columns, value_name, data_file.name)
-    return data_frame.pivot(
+    result = data_frame.pivot(
         on=value_name,
         on_columns=pivot_values,
         index=group_columns,
         values=value_columns,
         aggregate_function=aggregate_function,
     )
+    return TabularTransformResult(data_frame=result, schema_names=list(result.collect_schema().names()))
 
 
 def _require_columns(
@@ -383,12 +382,12 @@ def pl_unpivot_on(
     data_file: DataFile,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
-) -> tuple[pl.LazyFrame, list[str]]:
+) -> TabularTransformResult:
     """Unpivot configured value columns while retaining identifier columns."""
     if schema_names is None:
         schema_names = list(data_frame.collect_schema().names())
     if not proc_spec or not proc_spec.unpivot_on:
-        return data_frame, schema_names
+        return TabularTransformResult(data_frame=data_frame, schema_names=schema_names)
 
     value_columns = list(dict.fromkeys(proc_spec.unpivot_on))
     _require_columns(schema_names, value_columns, operation="unpivot_on", data_file=data_file)
@@ -405,7 +404,7 @@ def pl_unpivot_on(
         variable_name="variable",
         value_name="value",
     )
-    return result, [*index_columns, "variable", "value"]
+    return TabularTransformResult(data_frame=result, schema_names=[*index_columns, "variable", "value"])
 
 
 def pl_split_columns(
@@ -414,12 +413,12 @@ def pl_split_columns(
     data_file: DataFile,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
-) -> tuple[pl.LazyFrame, list[str]]:
+) -> TabularTransformResult:
     """Split configured string columns into named fields."""
     if schema_names is None:
         schema_names = list(data_frame.collect_schema().names())
     if not proc_spec or not proc_spec.split_column:
-        return data_frame, schema_names
+        return TabularTransformResult(data_frame=data_frame, schema_names=schema_names)
 
     result = data_frame
     current_names = list(schema_names)
@@ -443,7 +442,7 @@ def pl_split_columns(
             for existing in current_names
             for name in (split_spec.into if existing == column else [existing])
         ]
-    return result, current_names
+    return TabularTransformResult(data_frame=result, schema_names=current_names)
 
 
 def pl_strip_chars(
@@ -452,12 +451,12 @@ def pl_strip_chars(
     data_file: DataFile,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
-) -> tuple[pl.LazyFrame, list[str]]:
+) -> TabularTransformResult:
     """Remove configured literal strings and surrounding whitespace."""
     if schema_names is None:
         schema_names = list(data_frame.collect_schema().names())
     if not proc_spec or not proc_spec.strip_chars:
-        return data_frame, schema_names
+        return TabularTransformResult(data_frame=data_frame, schema_names=schema_names)
 
     _require_columns(schema_names, list(proc_spec.strip_chars), operation="strip_chars", data_file=data_file)
     expressions = []
@@ -467,7 +466,7 @@ def pl_strip_chars(
         if pattern:
             cleaned = cleaned.str.replace_all(pattern, "")
         expressions.append(cleaned.alias(column))
-    return data_frame.with_columns(expressions), schema_names
+    return TabularTransformResult(data_frame=data_frame.with_columns(expressions), schema_names=schema_names)
 
 
 def pl_scale(
@@ -476,12 +475,12 @@ def pl_scale(
     data_file: DataFile,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
-) -> tuple[pl.LazyFrame, list[str]]:
+) -> TabularTransformResult:
     """Multiply configured numeric columns by their scale factors."""
     if schema_names is None:
         schema_names = list(data_frame.collect_schema().names())
     if not proc_spec or not proc_spec.scale:
-        return data_frame, schema_names
+        return TabularTransformResult(data_frame=data_frame, schema_names=schema_names)
 
     columns = list(proc_spec.scale)
     _require_columns(schema_names, columns, operation="scale", data_file=data_file)
@@ -490,7 +489,7 @@ def pl_scale(
     if invalid:
         raise ValueError(f"scale requires numeric columns in {data_file.name!r}: {invalid}")
     expressions = [pl.col(column).mul(factor).alias(column) for column, factor in proc_spec.scale.items()]
-    return data_frame.with_columns(expressions), schema_names
+    return TabularTransformResult(data_frame=data_frame.with_columns(expressions), schema_names=schema_names)
 
 
 def pl_replace_values(
@@ -499,12 +498,12 @@ def pl_replace_values(
     data_file: DataFile,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
-) -> tuple[pl.LazyFrame, list[str]]:
+) -> TabularTransformResult:
     """Replace values when their logical families match each column."""
     if schema_names is None:
         schema_names = list(data_frame.collect_schema().names())
     if not proc_spec or not proc_spec.replace_values:
-        return data_frame, schema_names
+        return TabularTransformResult(data_frame=data_frame, schema_names=schema_names)
 
     value_families = (
         (bool, "boolean"),
@@ -586,7 +585,7 @@ def pl_replace_values(
         if replacements:
             expressions.append(pl.col(column).replace(replacements).alias(column))
     logger.debug("Replacing configured values in {}", data_file.name)
-    return data_frame.with_columns(expressions), schema_names
+    return TabularTransformResult(data_frame=data_frame.with_columns(expressions), schema_names=schema_names)
 
 
 def pl_fill_null(
@@ -595,12 +594,12 @@ def pl_fill_null(
     data_file: DataFile,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
-) -> tuple[pl.LazyFrame, list[str]]:
+) -> TabularTransformResult:
     """Fill null values in configured columns."""
     if schema_names is None:
         schema_names = list(data_frame.collect_schema().names())
     if not proc_spec or not proc_spec.fill_null:
-        return data_frame, schema_names
+        return TabularTransformResult(data_frame=data_frame, schema_names=schema_names)
 
     columns = list(proc_spec.fill_null)
     _require_columns(schema_names, columns, operation="fill_null", data_file=data_file)
@@ -608,7 +607,7 @@ def pl_fill_null(
         pl.col(column).fill_null(value).alias(column) for column, value in proc_spec.fill_null.items()
     ]
     logger.debug("Filling nulls in {}", data_file.name)
-    return data_frame.with_columns(expressions), schema_names
+    return TabularTransformResult(data_frame=data_frame.with_columns(expressions), schema_names=schema_names)
 
 
 def _aggregate_expression(column: str, function: str) -> pl.Expr:
@@ -636,14 +635,14 @@ def pl_aggregate(
     data_file: DataFile,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
-) -> tuple[pl.LazyFrame, list[str]]:
+) -> TabularTransformResult:
     """Group and aggregate rows using configured Polars aggregations."""
     if schema_names is None:
         schema_names = list(data_frame.collect_schema().names())
     if not proc_spec or not proc_spec.aggregate_on:
-        return data_frame, schema_names
+        return TabularTransformResult(data_frame=data_frame, schema_names=schema_names)
     if proc_spec.pivot_on:
-        return data_frame, schema_names
+        return TabularTransformResult(data_frame=data_frame, schema_names=schema_names)
 
     aggregate_columns = list(proc_spec.aggregate_on)
     _require_columns(schema_names, aggregate_columns, operation="aggregate_on", data_file=data_file)
@@ -654,8 +653,8 @@ def pl_aggregate(
     ]
     if group_columns:
         result = data_frame.group_by(group_columns, maintain_order=True).agg(expressions)
-        return result, group_columns + aggregate_columns
-    return data_frame.select(expressions), aggregate_columns
+        return TabularTransformResult(data_frame=result, schema_names=group_columns + aggregate_columns)
+    return TabularTransformResult(data_frame=data_frame.select(expressions), schema_names=aggregate_columns)
 
 
 def pl_distinct(
@@ -664,17 +663,19 @@ def pl_distinct(
     data_file: DataFile,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
-) -> tuple[pl.LazyFrame, list[str]]:
+) -> TabularTransformResult:
     """Remove duplicate rows using the configured subset of columns."""
     if schema_names is None:
         schema_names = list(data_frame.collect_schema().names())
     if not proc_spec or not proc_spec.distinct_on:
-        return data_frame, schema_names
+        return TabularTransformResult(data_frame=data_frame, schema_names=schema_names)
 
     columns = list(dict.fromkeys(proc_spec.distinct_on))
     _require_columns(schema_names, columns, operation="distinct_on", data_file=data_file)
     logger.debug("Removing duplicates using {} in {}", columns, data_file.name)
-    return data_frame.unique(subset=columns, maintain_order=True), schema_names
+    return TabularTransformResult(
+        data_frame=data_frame.unique(subset=columns, maintain_order=True), schema_names=schema_names
+    )
 
 
 def pl_sort(
@@ -683,18 +684,20 @@ def pl_sort(
     data_file: DataFile,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
-) -> tuple[pl.LazyFrame, list[str]]:
+) -> TabularTransformResult:
     """Sort rows according to configured column directions."""
     if schema_names is None:
         schema_names = list(data_frame.collect_schema().names())
     if not proc_spec or not proc_spec.sort_by:
-        return data_frame, schema_names
+        return TabularTransformResult(data_frame=data_frame, schema_names=schema_names)
 
     columns = list(proc_spec.sort_by)
     _require_columns(schema_names, columns, operation="sort_by", data_file=data_file)
     descending = [proc_spec.sort_by[column].lower() in {"desc", "descending"} for column in columns]
     logger.debug("Sorting {} in {}", columns, data_file.name)
-    return data_frame.sort(columns, descending=descending), schema_names
+    return TabularTransformResult(
+        data_frame=data_frame.sort(columns, descending=descending), schema_names=schema_names
+    )
 
 
 def pl_lowercase(
@@ -703,7 +706,7 @@ def pl_lowercase(
     data_file: DataFile,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
-) -> tuple[pl.LazyFrame, list[str]]:
+) -> TabularTransformResult:
     """Convert all string columns to lowercase.
 
     Returns the transformed frame and an updated schema name list (lowercased).
@@ -711,13 +714,13 @@ def pl_lowercase(
     if schema_names is None:
         schema_names = list(data_frame.collect_schema().names())
     if not proc_spec or not proc_spec.lowercase:
-        return data_frame, schema_names
+        return TabularTransformResult(data_frame=data_frame, schema_names=schema_names)
     result = data_frame.with_columns(pl.col(pl.String).str.to_lowercase()).rename(
         {column: column.lower() for column in schema_names}
     )
     new_names = [name.lower() for name in schema_names]
     logger.trace("Lowercase columns: {len(schema_names)} -> {len(new_names)} cols for {data_file.name}")
-    return result, new_names
+    return TabularTransformResult(data_frame=result, schema_names=new_names)
 
 
 def pl_drop_columns(
@@ -726,7 +729,7 @@ def pl_drop_columns(
     data_file: DataFile,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
-) -> tuple[pl.LazyFrame, list[str]]:
+) -> TabularTransformResult:
     """Drop specified columns if they exist.
 
     Returns the transformed frame and an updated schema name list.
@@ -734,13 +737,13 @@ def pl_drop_columns(
     if schema_names is None:
         schema_names = list(data_frame.collect_schema().names())
     if not proc_spec or not proc_spec.drop_columns:
-        return data_frame, schema_names
+        return TabularTransformResult(data_frame=data_frame, schema_names=schema_names)
 
     existing_cols = list(dict.fromkeys(proc_spec.drop_columns))
     _require_columns(schema_names, existing_cols, operation="drop_columns", data_file=data_file)
     logger.debug("Dropping columns {} from {}", existing_cols, data_file.name)
     new_names = [n for n in schema_names if n not in existing_cols]
-    return data_frame.drop(existing_cols), new_names
+    return TabularTransformResult(data_frame=data_frame.drop(existing_cols), schema_names=new_names)
 
 
 def pl_rename_columns(
@@ -749,7 +752,7 @@ def pl_rename_columns(
     data_file: DataFile,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
-) -> tuple[pl.LazyFrame, list[str]]:
+) -> TabularTransformResult:
     """Rename columns based on mapping.
 
     Returns the transformed frame and an updated schema name list.
@@ -757,7 +760,7 @@ def pl_rename_columns(
     if schema_names is None:
         schema_names = list(data_frame.collect_schema().names())
     if not proc_spec or not proc_spec.column_mapping:
-        return data_frame, schema_names
+        return TabularTransformResult(data_frame=data_frame, schema_names=schema_names)
 
     valid_mapping = dict(proc_spec.column_mapping)
     _require_columns(schema_names, list(valid_mapping), operation="column_mapping", data_file=data_file)
@@ -765,7 +768,7 @@ def pl_rename_columns(
     if len(set(new_names)) != len(new_names):
         raise ValueError(f"column_mapping in {data_file.name!r} creates duplicate column names: {new_names}")
     logger.debug("Renaming columns {} in {}", valid_mapping, data_file.name)
-    return data_frame.rename(valid_mapping), new_names
+    return TabularTransformResult(data_frame=data_frame.rename(valid_mapping), schema_names=new_names)
 
 
 def pl_cast_schema(
@@ -774,12 +777,12 @@ def pl_cast_schema(
     data_file: DataFile,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
-) -> tuple[pl.LazyFrame, list[str]]:
+) -> TabularTransformResult:
     """Cast columns to specified data types. Column names are unchanged."""
     if schema_names is None:
         schema_names = list(data_frame.collect_schema().names())
     if not proc_spec or not proc_spec.column_schema:
-        return data_frame, schema_names
+        return TabularTransformResult(data_frame=data_frame, schema_names=schema_names)
 
     columns = list(proc_spec.column_schema)
     _require_columns(schema_names, columns, operation="column_schema", data_file=data_file)
@@ -789,9 +792,9 @@ def pl_cast_schema(
         cast_exprs.append(pl.col(col).cast(polars_type))
 
     if not cast_exprs:
-        return data_frame, schema_names
+        return TabularTransformResult(data_frame=data_frame, schema_names=schema_names)
     logger.trace("Applying schema {} to {}", proc_spec.column_schema, data_file.name)
-    return data_frame.with_columns(cast_exprs), schema_names
+    return TabularTransformResult(data_frame=data_frame.with_columns(cast_exprs), schema_names=schema_names)
 
 
 def pl_apply_filters(
@@ -800,24 +803,24 @@ def pl_apply_filters(
     data_file: DataFile,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
-) -> tuple[pl.LazyFrame, list[str]]:
+) -> TabularTransformResult:
     """Apply row filters. Column names are unchanged."""
     if schema_names is None:
         schema_names = list(data_frame.collect_schema().names())
     if not proc_spec or not proc_spec.filter_by:
-        return data_frame, schema_names
+        return TabularTransformResult(data_frame=data_frame, schema_names=schema_names)
 
     filter_columns = list(proc_spec.filter_by)
     _require_columns(schema_names, filter_columns, operation="filter_by", data_file=data_file)
     filters = [pl_build_filter_expr(col, value=value) for col, value in proc_spec.filter_by.items()]
 
     if not filters:
-        return data_frame, schema_names
+        return TabularTransformResult(data_frame=data_frame, schema_names=schema_names)
     combined_filter = filters[0]
     for filter_expr in filters[1:]:
         combined_filter = combined_filter & filter_expr
     logger.trace("Applying {} filters to {}", len(filters), data_file.name)
-    return data_frame.filter(combined_filter), schema_names
+    return TabularTransformResult(data_frame=data_frame.filter(combined_filter), schema_names=schema_names)
 
 
 def pl_select_columns(
@@ -826,7 +829,7 @@ def pl_select_columns(
     data_file: DataFile,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
-) -> tuple[pl.LazyFrame, list[str]]:
+) -> TabularTransformResult:
     """Select specific columns.
 
     Returns the transformed frame and an updated schema name list.
@@ -834,16 +837,16 @@ def pl_select_columns(
     if schema_names is None:
         schema_names = list(data_frame.collect_schema().names())
     if not proc_spec or not proc_spec.select_columns:
-        return data_frame, schema_names
+        return TabularTransformResult(data_frame=data_frame, schema_names=schema_names)
 
     cols_to_select = list(dict.fromkeys(proc_spec.select_columns))
     _require_columns(schema_names, cols_to_select, operation="select_columns", data_file=data_file)
 
     logger.trace("Selecting {} columns from {}", len(cols_to_select), data_file.name)
-    return data_frame.select(cols_to_select), cols_to_select
+    return TabularTransformResult(data_frame=data_frame.select(cols_to_select), schema_names=cols_to_select)
 
 
-def json_rename_keys(json_data: JSONType, *, data_file: DataFile, proc_spec: JSONProcessing) -> JSONType:
+def json_rename_keys(json_data: JSONValue, *, data_file: DataFile, proc_spec: JSONProcessing) -> JSONValue:
     """Rename keys based on key mapping from JSONProcessing.
 
     Applies renaming recursively to nested dictionaries.
@@ -853,17 +856,17 @@ def json_rename_keys(json_data: JSONType, *, data_file: DataFile, proc_spec: JSO
 
     mapping = proc_spec.key_mapping
 
-    def rename_keys_recursive(obj: JSONType) -> JSONType:
+    def rename_keys_recursive(obj: JSONValue) -> JSONValue:
         """Recursively rename keys in nested JSON structure.
 
         Parameters
         ----------
-        obj : JSONType
+        obj : JSONValue
             JSON object (dict, list, or scalar) to process.
 
         Returns
         -------
-        JSONType
+        JSONValue
             Object with renamed keys applied recursively.
         """
         if isinstance(obj, dict):
@@ -876,24 +879,24 @@ def json_rename_keys(json_data: JSONType, *, data_file: DataFile, proc_spec: JSO
     return rename_keys_recursive(json_data)
 
 
-def json_drop_columns(json_data: JSONType, *, data_file: DataFile, proc_spec: JSONProcessing) -> JSONType:
+def json_drop_columns(json_data: JSONValue, *, data_file: DataFile, proc_spec: JSONProcessing) -> JSONValue:
     """Drop specified columns/keys from JSON data recursively."""
     if not proc_spec or not proc_spec.drop_keys:
         return json_data
 
     drop_keys = proc_spec.drop_keys
 
-    def drop_keys_recursive(obj: JSONType) -> JSONType:
+    def drop_keys_recursive(obj: JSONValue) -> JSONValue:
         """Recursively remove specified keys from nested JSON structure.
 
         Parameters
         ----------
-        obj : JSONType
+        obj : JSONValue
             JSON object (dict, list, or scalar) to process.
 
         Returns
         -------
-        JSONType
+        JSONValue
             Object with specified keys removed recursively.
         """
         if isinstance(obj, dict):
@@ -906,24 +909,24 @@ def json_drop_columns(json_data: JSONType, *, data_file: DataFile, proc_spec: JS
     return drop_keys_recursive(json_data)
 
 
-def json_select_columns(json_data: JSONType, *, data_file: DataFile, proc_spec: JSONProcessing) -> JSONType:
+def json_select_columns(json_data: JSONValue, *, data_file: DataFile, proc_spec: JSONProcessing) -> JSONValue:
     """Select specific columns/keys from JSON data."""
     if not proc_spec or not proc_spec.select_keys:
         return json_data
 
     columns_to_select = proc_spec.select_keys
 
-    def select_keys_recursive(obj: JSONType) -> JSONType:
+    def select_keys_recursive(obj: JSONValue) -> JSONValue:
         """Recursively select specified keys from nested JSON structure.
 
         Parameters
         ----------
-        obj : JSONType
+        obj : JSONValue
             JSON object (dict, list, or scalar) to process.
 
         Returns
         -------
-        JSONType
+        JSONValue
             Object with only selected keys preserved recursively.
         """
         if isinstance(obj, dict):
@@ -937,23 +940,23 @@ def json_select_columns(json_data: JSONType, *, data_file: DataFile, proc_spec: 
 
 
 def json_apply_filters(
-    json_data: JSONType,
+    json_data: JSONValue,
     *,
     data_file: DataFile,
     proc_spec: JSONProcessing | None,
-) -> JSONType:
+) -> JSONValue:
     """Filter JSON data by key-value pairs."""
     if not proc_spec or not proc_spec.filter_by:
         return json_data
 
     filters = proc_spec.filter_by
 
-    def matches(obj: JSONType) -> bool:
+    def matches(obj: JSONValue) -> bool:
         """Check if object matches all filter criteria.
 
         Parameters
         ----------
-        obj : JSONType
+        obj : JSONValue
             Object to check against filters.
 
         Returns
@@ -982,11 +985,11 @@ def json_apply_filters(
 
 
 def json_select_keys(
-    json_data: JSONType,
+    json_data: JSONValue,
     *,
     data_file: DataFile,
     proc_spec: JSONProcessing | None,
-) -> JSONType:
+) -> JSONValue:
     """Select specific keys from JSON data (dict or list of dicts)."""
     if not proc_spec or not proc_spec.select_keys:
         return json_data

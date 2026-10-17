@@ -14,8 +14,6 @@ from typing import TYPE_CHECKING
 from loguru import logger
 from rust_ok import Err, Ok, Result, is_err, is_ok
 
-from . import h5_readers
-
 TIMESERIES_DIR = "R2X_TIMESERIES_DIR"
 
 logger.disable("r2x_core")
@@ -24,6 +22,7 @@ __version__ = version("r2x_core")
 
 # ── Eager for IDEs / type checkers (dead code at runtime) ──────────
 if TYPE_CHECKING:
+    from . import h5_readers
     from .datafile import (
         DataFile,
         FileInfo,
@@ -46,7 +45,7 @@ if TYPE_CHECKING:
     from .plugin_context import PluginContext
     from .plugin_expose import expose_plugin
     from .reader import DataReader
-    from .result import RuleResult, TranslationResult
+    from .result import RuleResult, TabularTransformResult, TranslationResult
     from .rules import Rule, RuleFilter, SupplementalAttributeRule
     from .rules_executor import (
         apply_rules_to_context,
@@ -75,6 +74,7 @@ if TYPE_CHECKING:
 
 # ── Lazy at runtime ─────────────────────────────────────────────────
 _LAZY_IMPORTS: dict[str, str] = {
+    "h5_readers": ".h5_readers",
     "DataFile": ".datafile",
     "FileInfo": ".datafile",
     "JSONProcessing": ".datafile",
@@ -99,6 +99,7 @@ _LAZY_IMPORTS: dict[str, str] = {
     "SourceProvenance": ".provenance",
     "DataReader": ".reader",
     "RuleResult": ".result",
+    "TabularTransformResult": ".result",
     "TranslationResult": ".result",
     "Rule": ".rules",
     "RuleFilter": ".rules",
@@ -141,7 +142,7 @@ def __getattr__(name: str) -> object:
     import importlib
 
     mod = importlib.import_module(module_path, __package__)
-    attr = getattr(mod, name)
+    attr = mod if name == "h5_readers" else getattr(mod, name)
     # Cache in module globals so subsequent accesses are O(1)
     globals()[name] = attr
     return attr
@@ -177,6 +178,7 @@ __all__ = [
     "SupplementalAttributeRule",
     "System",
     "TabularProcessing",
+    "TabularTransformResult",
     "TranslationResult",
     "Unit",
     "UnitSystem",

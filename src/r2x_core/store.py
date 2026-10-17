@@ -17,7 +17,7 @@ from pydantic import ValidationError
 from .datafile import DataFile, FileProcessing
 from .plugin_config import PluginConfig
 from .reader import DataReader
-from .utils import filter_valid_kwargs
+from .utils import filter_kwargs_for
 from .utils.upgrade import UpgradeCoordinator
 
 
@@ -389,14 +389,14 @@ class DataStore:
             del self._cache[name]
             logger.debug("Removed data file '{}' from store", name)
 
-    def to_json(self, fpath: str | Path, **model_dump_kwargs: dict[str, Any]) -> None:
+    def to_json(self, fpath: str | Path, **model_dump_kwargs: Any) -> None:
         """Save the :class:`DataStore` configuration to a JSON file.
 
         Parameters
         ----------
         fpath : str | Path
             Path where JSON file will be written.
-        **model_dump_kwargs : dict[str, Any]
+        **model_dump_kwargs : Any
             Additional keyword arguments passed to :meth:`DataFile.model_dump`.
 
         Notes
@@ -407,7 +407,7 @@ class DataStore:
             data_file.model_dump(
                 mode="json",
                 round_trip=True,
-                **filter_valid_kwargs(data_file.model_dump, kwargs=model_dump_kwargs),
+                **filter_kwargs_for(data_file.model_dump, kwargs=model_dump_kwargs),
             )
             for data_file in self._cache.values()
         ]

@@ -11,6 +11,7 @@ from loguru import logger
 from polars import DataFrame, LazyFrame, read_csv, scan_csv
 
 from .file_types import H5Format, JSONFormat, TableFormat, XMLFormat
+from .types import JSONValue
 
 _HEADER_READ_OPTIONS = frozenset(
     {
@@ -27,7 +28,7 @@ _HEADER_READ_OPTIONS = frozenset(
 
 
 @singledispatch
-def read_file_by_type(file_type_instance: Any, *, file_path: Path, **reader_kwargs: dict[str, Any]) -> Any:
+def read_file_by_type(file_type_instance: Any, *, file_path: Path, **reader_kwargs: Any) -> Any:
     """Read file based on FileFormat instance using single dispatch.
 
     This is the main dispatch function that routes to specific readers
@@ -192,8 +193,8 @@ def _(file_type_class: H5Format, *, file_path: Path, **reader_kwargs: Any) -> La
 
 
 @read_file_by_type.register
-def _(file_type_class: JSONFormat, *, file_path: Path, **reader_kwargs: Any) -> dict[str, Any]:
-    """Read JSON files as dictionary.
+def _(file_type_class: JSONFormat, *, file_path: Path, **reader_kwargs: Any) -> JSONValue:
+    """Read JSON objects, arrays, or scalar values.
 
     Parameters
     ----------
@@ -206,17 +207,17 @@ def _(file_type_class: JSONFormat, *, file_path: Path, **reader_kwargs: Any) -> 
 
     Returns
     -------
-    dict[str, Any]
-        Dictionary containing the JSON data.
+    JSONValue
+        JSON object, array, or scalar value.
     """
     logger.debug("Reading JSON file: {}", file_path)
     with open(file_path, encoding="utf-8") as f:
-        data: dict[str, Any] = json.load(f)
+        data: JSONValue = json.load(f)
     return data
 
 
 @read_file_by_type.register
-def _(file_type_class: XMLFormat, *, file_path: Path, **reader_kwargs: dict[str, Any]) -> ElementTree.Element:
+def _(file_type_class: XMLFormat, *, file_path: Path, **reader_kwargs: Any) -> ElementTree.Element:
     """Read XML files and return the root element.
 
     Parameters

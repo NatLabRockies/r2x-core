@@ -10,7 +10,7 @@ from .files import (
     resolve_path,
 )
 from .iteration import iter_components
-from .overrides import override_dictionary
+from .overrides import merge_with_overrides
 from .parser import create_component
 from .rules import (
     RuleOutputs,
@@ -33,7 +33,7 @@ from .upgrade import (
 )
 from .validation import (
     filter_kwargs_by_signatures,
-    filter_valid_kwargs,
+    filter_kwargs_for,
     validate_file_extension,
     validate_glob_pattern,
 )
@@ -57,12 +57,12 @@ __all__ = [
     "evaluate_rule_filter",
     "export_components_to_csv",
     "filter_kwargs_by_signatures",
-    "filter_valid_kwargs",
+    "filter_kwargs_for",
     "get_fpath",
     "get_package_version",
     "get_r2x_cache_path",
     "iter_components",
-    "override_dictionary",
+    "merge_with_overrides",
     "resolve_component_type",
     "resolve_glob_pattern",
     "resolve_path",

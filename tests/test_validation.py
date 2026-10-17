@@ -5,64 +5,64 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from r2x_core.utils import filter_kwargs_for
 from r2x_core.utils.validation import (
-    filter_valid_kwargs,
     validate_file_extension,
     validate_glob_pattern,
 )
 
 
-class TestFilterValidKwargs:
-    """Tests for filter_valid_kwargs function."""
+class TestFilterKwargsFor:
+    """Tests for filter_kwargs_for function."""
 
-    def test_filter_valid_kwargs_all_valid(self):
-        """Test filter_valid_kwargs with all valid parameters."""
+    def test_filter_kwargs_for_all_valid(self):
+        """Test filter_kwargs_for with all valid parameters."""
 
         def sample_func(a, b, c):
             pass
 
         kwargs = {"a": 1, "b": 2, "c": 3}
-        result = filter_valid_kwargs(sample_func, kwargs=kwargs)
+        result = filter_kwargs_for(sample_func, kwargs=kwargs)
         assert result == {"a": 1, "b": 2, "c": 3}
 
-    def test_filter_valid_kwargs_some_invalid(self):
-        """Test filter_valid_kwargs with some invalid parameters."""
+    def test_filter_kwargs_for_some_invalid(self):
+        """Test filter_kwargs_for with some invalid parameters."""
 
         def sample_func(a, b):
             pass
 
         kwargs = {"a": 1, "b": 2, "c": 3, "d": 4}
-        result = filter_valid_kwargs(sample_func, kwargs=kwargs)
+        result = filter_kwargs_for(sample_func, kwargs=kwargs)
         assert result == {"a": 1, "b": 2}
 
-    def test_filter_valid_kwargs_empty(self):
-        """Test filter_valid_kwargs with empty kwargs."""
+    def test_filter_kwargs_for_empty(self):
+        """Test filter_kwargs_for with empty kwargs."""
 
         def sample_func(a, b):
             pass
 
         kwargs = {}
-        result = filter_valid_kwargs(sample_func, kwargs=kwargs)
+        result = filter_kwargs_for(sample_func, kwargs=kwargs)
         assert result == {}
 
-    def test_filter_valid_kwargs_all_invalid(self):
-        """Test filter_valid_kwargs with all invalid parameters."""
+    def test_filter_kwargs_for_all_invalid(self):
+        """Test filter_kwargs_for with all invalid parameters."""
 
         def sample_func(a, b):
             pass
 
         kwargs = {"c": 3, "d": 4}
-        result = filter_valid_kwargs(sample_func, kwargs=kwargs)
+        result = filter_kwargs_for(sample_func, kwargs=kwargs)
         assert result == {}
 
-    def test_filter_valid_kwargs_with_kwargs_param(self):
-        """Test filter_valid_kwargs with function that accepts **kwargs."""
+    def test_filter_kwargs_for_with_kwargs_param(self):
+        """Test filter_kwargs_for with function that accepts **kwargs."""
 
         def sample_func(a, **kwargs):
             pass
 
         params = {"a": 1, "b": 2, "c": 3}
-        result = filter_valid_kwargs(sample_func, kwargs=params)
+        result = filter_kwargs_for(sample_func, kwargs=params)
         assert result == {"a": 1}
 
 

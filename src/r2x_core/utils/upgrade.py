@@ -17,7 +17,7 @@ from rust_ok import Err, Ok, Result
 from ..exceptions import UpgradeError
 from ..plugin_context import PluginContext
 from ..versioning import VersionStrategy
-from .validation import filter_valid_kwargs
+from .validation import filter_kwargs_for
 
 if TYPE_CHECKING:
     from ..plugin_config import PluginConfig
@@ -207,7 +207,7 @@ class UpgradeCoordinator:
             "folder": store.folder,
         }
 
-        handler_kwargs = filter_valid_kwargs(self.handler, kwargs=kwargs)
+        handler_kwargs = filter_kwargs_for(self.handler, kwargs=kwargs)
         result: Any
         try:
             result = self.handler(**handler_kwargs)

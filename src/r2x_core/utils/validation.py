@@ -31,12 +31,6 @@ def filter_kwargs_for(func: Callable[..., Any], *, kwargs: dict[str, Any]) -> di
     return {k: v for k, v in kwargs.items() if k in valid_params}
 
 
-# Backward compatibility alias
-def filter_valid_kwargs(func: Callable[..., Any], *, kwargs: dict[str, Any]) -> dict[str, Any]:
-    """Filter function kwargs, maintaining backward compatibility."""
-    return filter_kwargs_for(func, kwargs=kwargs)
-
-
 def filter_kwargs_by_signatures(
     kwargs: dict[str, Any], *, callables: list[Callable[..., Any]]
 ) -> dict[str, Any]:

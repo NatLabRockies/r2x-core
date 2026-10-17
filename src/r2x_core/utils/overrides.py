@@ -62,9 +62,3 @@ def merge_with_overrides(base: dict[str, Any], *, overrides: dict[str, Any]) -> 
         merged[key] = override_value
 
     return merged
-
-
-# Backward compatibility alias
-def override_dictionary(base: dict[str, Any], *, overrides: dict[str, Any]) -> dict[str, Any]:
-    """Merge dict overrides with a base dict, maintaining backward compatibility."""
-    return merge_with_overrides(base, overrides=overrides)

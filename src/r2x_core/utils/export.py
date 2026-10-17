@@ -100,7 +100,7 @@ def export_components_to_csv(
     fieldnames = list(first_record.keys())
 
     destination_mode = fpath.stat().st_mode if fpath.exists() else 0o666
-    candidate_path = fpath.with_name(f".{fpath.name}.{uuid4().hex}.tmp")
+    candidate_path = fpath.with_name(f".r2x-export-{uuid4().hex}.tmp")
     temporary_path: Path | None = None
     try:
         with open(

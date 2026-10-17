@@ -277,3 +277,15 @@ def test_export_components_to_csv_preserves_symlink(tmp_path: Path) -> None:
     assert link.is_symlink()
     assert link.read_bytes() == target.read_bytes() == b"name\r\nfirst\r\n"
     assert list(target.parent.iterdir()) == [target]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX filename length semantics")
+def test_export_components_to_csv_supports_long_filenames(tmp_path: Path) -> None:
+    system = System(name="LongFilename")
+    system.add_components(Component(name="first"))
+    output_file = tmp_path / ("x" * 236 + ".csv")
+
+    export_components_to_csv(system, file_path=output_file, fields=["name"])
+
+    assert output_file.read_bytes() == b"name\r\nfirst\r\n"
+    assert list(tmp_path.iterdir()) == [output_file]

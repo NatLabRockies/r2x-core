@@ -49,7 +49,7 @@ For detailed API documentation with examples and method signatures, see the [Com
 
 ## Documentation Coverage
 
-Docstring coverage is checked separately with `just docstrings`.
+Docstring coverage is checked separately with `mise run docstrings`.
 
 ```{toctree}
 :maxdepth: 2

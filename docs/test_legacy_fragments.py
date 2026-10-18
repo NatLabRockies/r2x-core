@@ -1,5 +1,6 @@
 """Verify historical bookmarks reach an anchor in the built replacement page."""
 
+import re
 import unittest
 from html.parser import HTMLParser
 from pathlib import Path
@@ -20,6 +21,19 @@ class Page(HTMLParser):
 
 
 class LegacyFragmentsTest(unittest.TestCase):
+    def test_property_members_have_anchors_and_source_links(self) -> None:
+        page = Path(__file__).parent / "dist/references/api/index.html"
+        markup = page.read_text(encoding="utf-8")
+        for member in ("Plugin.config", "Plugin.system"):
+            with self.subTest(member=member):
+                signature = re.search(r'id="r2x_core\.' + re.escape(member) + r'".*?</dt>', markup, re.S)
+                self.assertIsNotNone(signature)
+                self.assertRegex(
+                    signature[0],
+                    r'href="https://github.com/NatLabRockies/r2x-core/blob/[0-9a-f]{40}/src/r2x_core/plugin_base\.py#L\d+-L\d+"',
+                )
+                self.assertIn(f'href="#r2x_core.{member}"', markup)
+
     def test_bookmarks_reach_final_anchors(self) -> None:
         root = Path(__file__).parent / "dist"
         bookmarks = {

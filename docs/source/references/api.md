@@ -18,7 +18,6 @@ Complete API documentation for all r2x-core classes and functions.
    :members:
    :undoc-members:
    :show-inheritance:
-   :no-index:
 ```
 
 ## Data Management
@@ -26,7 +25,6 @@ Complete API documentation for all r2x-core classes and functions.
 ```{eval-rst}
 .. autoclass:: r2x_core.DataStore
    :members:
-   :no-index:
 ```
 
 ```{eval-rst}
@@ -46,25 +44,21 @@ Complete API documentation for all r2x-core classes and functions.
 ```{eval-rst}
 .. autoclass:: r2x_core.FileInfo
    :members:
-   :no-index:
 ```
 
 ```{eval-rst}
 .. autoclass:: r2x_core.ReaderConfig
    :members:
-   :no-index:
 ```
 
 ```{eval-rst}
 .. autoclass:: r2x_core.TabularProcessing
    :members:
-   :no-index:
 ```
 
 ```{eval-rst}
 .. autoclass:: r2x_core.JSONProcessing
    :members:
-   :no-index:
 ```
 
 ## Plugin Configuration
@@ -76,7 +70,6 @@ Complete API documentation for all r2x-core classes and functions.
    :model-show-validator-members: False
    :model-show-validator-summary: False
    :field-list-validators: False
-   :no-index:
 ```
 
 ## Plugin System
@@ -85,14 +78,12 @@ Complete API documentation for all r2x-core classes and functions.
 .. autoclass:: r2x_core.Plugin
    :members:
    :show-inheritance:
-   :no-index:
 ```
 
 ```{eval-rst}
 .. autoclass:: r2x_core.PluginContext
    :members:
    :show-inheritance:
-   :no-index:
 ```
 
 ## File Types
@@ -102,7 +93,6 @@ Complete API documentation for all r2x-core classes and functions.
    :members:
    :undoc-members:
    :show-inheritance:
-   :no-index:
 ```
 
 ```{eval-rst}
@@ -110,7 +100,6 @@ Complete API documentation for all r2x-core classes and functions.
    :members:
    :undoc-members:
    :show-inheritance:
-   :no-index:
 ```
 
 ## Rules and Translation
@@ -163,7 +152,6 @@ True
 .. autoclass:: r2x_core.time_series.TimeSeriesTransferResult
    :members:
    :show-inheritance:
-   :no-index:
 ```
 
 ```{eval-rst}
@@ -196,21 +184,18 @@ True
 .. autoclass:: r2x_core.Result
    :members:
    :show-inheritance:
-   :no-index:
 ```
 
 ```{eval-rst}
 .. autoclass:: r2x_core.Ok
    :members:
    :show-inheritance:
-   :no-index:
 ```
 
 ```{eval-rst}
 .. autoclass:: r2x_core.Err
    :members:
    :show-inheritance:
-   :no-index:
 ```
 
 ```{eval-rst}

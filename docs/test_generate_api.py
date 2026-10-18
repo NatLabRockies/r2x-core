@@ -1,13 +1,23 @@
 """Regression checks for the Sphinx-to-Starlight link boundary."""
 
 import re
+import runpy
 import unittest
 from functools import partial
+from pathlib import Path
 
 from generate_api import SphinxContents, link_code_names, rewrite_link
 
 
 class ApiLinksTest(unittest.TestCase):
+    def test_property_members_link_to_implementation(self) -> None:
+        resolve = runpy.run_path(str(Path(__file__).parent / "source/conf.py"))["linkcode_resolve"]
+        for name in ("Plugin.config", "Plugin.system"):
+            with self.subTest(member=name):
+                url = resolve("py", {"module": "r2x_core", "fullname": name})
+                self.assertIsNotNone(url)
+                self.assertRegex(url, r"/blob/[0-9a-f]{40}/src/r2x_core/plugin_base\.py#L\d+-L\d+$")
+
     def test_contents_preserve_section_class_and_member_anchors(self) -> None:
         parser = SphinxContents()
         parser.feed(

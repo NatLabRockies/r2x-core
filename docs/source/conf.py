@@ -17,11 +17,12 @@ autodoc_member_order = "bysource"
 autodoc_typehints = "description"
 autodoc_typehints_format = "short"
 autoclass_content = "both"
+napoleon_use_ivar = True
 exclude_patterns = ["_static"]
 
 
 # Pin source links to the checkout used for this documentation build.
-def linkcode_resolve(domain, info):
+def linkcode_resolve(domain: str, info: dict[str, str]) -> str | None:
     import inspect
     import subprocess
     from importlib import import_module
@@ -33,6 +34,8 @@ def linkcode_resolve(domain, info):
         obj = import_module(info["module"])
         for part in info["fullname"].split("."):
             obj = getattr(obj, part)
+        if isinstance(obj, property):
+            obj = obj.fget
         obj = inspect.unwrap(obj)
         source = Path(inspect.getsourcefile(obj)).resolve()
         root = Path(__file__).resolve().parents[2]
@@ -42,6 +45,23 @@ def linkcode_resolve(domain, info):
     except (AttributeError, ImportError, OSError, TypeError, ValueError, subprocess.CalledProcessError):
         return None
     return f"https://github.com/NatLabRockies/r2x-core/blob/{revision}/{relative}#L{start}-L{start + len(lines) - 1}"
+
+
+def omit_duplicate_method_summary(
+    _app: object, what: str, name: str, _obj: object, _options: object, lines: list[str]
+) -> None:
+    """Keep DataStore's complete autodoc methods as the sole indexed definitions."""
+    if what != "class" or name not in {"r2x_core.DataStore", "r2x_core.store.DataStore"}:
+        return
+    if "Methods" not in lines:
+        return
+    start = lines.index("Methods")
+    end = len(lines)
+    for index in range(start + 2, len(lines) - 1):
+        if lines[index].strip() and set(lines[index + 1].strip()) == {"-"}:
+            end = index
+            break
+    del lines[start:end]
 
 
 def normalize_package_label(_app, _what, name, _obj, _options, lines):
@@ -54,4 +74,5 @@ def normalize_package_label(_app, _what, name, _obj, _options, lines):
 
 
 def setup(app):
+    app.connect("autodoc-process-docstring", omit_duplicate_method_summary, priority=100)
     app.connect("autodoc-process-docstring", normalize_package_label)

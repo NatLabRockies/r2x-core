@@ -1,6 +1,6 @@
 # Units Module
 
-For complete API documentation of the units module, see {doc}`./api`.
+For complete API documentation of the units module, see [api](/r2x-core/references/api/).
 
 ## Quick Reference
 
@@ -12,7 +12,7 @@ For complete API documentation of the units module, see {doc}`./api`.
 - {py:func}`~r2x_core.get_unit_system` - Get current display mode
 
 ```{seealso}
-- {doc}`../tutorials/working-with-units` for a step-by-step introduction
-- {doc}`../how-tos/convert-units` for practical recipes
-- {doc}`../explanations/unit-system` for design rationale
+- [working with units](/r2x-core/tutorials/working-with-units/) for a step-by-step introduction
+- [convert units](/r2x-core/how-tos/convert-units/) for practical recipes
+- [unit system](/r2x-core/explanations/unit-system/) for design rationale
 ```

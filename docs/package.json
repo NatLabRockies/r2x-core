@@ -1,0 +1,20 @@
+{
+  "dependencies": {
+    "@astrojs/markdown-remark": "^7.3.0",
+    "@astrojs/starlight": "^0.42.6",
+    "astro": "^7.3.8",
+    "astro-mermaid": "^2.1.0",
+    "mermaid": "^11.15.0"
+  },
+  "engines": {
+    "node": ">=22.22.0"
+  },
+  "name": "r2x-core-docs",
+  "private": true,
+  "scripts": {
+    "build": "uv run python test_generate_api.py && uv run python test_tutorial.py && uv run python generate_api.py && astro build && uv run python generate_api.py --redirects && uv run python test_legacy_fragments.py",
+    "dev": "uv run python generate_api.py && astro dev",
+    "preview": "astro preview"
+  },
+  "type": "module"
+}

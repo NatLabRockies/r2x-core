@@ -1,180 +1,104 @@
-# Versioning Strategies
+# Version strategy contracts
 
-For complete API documentation of versioning classes, see {doc}`./api`.
+`VersionStrategy.compare_versions(current, *, target)` compares the current
+version with a target. The result is `-1` for older, `0` for equal and `1` for
+newer. Comparison does not read a file, select an upgrade or mutate a system.
 
-## Quick Reference
+## Semantic versioning
 
-- {py:class}`~r2x_core.VersionStrategy` - Versioning protocol base class
-- {py:class}`~r2x_core.SemanticVersioningStrategy` - Semantic versioning (e.g., "1.2.3")
-- {py:class}`~r2x_core.GitVersioningStrategy` - Git-based versioning
-- {py:class}`~r2x_core.VersionReader` - Version detection utility
-
-## Overview
-
-The versioning system provides flexible strategies for managing version information in data structures and system objects. Supported strategies include semantic versioning and git-based versioning.
-
-## Protocol: VersionReader
-
-The {py:class}`~r2x_core.VersionReader` protocol defines the interface for detecting versions from data:
+`SemanticVersioningStrategy()` compares semantic-version strings.
+It does not expose the former examples' `get_version`, `set_version`, or `compare`
+methods and takes no `version_field` or `default_version` configuration.
 
 ```python doctest
+>>> from r2x_core import SemanticVersioningStrategy
+>>> strategy = SemanticVersioningStrategy()
+>>> # Expected: ordering follows semantic versions, not lexical string order.
+>>> strategy.compare_versions("1.9.0", target="1.10.0")
+-1
+>>> strategy.compare_versions("2.0.0", target="1.0.0")
+1
+>>> strategy.compare_versions("1.0.0", target="1.0.0")
+0
+```
+
+## Git history order
+
+`GitVersioningStrategy(commit_history)` accepts a nonempty list ordered oldest
+to newest. Comparisons use positions in that supplied history, not timestamps
+or lexical ordering. Unknown commits and a missing current version raise `ValueError`.
+The labels below stand in for known identifiers in a supplied history; no Git
+repository or network request is needed to test ordering.
+
+```python doctest
+>>> from r2x_core import GitVersioningStrategy
+>>> strategy = GitVersioningStrategy(["older", "middle", "newer"])
+>>> # Expected: the first supplied history entry precedes the last.
+>>> strategy.compare_versions("older", target="newer")
+-1
+>>> strategy.compare_versions("newer", target="middle")
+1
+>>> try:
+...     strategy.compare_versions("unknown", target="newer")
+... except ValueError as error:
+...     assert "not found in history" in str(error)
+...     print(type(error).__name__)
+ValueError
+```
+
+## Version readers
+
+`VersionReader.read_version(folder_path: Path)` is a protocol returning a
+version string or `None`. A model package implements its own file/layout convention.
+This complete example reads an actual temporary `VERSION` file:
+
+```python doctest
+>>> from pathlib import Path
+>>> from tempfile import TemporaryDirectory
 >>> from r2x_core import VersionReader
->>> from typing import Protocol
->>> # VersionReader is a Protocol (structural typing)
->>> isinstance(VersionReader, type)
-True
+>>> class TextVersionReader:
+...     def read_version(self, folder_path: Path) -> str | None:
+...         path = folder_path / "VERSION"
+...         return path.read_text(encoding="utf-8").strip() if path.is_file() else None
+>>> reader: VersionReader = TextVersionReader()
+>>> with TemporaryDirectory() as directory:
+...     root = Path(directory)
+...     before = reader.read_version(root)
+...     _ = (root / "VERSION").write_text("1.2.3\n", encoding="utf-8")
+...     after = reader.read_version(root)
+>>> # Expected: absence is distinct from the version read from the created file.
+>>> before, after
+(None, '1.2.3')
 ```
 
-## Usage Examples
+Use [manage versions](/r2x-core/how-tos/manage-versions/) for selection guidance,
+[upgrade steps](/r2x-core/references/upgrader/) for transformation/error contracts,
+and the [generated API](/r2x-core/references/api/) for signatures and pinned source.
 
-### Semantic Versioning
+<span id="versioning-strategies"></span>
 
-Use semantic versioning for human-readable version strings following the `MAJOR.MINOR.PATCH` format:
+<span id="quick-reference"></span>
 
-```python
-from r2x_core import SemanticVersioningStrategy
+<span id="overview"></span>
 
-# Create strategy
-strategy = SemanticVersioningStrategy(version_field="version")
+<span id="protocol-versionreader"></span>
 
-# Get version from data
-data = {"version": "1.2.3", "buses": [...]}
-current = strategy.get_version(data)  # "1.2.3"
+<span id="usage-examples"></span>
 
-# Compare versions
-comparison = strategy.compare("1.2.3", "2.0.0")  # -1 (current < target)
-comparison = strategy.compare("2.0.0", "1.2.3")  # 1 (current > target)
-comparison = strategy.compare("1.2.3", "1.2.3")  # 0 (equal)
+<span id="custom-version-field"></span>
 
-# Set new version
-updated_data = strategy.set_version(data, "2.0.0")
-```
+<span id="git-based-versioning"></span>
 
-### Custom Version Field
+<span id="version-comparison"></span>
 
-Specify a custom field name for version storage:
+<span id="working-with-objects"></span>
 
-```python
-# Use custom field name
-strategy = SemanticVersioningStrategy(
-    version_field="schema_version",
-    default_version="0.0.0"
-)
+<span id="best-practices"></span>
 
-data = {"schema_version": "2.1.0", "config": {...}}
-version = strategy.get_version(data)  # "2.1.0"
-```
+<span id="choose-the-right-strategy"></span>
 
-### Git-Based Versioning
+<span id="version-field-naming"></span>
 
-Use git commit hashes or timestamps for version tracking:
+<span id="handle-missing-versions"></span>
 
-```python
-from r2x_core import GitVersioningStrategy
-
-# Using commit hashes (string comparison)
-strategy = GitVersioningStrategy(version_field="git_version")
-
-data = {"git_version": "abc123def", "data": [...]}
-current = strategy.get_version(data)
-
-# Using ISO timestamps
-strategy = GitVersioningStrategy(
-    version_field="git_version",
-    use_timestamps=True
-)
-
-data = {
-    "git_version": "2024-01-01T00:00:00Z",
-    "data": [...]
-}
-comparison = strategy.compare(
-    "2024-01-01T00:00:00Z",
-    "2024-06-01T00:00:00Z"
-)  # -1 (earlier < later)
-```
-
-## Version Comparison
-
-All strategies follow the same comparison convention:
-
-- **-1**: Current version is less than target (upgrade needed)
-- **0**: Versions are equal (no upgrade needed)
-- **1**: Current version is greater than target (downgrade or error)
-
-```python
-from r2x_core import SemanticVersioningStrategy
-
-strategy = SemanticVersioningStrategy()
-
-# Check if upgrade is needed
-if strategy.compare("1.0.0", "2.0.0") < 0:
-    print("Upgrade required")
-
-# Handle None current version (treated as earliest)
-strategy.compare(None, "1.0.0")  # -1 (always needs upgrade)
-```
-
-## Working with Objects
-
-Versioning strategies work with dictionaries and objects with attributes:
-
-```python
-from pydantic import BaseModel
-from r2x_core import SemanticVersioningStrategy
-
-class Config(BaseModel):
-    version: str
-    name: str
-
-strategy = SemanticVersioningStrategy(version_field="version")
-
-# Works with Pydantic models
-config = Config(version="1.0.0", name="test")
-current = strategy.get_version(config)  # "1.0.0"
-
-# Set version on object
-strategy.set_version(config, "2.0.0")
-assert config.version == "2.0.0"
-```
-
-## Best Practices
-
-### Choose the Right Strategy
-
-- **SemanticVersioningStrategy**: For human-readable versions with clear upgrade paths
-- **GitVersioningStrategy**: For tracking changes tied to git commits or timestamps
-
-### Version Field Naming
-
-Use consistent field names across your data structures:
-
-```python
-# Good: Consistent naming
-strategy = SemanticVersioningStrategy(version_field="schema_version")
-
-# All data uses same field
-data_v1 = {"schema_version": "1.0.0", ...}
-data_v2 = {"schema_version": "2.0.0", ...}
-```
-
-### Handle Missing Versions
-
-Always handle cases where version information is missing:
-
-```python
-strategy = SemanticVersioningStrategy(default_version="0.0.0")
-
-# Missing version treated as default
-data_without_version = {"name": "test"}
-version = strategy.get_version(data_without_version)  # None
-
-# Compare treats None as earliest version
-strategy.compare(None, "1.0.0")  # -1 (upgrade needed)
-```
-
-## See Also
-
-- {doc}`./upgrader` - Upgrade system using versioning strategies
-- {doc}`../how-tos/manage-versions` - Version management guide
-- {doc}`./api` - Complete API documentation
+<span id="see-also"></span>

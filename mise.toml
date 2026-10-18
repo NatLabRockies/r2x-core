@@ -36,8 +36,9 @@ description = "Run tests with coverage"
 run = "uv run --locked pytest -q --cov-report=term-missing:skip-covered"
 
 [tasks.docs]
-description = "Build Sphinx documentation"
-run = "uv run --locked sphinx-build -M html docs/source docs/build"
+description = "Build Astro documentation and API contracts"
+dir = "docs"
+run = "npm run build"
 
 [tasks.hooks]
 description = "Run all pre-commit hooks"

@@ -98,7 +98,7 @@ build-backend = "uv_build"
 include = ["src"]
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+pythonpath = ["src", "docs"]
 testpaths = ["tests"]
 addopts = ["--cov=r2x_core", "--cov-report=term-missing"]
 

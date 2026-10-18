@@ -223,4 +223,4 @@ True
 
 ## Data Processors
 
-See {doc}`./processors` for complete processor documentation.
+See [processors](/r2x-core/references/processors/) for complete processor documentation.

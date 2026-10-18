@@ -1,6 +1,6 @@
 # Reference
 
-R2X Core provides data file management, plugin configuration, and system management classes:
+r2x-core provides data file management, plugin configuration, and system management classes:
 
 ## Core Classes
 
@@ -49,10 +49,7 @@ For detailed API documentation with examples and method signatures, see the [Com
 
 ## Documentation Coverage
 
-```{eval-rst}
-.. report:doc-coverage::
-   :packageid: src
-```
+Docstring coverage is checked separately with `mise run docstrings`.
 
 ```{toctree}
 :maxdepth: 2

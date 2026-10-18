@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from rust_ok import Ok
 
+from r2x_core import ComponentSource, ComponentTarget
 from r2x_core.getters import getter
+from r2x_core.utils.rules import sort_rules_by_dependencies
 
 
 # Test helper getter (example of application-defined getter)
@@ -23,8 +25,8 @@ def test_rule_with_name_field():
     from r2x_core import Rule
 
     rule = Rule(
-        source_type="A",
-        target_type="B",
+        source=ComponentSource(component_type="A"),
+        target=ComponentTarget(component_types=("B",)),
         version=1,
         field_map={"f": "f"},
         name="test_rule",
@@ -38,15 +40,15 @@ def test_rule_with_depends_on_field():
     from r2x_core import Rule
 
     rule = Rule(
-        source_type="A",
-        target_type="B",
+        source=ComponentSource(component_type="A"),
+        target=ComponentTarget(component_types=("B",)),
         version=1,
         field_map={"f": "f"},
         name="rule_b",
         depends_on=["rule_a"],
     )
 
-    assert rule.depends_on == ["rule_a"]
+    assert rule.depends_on == ("rule_a",)
 
 
 def test_rule_with_system_field_default():
@@ -54,13 +56,13 @@ def test_rule_with_system_field_default():
     from r2x_core import Rule
 
     rule = Rule(
-        source_type="A",
-        target_type="B",
+        source=ComponentSource(component_type="A"),
+        target=ComponentTarget(component_types=("B",)),
         version=1,
         field_map={"f": "f"},
     )
 
-    assert rule.system == "source"
+    assert rule.source.system == "source"
 
 
 def test_rule_with_system_field_target():
@@ -68,32 +70,30 @@ def test_rule_with_system_field_target():
     from r2x_core import Rule
 
     rule = Rule(
-        source_type="A",
-        target_type="B",
+        source=ComponentSource(component_type="A", system="target"),
+        target=ComponentTarget(component_types=("B",)),
         version=1,
         field_map={"f": "f"},
-        system="target",
     )
 
-    assert rule.system == "target"
+    assert rule.source.system == "target"
 
 
 def test_topological_sort_simple_dependency():
     """Rules are sorted by dependencies."""
     from r2x_core import Rule
-    from r2x_core.rules_executor import sort_rules_by_dependencies
 
     rule_a = Rule(
-        source_type="A",
-        target_type="B",
+        source=ComponentSource(component_type="A"),
+        target=ComponentTarget(component_types=("B",)),
         version=1,
         field_map={"f": "f"},
         name="rule_a",
     )
 
     rule_b = Rule(
-        source_type="B",
-        target_type="C",
+        source=ComponentSource(component_type="B"),
+        target=ComponentTarget(component_types=("C",)),
         version=1,
         field_map={"f": "f"},
         name="rule_b",
@@ -112,19 +112,18 @@ def test_topological_sort_simple_dependency():
 def test_topological_sort_unnamed_rules_follow_dependencies():
     """Unnamed rules respect dependencies on named rules."""
     from r2x_core import Rule
-    from r2x_core.rules_executor import sort_rules_by_dependencies
 
     rule_a = Rule(
-        source_type="A",
-        target_type="B",
+        source=ComponentSource(component_type="A"),
+        target=ComponentTarget(component_types=("B",)),
         version=1,
         field_map={"f": "f"},
         name="rule_a",
     )
 
     unnamed_rule = Rule(
-        source_type="B",
-        target_type="C",
+        source=ComponentSource(component_type="B"),
+        target=ComponentTarget(component_types=("C",)),
         version=1,
         field_map={"f": "f"},
         depends_on=["rule_a"],
@@ -142,19 +141,18 @@ def test_topological_sort_unnamed_rules_follow_dependencies():
 def test_topological_sort_complex_dependencies():
     """Rules are sorted with complex dependency graph."""
     from r2x_core import Rule
-    from r2x_core.rules_executor import sort_rules_by_dependencies
 
     rule_a = Rule(
-        source_type="A",
-        target_type="B",
+        source=ComponentSource(component_type="A"),
+        target=ComponentTarget(component_types=("B",)),
         version=1,
         field_map={"f": "f"},
         name="rule_a",
     )
 
     rule_b = Rule(
-        source_type="B",
-        target_type="C",
+        source=ComponentSource(component_type="B"),
+        target=ComponentTarget(component_types=("C",)),
         version=1,
         field_map={"f": "f"},
         name="rule_b",
@@ -162,8 +160,8 @@ def test_topological_sort_complex_dependencies():
     )
 
     rule_c = Rule(
-        source_type="C",
-        target_type="D",
+        source=ComponentSource(component_type="C"),
+        target=ComponentTarget(component_types=("D",)),
         version=1,
         field_map={"f": "f"},
         name="rule_c",
@@ -171,8 +169,8 @@ def test_topological_sort_complex_dependencies():
     )
 
     rule_d = Rule(
-        source_type="D",
-        target_type="E",
+        source=ComponentSource(component_type="D"),
+        target=ComponentTarget(component_types=("E",)),
         version=1,
         field_map={"f": "f"},
         name="rule_d",
@@ -196,11 +194,10 @@ def test_topological_sort_complex_dependencies():
 def test_topological_sort_circular_dependency():
     """Circular dependencies are detected."""
     from r2x_core import Rule
-    from r2x_core.rules_executor import sort_rules_by_dependencies
 
     rule_a = Rule(
-        source_type="A",
-        target_type="B",
+        source=ComponentSource(component_type="A"),
+        target=ComponentTarget(component_types=("B",)),
         version=1,
         field_map={"f": "f"},
         name="rule_a",
@@ -208,8 +205,8 @@ def test_topological_sort_circular_dependency():
     )
 
     rule_b = Rule(
-        source_type="B",
-        target_type="C",
+        source=ComponentSource(component_type="B"),
+        target=ComponentTarget(component_types=("C",)),
         version=1,
         field_map={"f": "f"},
         name="rule_b",
@@ -226,11 +223,10 @@ def test_topological_sort_circular_dependency():
 def test_topological_sort_unknown_dependency():
     """Unknown dependencies are detected."""
     from r2x_core import Rule
-    from r2x_core.rules_executor import sort_rules_by_dependencies
 
     rule_a = Rule(
-        source_type="A",
-        target_type="B",
+        source=ComponentSource(component_type="A"),
+        target=ComponentTarget(component_types=("B",)),
         version=1,
         field_map={"f": "f"},
         name="rule_a",
@@ -247,11 +243,10 @@ def test_topological_sort_unknown_dependency():
 def test_topological_sort_unnamed_unknown_dependency():
     """Unnamed rules with unknown dependencies are rejected."""
     from r2x_core import Rule
-    from r2x_core.rules_executor import sort_rules_by_dependencies
 
     unnamed_rule = Rule(
-        source_type="A",
-        target_type="B",
+        source=ComponentSource(component_type="A"),
+        target=ComponentTarget(component_types=("B",)),
         version=1,
         field_map={"f": "f"},
         depends_on=["missing_named_rule"],
@@ -266,19 +261,18 @@ def test_topological_sort_unnamed_unknown_dependency():
 def test_topological_sort_duplicate_names():
     """Duplicate rule names are detected."""
     from r2x_core import Rule
-    from r2x_core.rules_executor import sort_rules_by_dependencies
 
     rule_a = Rule(
-        source_type="A",
-        target_type="B",
+        source=ComponentSource(component_type="A"),
+        target=ComponentTarget(component_types=("B",)),
         version=1,
         field_map={"f": "f"},
         name="duplicate",
     )
 
     rule_b = Rule(
-        source_type="C",
-        target_type="D",
+        source=ComponentSource(component_type="C"),
+        target=ComponentTarget(component_types=("D",)),
         version=1,
         field_map={"f": "f"},
         name="duplicate",
@@ -294,18 +288,17 @@ def test_topological_sort_duplicate_names():
 def test_topological_sort_unnamed_rules():
     """Unnamed rules are placed at the beginning."""
     from r2x_core import Rule
-    from r2x_core.rules_executor import sort_rules_by_dependencies
 
     unnamed_rule = Rule(
-        source_type="A",
-        target_type="B",
+        source=ComponentSource(component_type="A"),
+        target=ComponentTarget(component_types=("B",)),
         version=1,
         field_map={"f": "f"},
     )
 
     named_rule = Rule(
-        source_type="C",
-        target_type="D",
+        source=ComponentSource(component_type="C"),
+        target=ComponentTarget(component_types=("D",)),
         version=1,
         field_map={"f": "f"},
         name="named",

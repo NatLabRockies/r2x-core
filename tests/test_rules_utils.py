@@ -11,6 +11,7 @@ from fixtures.target_system import NodeComponent
 from rust_ok import Err, Ok, Result
 
 from r2x_core import Rule
+from r2x_core.rules import ComponentSource, ComponentTarget
 from r2x_core.utils import (
     build_attr_getter,
     build_component_kwargs,
@@ -86,8 +87,8 @@ def test_build_target_fields_applies_defaults_and_getters(context_example):
         return Ok("north")
 
     rule = Rule(
-        source_type="SourceType",
-        target_type="TargetType",
+        source=ComponentSource(component_type="SourceType"),
+        target=ComponentTarget(component_types=("TargetType",)),
         version=1,
         field_map={"name": "name", "demand_mw": "demand"},
         getters={"area": area_getter},
@@ -110,8 +111,8 @@ def test_build_target_fields_missing_attribute_without_default(context_example):
         pass
 
     rule = Rule(
-        source_type="SourceType",
-        target_type="TargetType",
+        source=ComponentSource(component_type="SourceType"),
+        target=ComponentTarget(component_types=("TargetType",)),
         version=1,
         field_map={"required": "missing_attr"},
     )
@@ -132,8 +133,8 @@ def test_build_target_fields_getter_error_without_default(context_example):
         return Err(ValueError("boom"))
 
     rule = Rule(
-        source_type="SourceType",
-        target_type="TargetType",
+        source=ComponentSource(component_type="SourceType"),
+        target=ComponentTarget(component_types=("TargetType",)),
         version=1,
         field_map={"value": "value"},
         getters={"computed": faulty_getter},
@@ -151,8 +152,8 @@ def test_build_target_fields_non_callable_getter_rejected(context_example):
         value = 1
 
     rule = Rule(
-        source_type="SourceType",
-        target_type="TargetType",
+        source=ComponentSource(component_type="SourceType"),
+        target=ComponentTarget(component_types=("TargetType",)),
         version=1,
         field_map={"value": "value"},
         getters={"computed": "not_callable"},
@@ -200,8 +201,8 @@ def test_build_component_kwargs_from_parser_record(context_example):
         return Ok(RampLimits(up=per_unit_value, down=per_unit_value))
 
     rule = Rule(
-        source_type="ParserRecord",
-        target_type="StationComponent",
+        source=ComponentSource(component_type="ParserRecord"),
+        target=ComponentTarget(component_types=("StationComponent",)),
         version=1,
         field_map={"component_name": "name"},
         getters={
@@ -250,8 +251,8 @@ def test_build_target_fields_skips_multifield_mappings(context_example):
         return Ok((src.x_coord, src.y_coord))
 
     rule = Rule(
-        source_type="SourceType",
-        target_type="TargetType",
+        source=ComponentSource(component_type="SourceType"),
+        target=ComponentTarget(component_types=("TargetType",)),
         version=1,
         field_map={"name": "name", "coords": ["x_coord", "y_coord"]},
         getters={"coords": coords_getter},
@@ -276,8 +277,8 @@ def test_build_component_kwargs_optional_missing_and_getter_values(context_examp
         return Ok(None)
 
     rule = Rule(
-        source_type="SourceType",
-        target_type="TargetType",
+        source=ComponentSource(component_type="SourceType"),
+        target=ComponentTarget(component_types=("TargetType",)),
         version=1,
         field_map={"missing": "missing"},
         getters={"computed": none_getter},
@@ -295,8 +296,8 @@ def test_build_component_kwargs_getter_error_optional(context_example):
         return Err(ValueError("boom"))
 
     rule = Rule(
-        source_type="SourceType",
-        target_type="TargetType",
+        source=ComponentSource(component_type="SourceType"),
+        target=ComponentTarget(component_types=("TargetType",)),
         version=1,
         getters={"computed": faulty_getter},
     )
@@ -316,8 +317,8 @@ def test_build_target_fields_getter_error_uses_default(context_example):
         return Err(ValueError("boom"))
 
     rule = Rule(
-        source_type="SourceType",
-        target_type="TargetType",
+        source=ComponentSource(component_type="SourceType"),
+        target=ComponentTarget(component_types=("TargetType",)),
         version=1,
         field_map={"value": "value"},
         getters={"computed": faulty_getter},
@@ -333,7 +334,11 @@ def test_build_target_fields_getter_error_uses_default(context_example):
 
 def test_create_rule_outputs_reports_mismatched_output_classes(context_example):
     """Output construction rejects a mismatched resolved output list."""
-    rule = Rule(source_type="Source", target_type="Target", version=1)
+    rule = Rule(
+        source=ComponentSource(component_type="Source"),
+        target=ComponentTarget(component_types=("Target",)),
+        version=1,
+    )
     result = create_rule_outputs(
         object(),
         rule=rule,
@@ -349,8 +354,8 @@ def test_create_rule_outputs_regenerates_primary_uuid(context_example):
     """Fan-out output construction regenerates an explicitly mapped UUID."""
     source = type("Source", (), {"name": "node", "uuid": "source-uuid"})()
     rule = Rule(
-        source_type="Source",
-        target_type="Target",
+        source=ComponentSource(component_type="Source"),
+        target=ComponentTarget(component_types=("Target",)),
         version=1,
         field_map={"name": "name", "uuid": "uuid"},
     )
@@ -370,8 +375,8 @@ def test_create_rule_outputs_reports_primary_validation_error(context_example):
     """Output construction reports validation failures from the primary target."""
     source = type("Source", (), {"name": "node", "voltage": "not-a-number"})()
     rule = Rule(
-        source_type="Source",
-        target_type="Target",
+        source=ComponentSource(component_type="Source"),
+        target=ComponentTarget(component_types=("Target",)),
         version=1,
         field_map={"name": "name", "kv_rating": "voltage"},
     )

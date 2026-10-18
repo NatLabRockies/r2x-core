@@ -45,6 +45,13 @@ class BusGeographicInfo(SupplementalAttribute):
     location_name: str = Field(default="", description="Location name")
 
 
+class ReviewEmissionAttribute(SupplementalAttribute):
+    """Emission supplemental attribute used by record-builder tests."""
+
+    rate: float
+    emission_type: str
+
+
 def _attach_bus_time_series(system: System, bus: BusComponent) -> None:
     """Attach deterministic time series data for translation tests."""
     load_profile = SingleTimeSeries.from_array(

@@ -30,7 +30,7 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from math import isnan
 from numbers import Integral, Rational, Real
-from typing import Any
+from typing import Any, Protocol
 
 import polars as pl
 from loguru import logger
@@ -40,11 +40,19 @@ from rust_ok import Err, Ok, Result
 
 from r2x_core.types import JSONType
 
-from .datafile import DataFile, FileProcessing, JSONProcessing, TabularProcessing
+from .datafile import FileProcessing, JSONProcessing, TabularProcessing, UnpivotAllExcept
 from .exceptions import ValidationError
 
 # Regex to find simple placeholders
 _PLACEHOLDER_PATTERN = re.compile(r"\{([^}]+)\}")
+
+
+class ProcessingContext(Protocol):
+    """Named configuration context required by processing operations."""
+
+    @property
+    def name(self) -> str:
+        """Return the name used for processing error context."""
 
 
 def substitute_placeholders(
@@ -185,17 +193,19 @@ def substitute_placeholders(
 
 
 def process_tabular_data(
-    data_frame: pl.LazyFrame, *, data_file: DataFile, proc_spec: TabularProcessing
+    data_frame: pl.LazyFrame, *, data_file: ProcessingContext, proc_spec: TabularProcessing
 ) -> pl.LazyFrame:
     """Apply tabular data transformations sequentially.
 
     Execute the reshape-aware pipeline declared in ``TabularProcessing``.
 
     Lowercasing is optional. With ``unpivot_on``, operations run in this order:
-    lowercase, drop, unpivot, split, replace, strip, rename, cast, scale, fill,
-    filter, aggregate, deduplicate, sort, and select. Without ``unpivot_on``,
-    split, rename, replace, strip, cast, scale, fill, and filter run before an
-    optional long-to-wide ``pivot_on``. Aggregation follows reshaping.
+    lowercase, drop, unpivot, split, replace, strip, rename, add literals, cast,
+    scale, safe divide, column fill, grouped fallback fill, scalar fill, filter,
+    aggregate, deduplicate, sort, and select. Without ``unpivot_on``, split,
+    rename, add literals, replace, strip, cast, scale, safe divide, column fill,
+    grouped fallback fill, scalar fill, and filter run before an optional
+    long-to-wide ``pivot_on``. Aggregation follows reshaping.
 
     Column names are tracked between steps so transformations stay lazy. Schema
     inspection is used only for validation and for operations whose output
@@ -205,8 +215,8 @@ def process_tabular_data(
     ----------
     data_frame : pl.LazyFrame
         Input tabular data in lazy evaluation mode.
-    data_file : DataFile
-        File configuration providing context for logging and validation.
+    data_file : ProcessingContext
+        Named configuration providing context for logging and validation.
     proc_spec : TabularProcessing
         Processing specification defining transformations to apply.
 
@@ -223,7 +233,7 @@ def process_tabular_data(
     """
     schema_names = list(data_frame.collect_schema().names())
     common_steps = [pl_lowercase, pl_drop_columns]
-    if proc_spec.unpivot_on:
+    if proc_spec.unpivot_on is not None:
         pipeline = [
             *common_steps,
             pl_unpivot_on,
@@ -231,8 +241,12 @@ def process_tabular_data(
             pl_replace_values,
             pl_strip_chars,
             pl_rename_columns,
+            pl_add_literal_columns,
             pl_cast_schema,
             pl_scale,
+            pl_safe_divide,
+            pl_fill_null_from,
+            pl_fill_null_by_group,
             pl_fill_null,
             pl_apply_filters,
         ]
@@ -241,10 +255,14 @@ def process_tabular_data(
             *common_steps,
             pl_split_columns,
             pl_rename_columns,
+            pl_add_literal_columns,
             pl_replace_values,
             pl_strip_chars,
             pl_cast_schema,
             pl_scale,
+            pl_safe_divide,
+            pl_fill_null_from,
+            pl_fill_null_by_group,
             pl_fill_null,
             pl_apply_filters,
             pl_pivot_on,
@@ -262,7 +280,9 @@ def process_tabular_data(
     return data_frame
 
 
-def process_json_data(json_data: JSONType, *, data_file: DataFile, proc_spec: JSONProcessing) -> JSONType:
+def process_json_data(
+    json_data: JSONType, *, data_file: ProcessingContext, proc_spec: JSONProcessing
+) -> JSONType:
     """Apply JSON data transformations sequentially.
 
     Executes a pipeline of transformations (rename_keys, drop_columns, select_columns,
@@ -273,8 +293,8 @@ def process_json_data(json_data: JSONType, *, data_file: DataFile, proc_spec: JS
     ----------
     json_data : JSONType
         Input JSON data (dict, list of dicts, or nested structures).
-    data_file : DataFile
-        File configuration providing context for logging and validation.
+    data_file : ProcessingContext
+        Named configuration providing context for logging and validation.
     proc_spec : JSONProcessing
         Processing specification defining transformations to apply.
 
@@ -306,7 +326,7 @@ def process_json_data(json_data: JSONType, *, data_file: DataFile, proc_spec: JS
 def pl_pivot_on(
     data_frame: pl.LazyFrame,
     *,
-    data_file: DataFile,
+    data_file: ProcessingContext,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
 ) -> pl.LazyFrame:
@@ -365,7 +385,7 @@ def _require_columns(
     columns: list[str],
     *,
     operation: str,
-    data_file: DataFile,
+    data_file: ProcessingContext,
 ) -> None:
     """Raise an actionable error when a transformation references missing columns."""
     missing = list(dict.fromkeys(column for column in columns if column not in schema_names))
@@ -380,18 +400,34 @@ def _require_columns(
 def pl_unpivot_on(
     data_frame: pl.LazyFrame,
     *,
-    data_file: DataFile,
+    data_file: ProcessingContext,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
 ) -> tuple[pl.LazyFrame, list[str]]:
     """Unpivot configured value columns while retaining identifier columns."""
     if schema_names is None:
         schema_names = list(data_frame.collect_schema().names())
-    if not proc_spec or not proc_spec.unpivot_on:
+    if not proc_spec or proc_spec.unpivot_on is None:
         return data_frame, schema_names
 
-    value_columns = list(dict.fromkeys(proc_spec.unpivot_on))
-    _require_columns(schema_names, value_columns, operation="unpivot_on", data_file=data_file)
+    selector = proc_spec.unpivot_on
+    if selector == "all":
+        value_columns = list(schema_names)
+    elif isinstance(selector, UnpivotAllExcept):
+        _require_columns(
+            schema_names,
+            selector.all_except,
+            operation="unpivot_on all_except",
+            data_file=data_file,
+        )
+        excluded_columns = set(selector.all_except)
+        value_columns = [column for column in schema_names if column not in excluded_columns]
+    else:
+        value_columns = list(selector)
+        _require_columns(schema_names, value_columns, operation="unpivot_on", data_file=data_file)
+
+    if not value_columns:
+        raise ValueError(f"unpivot_on in {data_file.name!r} selects no value columns")
     index_columns = [column for column in schema_names if column not in value_columns]
     output_collisions = sorted({"variable", "value"} & set(index_columns))
     if output_collisions:
@@ -411,7 +447,7 @@ def pl_unpivot_on(
 def pl_split_columns(
     data_frame: pl.LazyFrame,
     *,
-    data_file: DataFile,
+    data_file: ProcessingContext,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
 ) -> tuple[pl.LazyFrame, list[str]]:
@@ -449,7 +485,7 @@ def pl_split_columns(
 def pl_strip_chars(
     data_frame: pl.LazyFrame,
     *,
-    data_file: DataFile,
+    data_file: ProcessingContext,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
 ) -> tuple[pl.LazyFrame, list[str]]:
@@ -473,7 +509,7 @@ def pl_strip_chars(
 def pl_scale(
     data_frame: pl.LazyFrame,
     *,
-    data_file: DataFile,
+    data_file: ProcessingContext,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
 ) -> tuple[pl.LazyFrame, list[str]]:
@@ -493,10 +529,130 @@ def pl_scale(
     return data_frame.with_columns(expressions), schema_names
 
 
+def pl_safe_divide(
+    data_frame: pl.LazyFrame,
+    *,
+    data_file: ProcessingContext,
+    proc_spec: TabularProcessing,
+    schema_names: list[str] | None = None,
+) -> tuple[pl.LazyFrame, list[str]]:
+    """Add Float64 outputs by division, yielding null for zero or null inputs."""
+    if schema_names is None:
+        schema_names = list(data_frame.collect_schema().names())
+    if not proc_spec or not proc_spec.safe_divide:
+        return data_frame, schema_names
+
+    schema = data_frame.collect_schema()
+    expressions = []
+    output_columns = list(proc_spec.safe_divide)
+    for output_column, division in proc_spec.safe_divide.items():
+        _require_columns(
+            schema_names,
+            [division.numerator, division.denominator],
+            operation="safe_divide",
+            data_file=data_file,
+        )
+        if output_column in schema_names:
+            raise ValueError(
+                f"safe_divide in {data_file.name!r} would overwrite existing column {output_column!r}"
+            )
+        non_numeric = {
+            column: schema[column]
+            for column in (division.numerator, division.denominator)
+            if schema[column] != pl.Null and not schema[column].is_numeric()
+        }
+        if non_numeric:
+            raise ValueError(f"safe_divide in {data_file.name!r} requires numeric inputs: {non_numeric}")
+
+        numerator = pl.col(division.numerator).cast(pl.Float64)
+        denominator = pl.col(division.denominator).cast(pl.Float64)
+        expressions.append(
+            pl.when(numerator.is_not_null() & denominator.is_not_null() & (denominator != 0))
+            .then(numerator / denominator)
+            .otherwise(pl.lit(None, dtype=pl.Float64))
+            .alias(output_column)
+        )
+    return data_frame.with_columns(expressions), [*schema_names, *output_columns]
+
+
+def pl_fill_null_from(
+    data_frame: pl.LazyFrame,
+    *,
+    data_file: ProcessingContext,
+    proc_spec: TabularProcessing,
+    schema_names: list[str] | None = None,
+) -> tuple[pl.LazyFrame, list[str]]:
+    """Fill null values from another column in the same row without chaining."""
+    if schema_names is None:
+        schema_names = list(data_frame.collect_schema().names())
+    if not proc_spec or not proc_spec.fill_null_from:
+        return data_frame, schema_names
+
+    columns = [*proc_spec.fill_null_from, *proc_spec.fill_null_from.values()]
+    _require_columns(schema_names, columns, operation="fill_null_from", data_file=data_file)
+    schema = data_frame.collect_schema()
+    incompatible = {
+        target: (schema[target], schema[source])
+        for target, source in proc_spec.fill_null_from.items()
+        if schema[target] != schema[source]
+        and schema[target] != pl.Null
+        and schema[source] != pl.Null
+        and not (schema[target].is_numeric() and schema[source].is_numeric())
+    }
+    if incompatible:
+        raise ValueError(
+            f"fill_null_from in {data_file.name!r} requires matching column types: {incompatible}"
+        )
+    expressions = [
+        pl.col(target).fill_null(pl.col(source)).alias(target)
+        for target, source in proc_spec.fill_null_from.items()
+    ]
+    return data_frame.with_columns(expressions), schema_names
+
+
+def pl_fill_null_by_group(
+    data_frame: pl.LazyFrame,
+    *,
+    data_file: ProcessingContext,
+    proc_spec: TabularProcessing,
+    schema_names: list[str] | None = None,
+) -> tuple[pl.LazyFrame, list[str]]:
+    """Fill configured values from their group mean and then scalar fallback."""
+    if schema_names is None:
+        schema_names = list(data_frame.collect_schema().names())
+    if not proc_spec or not proc_spec.fill_null_by_group:
+        return data_frame, schema_names
+
+    schema = data_frame.collect_schema()
+    expressions = []
+    for specification in proc_spec.fill_null_by_group:
+        columns = [specification.column, *specification.group_by, *(specification.where or {})]
+        _require_columns(schema_names, columns, operation="fill_null_by_group", data_file=data_file)
+        column_type = schema[specification.column]
+        if column_type != pl.Null and not column_type.is_numeric():
+            raise ValueError(
+                f"fill_null_by_group in {data_file.name!r} requires a numeric target column: "
+                f"{specification.column!r} has type {column_type}"
+            )
+
+        grouped_mean = pl.col(specification.column).mean().over(specification.group_by)
+        filled = pl.coalesce([pl.col(specification.column), grouped_mean, pl.lit(specification.fallback)])
+        if specification.where:
+            conditions = [
+                pl.col(column).is_null() if value is None else pl.col(column) == pl.lit(value)
+                for column, value in specification.where.items()
+            ]
+            predicate = pl.all_horizontal([condition.fill_null(False) for condition in conditions])
+            filled = pl.when(predicate).then(filled).otherwise(pl.col(specification.column))
+        expressions.append(filled.alias(specification.column))
+
+    return data_frame.with_columns(expressions), schema_names
+
+
 def pl_replace_values(
     data_frame: pl.LazyFrame,
     *,
-    data_file: DataFile,
+    data_file: ProcessingContext,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
 ) -> tuple[pl.LazyFrame, list[str]]:
@@ -592,7 +748,7 @@ def pl_replace_values(
 def pl_fill_null(
     data_frame: pl.LazyFrame,
     *,
-    data_file: DataFile,
+    data_file: ProcessingContext,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
 ) -> tuple[pl.LazyFrame, list[str]]:
@@ -633,35 +789,102 @@ def _aggregate_expression(column: str, function: str) -> pl.Expr:
 def pl_aggregate(
     data_frame: pl.LazyFrame,
     *,
-    data_file: DataFile,
+    data_file: ProcessingContext,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
 ) -> tuple[pl.LazyFrame, list[str]]:
     """Group and aggregate rows using configured Polars aggregations."""
     if schema_names is None:
         schema_names = list(data_frame.collect_schema().names())
-    if not proc_spec or not proc_spec.aggregate_on:
+    if not proc_spec or not (proc_spec.aggregate_on or proc_spec.weighted_mean):
         return data_frame, schema_names
     if proc_spec.pivot_on:
         return data_frame, schema_names
 
-    aggregate_columns = list(proc_spec.aggregate_on)
-    _require_columns(schema_names, aggregate_columns, operation="aggregate_on", data_file=data_file)
+    aggregate_columns = list(proc_spec.aggregate_on or {})
+    weighted_columns = list(proc_spec.weighted_mean or {})
     group_columns = list(proc_spec.group_by or [])
+    _require_columns(
+        schema_names, [*aggregate_columns, *weighted_columns], operation="aggregate_on", data_file=data_file
+    )
     _require_columns(schema_names, group_columns, operation="group_by", data_file=data_file)
+    schema = data_frame.collect_schema()
     expressions = [
-        _aggregate_expression(column, function) for column, function in proc_spec.aggregate_on.items()
+        _aggregate_expression(column, function) for column, function in (proc_spec.aggregate_on or {}).items()
     ]
+    for column, specification in (proc_spec.weighted_mean or {}).items():
+        _require_columns(
+            schema_names,
+            [specification.weight_column],
+            operation="weighted_mean",
+            data_file=data_file,
+        )
+        for source_column in (column, specification.weight_column):
+            source_type = schema[source_column]
+            if source_type != pl.Null and not source_type.is_numeric():
+                raise ValueError(
+                    f"weighted_mean in {data_file.name!r} requires numeric inputs: "
+                    f"{source_column!r} has type {source_type}"
+                )
+
+        value = pl.col(column).cast(pl.Float64)
+        weight = pl.col(specification.weight_column).cast(pl.Float64)
+        if specification.null_weight == "error":
+            null_weights = (
+                data_frame.filter(pl.col(specification.weight_column).is_null())
+                .select(pl.len())
+                .collect()
+                .item()
+            )
+            if null_weights:
+                raise ValueError(
+                    f"weighted_mean in {data_file.name!r} found null weight(s) in "
+                    f"{specification.weight_column!r}"
+                )
+
+        if specification.unknown_positive_weight == "ignore":
+            effective_weight = pl.when(pl.col(column).is_not_null()).then(weight)
+        else:
+            effective_weight = weight
+        total_weight = effective_weight.sum()
+        weighted_value = (value * effective_weight).sum() / total_weight
+        if specification.unknown_positive_weight == "propagate":
+            has_unknown_positive = (pl.col(column).is_null() & (weight > 0)).any()
+            weighted_value = pl.when(has_unknown_positive).then(None).otherwise(weighted_value)
+        if specification.nonpositive_total == "error":
+            if group_columns:
+                weight_totals = data_frame.group_by(group_columns, maintain_order=True).agg(
+                    total_weight.alias("total_weight")
+                )
+            else:
+                weight_totals = data_frame.select(total_weight.alias("total_weight"))
+            invalid_totals = (
+                weight_totals.filter(pl.col("total_weight").is_null() | (pl.col("total_weight") <= 0))
+                .select(pl.len())
+                .collect()
+                .item()
+            )
+            if invalid_totals:
+                raise ValueError(
+                    f"weighted_mean in {data_file.name!r} found nonpositive total weight for {column!r}"
+                )
+        else:
+            weighted_value = (
+                pl.when(total_weight > 0).then(weighted_value).otherwise(pl.lit(None, dtype=pl.Float64))
+            )
+        expressions.append(weighted_value.alias(column))
+
+    output_columns = [*group_columns, *aggregate_columns, *weighted_columns]
     if group_columns:
         result = data_frame.group_by(group_columns, maintain_order=True).agg(expressions)
-        return result, group_columns + aggregate_columns
-    return data_frame.select(expressions), aggregate_columns
+        return result, output_columns
+    return data_frame.select(expressions), output_columns
 
 
 def pl_distinct(
     data_frame: pl.LazyFrame,
     *,
-    data_file: DataFile,
+    data_file: ProcessingContext,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
 ) -> tuple[pl.LazyFrame, list[str]]:
@@ -680,7 +903,7 @@ def pl_distinct(
 def pl_sort(
     data_frame: pl.LazyFrame,
     *,
-    data_file: DataFile,
+    data_file: ProcessingContext,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
 ) -> tuple[pl.LazyFrame, list[str]]:
@@ -700,7 +923,7 @@ def pl_sort(
 def pl_lowercase(
     data_frame: pl.LazyFrame,
     *,
-    data_file: DataFile,
+    data_file: ProcessingContext,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
 ) -> tuple[pl.LazyFrame, list[str]]:
@@ -723,7 +946,7 @@ def pl_lowercase(
 def pl_drop_columns(
     data_frame: pl.LazyFrame,
     *,
-    data_file: DataFile,
+    data_file: ProcessingContext,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
 ) -> tuple[pl.LazyFrame, list[str]]:
@@ -743,10 +966,32 @@ def pl_drop_columns(
     return data_frame.drop(existing_cols), new_names
 
 
+def pl_add_literal_columns(
+    data_frame: pl.LazyFrame,
+    *,
+    data_file: ProcessingContext,
+    proc_spec: TabularProcessing,
+    schema_names: list[str] | None = None,
+) -> tuple[pl.LazyFrame, list[str]]:
+    """Add configured literal columns after source columns have been renamed."""
+    if schema_names is None:
+        schema_names = list(data_frame.collect_schema().names())
+    if not proc_spec or not proc_spec.literal_columns:
+        return data_frame, schema_names
+
+    collisions = sorted(set(proc_spec.literal_columns) & set(schema_names))
+    if collisions:
+        raise ValueError(
+            f"literal_columns in {data_file.name!r} would overwrite existing column(s): {collisions}"
+        )
+    expressions = [pl.lit(value).alias(column) for column, value in proc_spec.literal_columns.items()]
+    return data_frame.with_columns(expressions), [*schema_names, *proc_spec.literal_columns]
+
+
 def pl_rename_columns(
     data_frame: pl.LazyFrame,
     *,
-    data_file: DataFile,
+    data_file: ProcessingContext,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
 ) -> tuple[pl.LazyFrame, list[str]]:
@@ -771,7 +1016,7 @@ def pl_rename_columns(
 def pl_cast_schema(
     data_frame: pl.LazyFrame,
     *,
-    data_file: DataFile,
+    data_file: ProcessingContext,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
 ) -> tuple[pl.LazyFrame, list[str]]:
@@ -797,7 +1042,7 @@ def pl_cast_schema(
 def pl_apply_filters(
     data_frame: pl.LazyFrame,
     *,
-    data_file: DataFile,
+    data_file: ProcessingContext,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
 ) -> tuple[pl.LazyFrame, list[str]]:
@@ -823,7 +1068,7 @@ def pl_apply_filters(
 def pl_select_columns(
     data_frame: pl.LazyFrame,
     *,
-    data_file: DataFile,
+    data_file: ProcessingContext,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
 ) -> tuple[pl.LazyFrame, list[str]]:
@@ -843,7 +1088,9 @@ def pl_select_columns(
     return data_frame.select(cols_to_select), cols_to_select
 
 
-def json_rename_keys(json_data: JSONType, *, data_file: DataFile, proc_spec: JSONProcessing) -> JSONType:
+def json_rename_keys(
+    json_data: JSONType, *, data_file: ProcessingContext, proc_spec: JSONProcessing
+) -> JSONType:
     """Rename keys based on key mapping from JSONProcessing.
 
     Applies renaming recursively to nested dictionaries.
@@ -876,7 +1123,9 @@ def json_rename_keys(json_data: JSONType, *, data_file: DataFile, proc_spec: JSO
     return rename_keys_recursive(json_data)
 
 
-def json_drop_columns(json_data: JSONType, *, data_file: DataFile, proc_spec: JSONProcessing) -> JSONType:
+def json_drop_columns(
+    json_data: JSONType, *, data_file: ProcessingContext, proc_spec: JSONProcessing
+) -> JSONType:
     """Drop specified columns/keys from JSON data recursively."""
     if not proc_spec or not proc_spec.drop_keys:
         return json_data
@@ -906,7 +1155,9 @@ def json_drop_columns(json_data: JSONType, *, data_file: DataFile, proc_spec: JS
     return drop_keys_recursive(json_data)
 
 
-def json_select_columns(json_data: JSONType, *, data_file: DataFile, proc_spec: JSONProcessing) -> JSONType:
+def json_select_columns(
+    json_data: JSONType, *, data_file: ProcessingContext, proc_spec: JSONProcessing
+) -> JSONType:
     """Select specific columns/keys from JSON data."""
     if not proc_spec or not proc_spec.select_keys:
         return json_data
@@ -939,7 +1190,7 @@ def json_select_columns(json_data: JSONType, *, data_file: DataFile, proc_spec: 
 def json_apply_filters(
     json_data: JSONType,
     *,
-    data_file: DataFile,
+    data_file: ProcessingContext,
     proc_spec: JSONProcessing | None,
 ) -> JSONType:
     """Filter JSON data by key-value pairs."""
@@ -984,7 +1235,7 @@ def json_apply_filters(
 def json_select_keys(
     json_data: JSONType,
     *,
-    data_file: DataFile,
+    data_file: ProcessingContext,
     proc_spec: JSONProcessing | None,
 ) -> JSONType:
     """Select specific keys from JSON data (dict or list of dicts)."""
@@ -1003,7 +1254,7 @@ def json_select_keys(
     return json_data
 
 
-def transform_xml_data(data: Any, *, data_file: DataFile) -> Any:
+def transform_xml_data(data: Any, *, data_file: ProcessingContext) -> Any:
     """Transform XML data - placeholder for future implementation."""
     logger.debug("XML transformation placeholder for {}", data_file.name)
     return data
@@ -1019,7 +1270,7 @@ TRANSFORMATIONS: dict[type | tuple[type, ...], Callable[..., Any]] = {
 def apply_processing(
     data: Any,
     *,
-    data_file: DataFile,
+    data_file: ProcessingContext,
     proc_spec: FileProcessing | None,
     placeholders: dict[str, Any] | None = None,
 ) -> Result[Any, ValueError | ValidationError]:
@@ -1029,8 +1280,8 @@ def apply_processing(
     ----------
     data : Any
         Raw data to transform.
-    data_file : DataFile
-        Configuration with transformation instructions.
+    data_file : ProcessingContext
+        Named configuration with transformation instructions.
     proc_spec : FileProcessing | None
         Processing specification (TabularProcessing or JSONProcessing).
     placeholders : dict[str, Any] | None
@@ -1058,7 +1309,6 @@ def apply_processing(
             return Err(
                 ValueError(f"Invalid processing specification after placeholder substitution: {error}")
             )
-        data_file = data_file.model_copy(update={"proc_spec": new_proc})
         proc_spec = new_proc
 
     for registered_types, transform_func in TRANSFORMATIONS.items():
@@ -1085,7 +1335,7 @@ def register_transformation(data_types: type | tuple[type, ...], *, func: Callab
 
     Examples
     --------
-    >>> def transform_my_data(data_file: DataFile, data: MyType) -> MyType:
+    >>> def transform_my_data(data_file: ProcessingContext, data: MyType) -> MyType:
     ...     # Custom transformation logic
     ...     return data
     >>> register_transformation(MyType, func=transform_my_data)

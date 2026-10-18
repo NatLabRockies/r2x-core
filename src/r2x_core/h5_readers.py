@@ -83,8 +83,9 @@ def configurable_h5_reader(h5_file: h5py.File, **reader_kwargs: object) -> H5Res
     if columns_key is not None and not isinstance(columns_key, str):
         raise ValueError("columns_key must be a string")
 
+    result: H5Result
     if columns_as_datasets:
-        result: H5Result = read_columnar_group(
+        result = read_columnar_group(
             scope,
             columns_key=columns_key,
             decode_bytes=decode_bytes,
@@ -95,7 +96,7 @@ def configurable_h5_reader(h5_file: h5py.File, **reader_kwargs: object) -> H5Res
         data_dataset = get_h5_dataset(scope, file_data, data_key)
         if data_dataset is None:
             raise KeyError(f"HDF5 dataset '{data_key}' not found")
-        data = np.asarray(data_dataset[()])
+        data = read_h5_values(data_dataset, decode_bytes=decode_bytes)
         result = {}
         columns = get_h5_dataset(scope, file_data, columns_key) if isinstance(columns_key, str) else None
         if isinstance(columns, h5py.Dataset):
@@ -144,10 +145,7 @@ def configurable_h5_reader(h5_file: h5py.File, **reader_kwargs: object) -> H5Res
 
     datetime_dataset = get_h5_dataset(scope, file_data, datetime_key) if datetime_key is not None else None
     if datetime_dataset is not None:
-        dt_values = datetime_dataset[()]
-        if decode_bytes and datetime_dataset.dtype.kind in HDF5_STRING_KINDS:
-            dt_values = datetime_dataset.asstr()[()]
-        dt_data = np.atleast_1d(np.asarray(dt_values))
+        dt_data = read_h5_values(datetime_dataset, decode_bytes=decode_bytes)
         if dt_data.size > 0 and isinstance(dt_data[0], str):
             result[datetime_name] = parse_datetime_array(
                 [str(value) for value in dt_data],
@@ -161,7 +159,7 @@ def configurable_h5_reader(h5_file: h5py.File, **reader_kwargs: object) -> H5Res
         raise ValueError("index_key must be a string")
     index_dataset = get_h5_dataset(scope, file_data, index_key) if index_key is not None else None
     if isinstance(index_key, str) and index_dataset is not None and index_key != datetime_key:
-        result[index_key] = np.asarray(index_dataset[()])
+        result[index_key] = read_h5_values(index_dataset, decode_bytes=decode_bytes)
 
     raw_additional_keys = reader_kwargs.get("additional_keys", [])
     if not isinstance(raw_additional_keys, list):
@@ -180,7 +178,7 @@ def configurable_h5_reader(h5_file: h5py.File, **reader_kwargs: object) -> H5Res
             column_name = format_column_name(key)
         elif not user_column_mapping:
             column_name = format_column_name(column_name)
-        result[h5_key_to_string(column_name)] = np.asarray(additional_dataset[()])
+        result[h5_key_to_string(column_name)] = read_h5_values(additional_dataset, decode_bytes=decode_bytes)
 
     return result
 
@@ -199,12 +197,15 @@ def get_h5_dataset(
     return dataset
 
 
+def read_h5_values(dataset: h5py.Dataset, *, decode_bytes: bool) -> np.ndarray:
+    """Read HDF5 values as a one-dimensional array with optional byte decoding."""
+    values = dataset.asstr()[()] if decode_bytes and dataset.dtype.kind in HDF5_STRING_KINDS else dataset[()]
+    return np.atleast_1d(np.asarray(values))
+
+
 def read_h5_labels(dataset: h5py.Dataset, *, decode_bytes: bool) -> list[H5Label]:
     """Read an HDF5 dataset of labels with optional byte-string decoding."""
-    values = dataset[()]
-    if decode_bytes and dataset.dtype.kind in HDF5_STRING_KINDS:
-        values = dataset.asstr()[()]
-    labels = np.atleast_1d(values)
+    labels = read_h5_values(dataset, decode_bytes=decode_bytes)
     if decode_bytes:
         return [str(value) for value in labels]
     return [value if isinstance(value, bytes) else str(value) for value in labels]
@@ -242,11 +243,8 @@ def read_columnar_group(
         dataset = scope.get(column_key)
         if not isinstance(dataset, h5py.Dataset):
             raise KeyError(f"HDF5 column dataset '{h5_key_to_string(column)}' not found")
-        if dataset.dtype.kind in HDF5_STRING_KINDS:
-            values = np.atleast_1d(dataset.asstr()[()]) if decode_bytes else np.atleast_1d(dataset[()])
-            result[column_key] = values.tolist()
-        else:
-            result[column_key] = np.atleast_1d(np.asarray(dataset[()]))
+        values = read_h5_values(dataset, decode_bytes=decode_bytes)
+        result[column_key] = values.tolist() if dataset.dtype.kind in HDF5_STRING_KINDS else values
     return result
 
 

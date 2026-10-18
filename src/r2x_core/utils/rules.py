@@ -7,7 +7,7 @@ from collections import deque
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from infrasys import Component, SupplementalAttribute
@@ -27,29 +27,29 @@ class RuleOutputs:
 
 
 if TYPE_CHECKING:
-    from ..rules import Rule, RuleFilter, RuleLike
+    from ..rules import Rule, RuleFilter, RuleLike, RuleMapping
 
 
-_COMPONENT_TYPE_CACHE: dict[str, type] = {}
+_COMPONENT_TYPE_CACHE: dict[tuple[tuple[str, ...], str], type] = {}
 
 
 def resolve_component_type(type_name: str, *, context: PluginContext) -> Result[type, TypeError]:
     """Resolve a component type name to a class.
 
-    Uses cache to avoid repeated module imports for the same type.
-    Searches modules specified in config.models.
+    Uses a cache keyed by the configured model-module tuple and type name.
+    Searches only the modules specified in ``context.config.models``.
     """
-    if type_name in _COMPONENT_TYPE_CACHE:
-        return Ok(_COMPONENT_TYPE_CACHE[type_name])
-
-    modules_to_search: list[str] = list(context.config.models)
+    modules_to_search = tuple(context.config.models)
+    cache_key = (modules_to_search, type_name)
+    if cache_key in _COMPONENT_TYPE_CACHE:
+        return Ok(_COMPONENT_TYPE_CACHE[cache_key])
 
     for module_name in modules_to_search:
         try:
             module = importlib.import_module(module_name)
             if hasattr(module, type_name):
                 component_type = getattr(module, type_name)
-                _COMPONENT_TYPE_CACHE[type_name] = component_type
+                _COMPONENT_TYPE_CACHE[cache_key] = component_type
                 return Ok(component_type)
         except ImportError:
             continue
@@ -83,7 +83,7 @@ def build_attr_getter(chain: list[str]) -> RuleGetter:
 def build_target_fields(
     source_component: Component | Mapping[str, Any],
     *,
-    rule: Rule,
+    rule: RuleLike,
     context: PluginContext,
 ) -> Result[dict[str, Any], ValueError]:
     """Build a field mapping for the target component."""
@@ -167,9 +167,9 @@ def build_component_kwargs(
 
 
 def create_rule_outputs(
-    source_component: Component,
+    source_component: Component | Mapping[str, Any],
     *,
-    rule: Rule,
+    rule: RuleMapping,
     target_class: type[Component] | type[SupplementalAttribute],
     supplemental_classes: Sequence[type[SupplementalAttribute]],
     context: PluginContext,
@@ -219,12 +219,15 @@ def create_rule_outputs(
             continue
 
         try:
-            supplemental_attributes.append(
-                cast(
-                    SupplementalAttribute,
-                    create_target_component(supplemental_class, kwargs=supplemental_kwargs),
+            attribute = create_target_component(supplemental_class, kwargs=supplemental_kwargs)
+            if not isinstance(attribute, SupplementalAttribute):
+                return Err(
+                    ValueError(
+                        f"Supplemental target '{supplemental_rule.target_type}' did not construct an "
+                        "infrasys SupplementalAttribute"
+                    )
                 )
-            )
+            supplemental_attributes.append(attribute)
         except (PydanticValidationError, TypeError, ValueError) as error:
             return Err(ValueError(f"supplemental target '{supplemental_rule.target_type}': {error}"))
 
@@ -275,8 +278,10 @@ def evaluate_rule_filter(
     candidate = (
         str(candidate).casefold() if rule_filter.casefold and isinstance(candidate, str) else candidate
     )
-    values = rule_filter._normalized_values
-    assert values is not None, "_normalized_values must be set during RuleFilter construction"
+    values = [
+        str(value).casefold() if rule_filter.casefold and isinstance(value, str) else value
+        for value in rule_filter.values or []
+    ]
 
     if rule_filter.op == "eq":
         return candidate == values[0]

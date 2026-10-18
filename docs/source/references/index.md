@@ -11,8 +11,12 @@ R2X Core provides data file management, plugin configuration, and system managem
 - {py:class}`~r2x_core.FileInfo` - Data file metadata
 - {py:class}`~r2x_core.ReaderConfig` - File reader configuration
 - {py:class}`~r2x_core.TabularProcessing` - Tabular processing pipeline
+- {py:class}`~r2x_core.SafeDivideSpec` - Typed safe-division columns
 - {py:class}`~r2x_core.JSONProcessing` - JSON processing pipeline
+- {py:class}`~r2x_core.PreparedTable` - Prepared table built from physical files
+- {py:class}`~r2x_core.TableJoin` - Configured left many-to-one join
 - {py:class}`~r2x_core.PluginConfig` - Plugin configuration
+- {py:class}`~r2x_core.PluginConfigAsset` - Selectable plugin configuration assets
 - {py:class}`~r2x_core.Plugin` - Plugin base class
 - {py:class}`~r2x_core.PluginContext` - Plugin execution context
 - {py:class}`~r2x_core.FileFormat` - File format enum
@@ -20,7 +24,11 @@ R2X Core provides data file management, plugin configuration, and system managem
 
 ## Rules and Translation
 
-- {py:class}`~r2x_core.Rule` - Rule definition and validation
+- {py:class}`~r2x_core.RuleMapping` - Shared field mapping and construction contract
+- {py:class}`~r2x_core.MappingSelection` - Ordered selection of named mappings by record keys
+- {py:class}`~r2x_core.RulePlan` - Validated mappings, rules, and execution stages
+- {py:func}`~r2x_core.apply_mapping_records` - Build and attach a configured record batch
+- {py:class}`~r2x_core.Rule` - Component or dataset source rule definition and validation
 - {py:class}`~r2x_core.RuleFilter` - Component filtering predicates
 - {py:class}`~r2x_core.RuleResult` - Per-rule results
 - {py:class}`~r2x_core.TranslationResult` - Translation result summary

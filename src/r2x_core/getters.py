@@ -31,7 +31,7 @@ def getter(func: F | None = None, *, name: str | None = None) -> F | Callable[[F
     When using parentheses, the name parameter must be provided as a keyword argument.
     """
 
-    def _decorator(f: F) -> F:
+    def register_getter(f: F) -> F:
         """Decorate function."""
         key = name or f.__name__
         if key in GETTER_REGISTRY:
@@ -47,9 +47,9 @@ def getter(func: F | None = None, *, name: str | None = None) -> F | Callable[[F
             raise TypeError(
                 "Cannot specify 'name' when using @getter without parentheses. Use @getter(name='...') instead"
             )
-        return _decorator(func)
+        return register_getter(func)
 
-    return _decorator
+    return register_getter
 
 
 def resolve_getter(getter: GetterFunc | str) -> Result[GetterFunc, TypeError]:
@@ -68,7 +68,7 @@ def resolve_getter(getter: GetterFunc | str) -> Result[GetterFunc, TypeError]:
     return Ok(build_attr_getter(getter.split(".")))
 
 
-def _preprocess_rule_getters(getters_dict: dict[str, Any]) -> Result[dict[str, Any], TypeError]:
+def preprocess_rule_getters(getters_dict: dict[str, Any]) -> Result[dict[str, Any], TypeError]:
     """Convert string-based getters in a rule into callables."""
     resolved: dict[str, GetterFunc] = {}
     for field, getter in getters_dict.items():

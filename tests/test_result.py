@@ -7,13 +7,17 @@ from collections.abc import Callable
 import pytest
 
 from r2x_core.result import RuleResult, TranslationResult
-from r2x_core.rules import Rule
+from r2x_core.rules import ComponentSource, ComponentTarget, Rule
 
 
 @pytest.fixture
 def sample_rule() -> Rule:
     """Return a simple rule instance for the tests."""
-    return Rule(source_type="RuleA", target_type="RuleB", version=1)
+    return Rule(
+        source=ComponentSource(component_type="RuleA"),
+        target=ComponentTarget(component_types=("RuleB",)),
+        version=1,
+    )
 
 
 @pytest.fixture

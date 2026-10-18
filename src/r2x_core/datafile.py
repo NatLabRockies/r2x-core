@@ -4,7 +4,7 @@ import math
 import re
 from collections.abc import Callable
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import (
     AfterValidator,
@@ -29,6 +29,7 @@ _SUPPORTED_AGGREGATIONS = frozenset(
     {"count", "first", "last", "max", "mean", "median", "min", "n_unique", "std", "sum", "var"}
 )
 _PIVOT_AGGREGATIONS = _SUPPORTED_AGGREGATIONS - {"n_unique", "std", "var"}
+ColumnName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 
 def _validate_optional_file_extension(path: Path | None, info: ValidationInfo) -> Path | None:
@@ -118,6 +119,66 @@ class SplitColumnSpec(BaseModel):
         return self
 
 
+class UnpivotAllExcept(BaseModel):
+    """Select every unpivot value column except the configured identifiers."""
+
+    all_except: Annotated[list[str], Field(min_length=1, description="Identifier columns to retain")]
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    @field_validator("all_except")
+    @classmethod
+    def validate_identifiers(cls, value: list[str]) -> list[str]:
+        """Require distinct, non-empty identifier names."""
+        if any(not name.strip() for name in value):
+            raise ValueError("unpivot all_except identifiers cannot be empty")
+        if len(set(value)) != len(value):
+            raise ValueError("unpivot all_except identifiers must be unique")
+        return value
+
+
+class SafeDivideSpec(BaseModel):
+    """Column inputs for safe row-wise division."""
+
+    numerator: ColumnName
+    denominator: ColumnName
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class GroupedFillSpec(BaseModel):
+    """Fill a column from its group mean, then from an explicit fallback."""
+
+    column: ColumnName
+    group_by: Annotated[list[ColumnName], Field(min_length=1)]
+    fallback: float | _ProcessingPlaceholder
+    where: dict[ColumnName, bool | int | float | str | None] | None = None
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    @model_validator(mode="after")
+    def validate_columns(self) -> "GroupedFillSpec":
+        """Require unique grouping columns and a non-self-referential condition."""
+        if len(set(self.group_by)) != len(self.group_by):
+            raise ValueError("grouped fill group_by columns must be unique")
+        if self.column in self.group_by:
+            raise ValueError("grouped fill column cannot also be a group_by column")
+        if self.where and self.column in self.where:
+            raise ValueError("grouped fill condition cannot reference its output column")
+        return self
+
+
+class WeightedMeanSpec(BaseModel):
+    """Explicit policies for one weighted-mean aggregation column."""
+
+    weight_column: ColumnName
+    unknown_positive_weight: Literal["propagate", "ignore"]
+    nonpositive_total: Literal["null", "error"]
+    null_weight: Literal["ignore", "error"]
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
 class TabularProcessing(BaseModel):
     """Data transformations for tabular files (CSV, HDF5, Parquet, etc.).
 
@@ -138,9 +199,10 @@ class TabularProcessing(BaseModel):
         Conditions for filtering rows by column values.
     pivot_on : str | None
         Input column used for a long-to-wide pivot. The column must exist.
-    unpivot_on : list[str] | None
-        Value columns to unpivot. Remaining columns are retained as identifier
-        columns, and the generated columns are named ``variable`` and ``value``.
+    unpivot_on : list[str] | Literal["all"] | UnpivotAllExcept | None
+        Value columns to unpivot. Use an explicit list, ``"all"``, or
+        ``UnpivotAllExcept``. Remaining columns are retained as identifiers, and
+        generated columns are named ``variable`` and ``value``.
     group_by : list[str] | None
         Columns to group by before applying ``aggregate_on``.
     aggregate_on : dict[str, str] | None
@@ -153,7 +215,18 @@ class TabularProcessing(BaseModel):
     replace_values : dict[Any, Any] | None
         Maps old values to new values across compatible columns.
     fill_null : dict[str, Any] | None
-        Specifies fill values for null entries by column.
+        Specifies constant fill values for null entries by column.
+    fill_null_from : dict[str, str] | None
+        Fill a column's null values from another column in the same row.
+    fill_null_by_group : list[GroupedFillSpec] | None
+        Fill null values from a group mean and then an explicit fallback.
+    weighted_mean : dict[str, WeightedMeanSpec] | None
+        Weighted mean aggregations integrated with aggregate_on and group_by.
+    literal_columns : dict[str, scalar] | None
+        Add constant columns after source-column renaming.
+    safe_divide : dict[str, SafeDivideSpec] | None
+        Add output columns by dividing two numeric columns. Null inputs and
+        zero denominators produce null output values.
     lowercase : bool | str
         If True, lowercase column names and string values before processing. A
         complete placeholder may defer the boolean value until processing.
@@ -177,13 +250,36 @@ class TabularProcessing(BaseModel):
     column_schema: Annotated[dict[str, str] | None, Field(description="Column type definitions")] = None
     filter_by: Annotated[dict[str, Any] | None, Field(description="Row filters")] = None
     pivot_on: Annotated[str | None, Field(description="Input column used for a long-to-wide pivot")] = None
-    unpivot_on: Annotated[list[str] | None, Field(description="Columns to unpivot")] = None
+    unpivot_on: Annotated[
+        list[str] | Literal["all"] | UnpivotAllExcept | None,
+        Field(description="Value columns to unpivot or a selector for all columns"),
+    ] = None
     group_by: Annotated[list[str] | None, Field(description="Columns to group by")] = None
     aggregate_on: Annotated[dict[str, str] | None, Field(description="Aggregation spec")] = None
     sort_by: Annotated[dict[str, str] | None, Field(description="Sort specification")] = None
     distinct_on: Annotated[list[str] | None, Field(description="Columns for deduplication")] = None
     replace_values: Annotated[dict[Any, Any] | None, Field(description="Value replacement map")] = None
-    fill_null: Annotated[dict[str, Any] | None, Field(description="Null fill values")] = None
+    fill_null: Annotated[dict[str, Any] | None, Field(description="Constant null fill values")] = None
+    fill_null_from: Annotated[
+        dict[ColumnName, ColumnName] | None,
+        Field(description="Fill null values from another column in the same row"),
+    ] = None
+    fill_null_by_group: Annotated[
+        list[GroupedFillSpec] | None,
+        Field(description="Fill null values from group means and configured fallbacks"),
+    ] = None
+    weighted_mean: Annotated[
+        dict[ColumnName, WeightedMeanSpec] | None,
+        Field(description="Weighted mean columns integrated with aggregate_on"),
+    ] = None
+    literal_columns: Annotated[
+        dict[ColumnName, bool | int | float | str | None] | None,
+        Field(description="Constant columns added after source-column renaming"),
+    ] = None
+    safe_divide: Annotated[
+        dict[ColumnName, SafeDivideSpec] | None,
+        Field(description="Output columns calculated by safe row-wise division"),
+    ] = None
     lowercase: Annotated[
         bool | _ProcessingPlaceholder,
         Field(description="Lowercase column names and string values; accepts complete placeholders"),
@@ -201,20 +297,52 @@ class TabularProcessing(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    @field_validator("unpivot_on")
+    @classmethod
+    def validate_unpivot_columns(
+        cls, value: list[str] | Literal["all"] | UnpivotAllExcept | None
+    ) -> list[str] | Literal["all"] | UnpivotAllExcept | None:
+        """Require explicit unpivot column lists to contain distinct names."""
+        if isinstance(value, list):
+            if not value:
+                raise ValueError("unpivot_on requires at least one value column")
+            if any(not name.strip() for name in value):
+                raise ValueError("unpivot_on column names cannot be empty")
+            if len(set(value)) != len(value):
+                raise ValueError("unpivot_on column names must be unique")
+        return value
+
     @model_validator(mode="after")
     def validate_operations(self) -> "TabularProcessing":
         """Reject ambiguous operation combinations and invalid options."""
-        if self.pivot_on and self.unpivot_on:
+        if self.pivot_on and self.unpivot_on is not None:
             raise ValueError("pivot_on and unpivot_on are mutually exclusive")
-        if self.group_by and not self.aggregate_on:
-            raise ValueError("group_by requires aggregate_on")
+        if self.group_by and not (self.aggregate_on or self.weighted_mean):
+            raise ValueError("group_by requires aggregate_on or weighted_mean")
         if self.pivot_on and self.pivot_on in (self.group_by or ()):
             raise ValueError("pivot_on cannot also be a group_by column")
         if self.pivot_on and self.pivot_on in (self.aggregate_on or ()):
             raise ValueError("pivot_on cannot also be an aggregate_on column")
-        if self.aggregate_on and set(self.group_by or ()) & set(self.aggregate_on):
-            overlapping = sorted(set(self.group_by or ()) & set(self.aggregate_on))
-            raise ValueError(f"aggregate_on cannot aggregate group_by column(s): {overlapping}")
+        aggregated_columns = set(self.aggregate_on or ()) | set(self.weighted_mean or ())
+        if aggregated_columns & set(self.group_by or ()):
+            overlapping = sorted(aggregated_columns & set(self.group_by or ()))
+            raise ValueError(f"aggregate columns cannot also be group_by columns: {overlapping}")
+        if set(self.aggregate_on or ()) & set(self.weighted_mean or ()):
+            overlapping = sorted(set(self.aggregate_on or ()) & set(self.weighted_mean or ()))
+            raise ValueError(f"columns cannot use both aggregate_on and weighted_mean: {overlapping}")
+        if self.fill_null_by_group:
+            columns = [spec.column for spec in self.fill_null_by_group]
+            if len(set(columns)) != len(columns):
+                raise ValueError("fill_null_by_group target columns must be unique")
+        if self.literal_columns and self.column_mapping:
+            literal_names = set(self.literal_columns)
+            mapped_names = set(self.column_mapping.values())
+            if literal_names & mapped_names:
+                raise ValueError(
+                    f"literal_columns cannot overlap renamed output columns: {sorted(literal_names & mapped_names)}"
+                )
+        if self.pivot_on and self.weighted_mean:
+            raise ValueError("weighted_mean is not supported with pivot_on")
         if self.pivot_on and self.aggregate_on:
             pivot_functions = {
                 function.lower()
@@ -251,6 +379,20 @@ class TabularProcessing(BaseModel):
             }
             if invalid_scales:
                 raise ValueError(f"scale values must be finite numbers: {invalid_scales}")
+        if self.safe_divide:
+            output_columns = set(self.safe_divide)
+            for output_column, division in self.safe_divide.items():
+                if output_column in {division.numerator, division.denominator}:
+                    raise ValueError(f"safe_divide output {output_column!r} cannot overwrite an input column")
+                if {division.numerator, division.denominator} & output_columns:
+                    raise ValueError("safe_divide operations cannot depend on another safe_divide output")
+        if self.fill_null_from:
+            targets = set(self.fill_null_from)
+            sources = set(self.fill_null_from.values())
+            if targets & sources:
+                raise ValueError("fill_null_from operations cannot chain through target columns")
+            if any(target == source for target, source in self.fill_null_from.items()):
+                raise ValueError("fill_null_from target and source columns must differ")
         if self.strip_chars:
             invalid_characters = {
                 column: values

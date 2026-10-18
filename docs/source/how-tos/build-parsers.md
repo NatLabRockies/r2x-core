@@ -11,41 +11,58 @@ Parser functionality in R2X Core is implemented through the plugin system. See t
 To build power system models, use the `System` class directly:
 
 ```python
-from r2x_core import System, DataStore, DataFile
-from infrasys.components import ACBus, ThermalStandard
+import tempfile
 from pathlib import Path
 
-# Create a system
-system = System(base_power=100.0, name="My Grid")
+from infrasys import Component
 
-# Create a data store for reading input files
-store = DataStore(
-    name="input_data",
-    data_files=[
-        DataFile(name="buses", fpath=Path("buses.csv")),
-        DataFile(name="generators", fpath=Path("generators.csv")),
-    ]
+from r2x_core import (
+    ComponentTarget,
+    DataFile,
+    DataStore,
+    DatasetSource,
+    PluginConfig,
+    PluginContext,
+    Rule,
+    System,
+    apply_single_rule,
 )
 
-# Read data and create components
-bus_data = store.read_file("buses")
-for row in bus_data.collect().iter_rows(named=True):
-    bus = ACBus(
-        name=row["name"],
-        voltage=row["voltage_kv"],
-        base_voltage=row["voltage_kv"]
-    )
-    system.add_component(bus)
 
-# Add generators
-gen_data = store.read_file("generators")
-for row in gen_data.collect().iter_rows(named=True):
-    gen = ThermalStandard(
-        name=row["name"],
-        bus=row["bus_name"],
-        active_power=row["capacity_mw"]
+class BusComponent(Component):
+    voltage: float
+    base_voltage: float
+
+
+with tempfile.TemporaryDirectory() as temp_dir:
+    input_folder = Path(temp_dir)
+    buses_path = input_folder / "buses.csv"
+    bytes_written = buses_path.write_text("name,voltage_kv\nbus-1,230.0\n")
+
+    system = System(base_power=100.0, name="My Grid")
+    store = DataStore(path=input_folder)
+    store.add_data([DataFile(name="buses", fpath=buses_path)])
+
+    # Production plugins normally point models to an importable package module.
+    context = PluginContext(
+        config=PluginConfig(models=("__main__",)),
+        system=system,
+        target_system=system,
+        store=store,
     )
-    system.add_component(gen)
+    bus_rule = Rule(
+        name="buses",
+        source=DatasetSource(dataset="buses"),
+        target=ComponentTarget(component_types=("BusComponent",)),
+        field_map={
+            "name": "name",
+            "voltage": "voltage_kv",
+            "base_voltage": "voltage_kv",
+        },
+    )
+    buses = apply_single_rule(bus_rule, context=context)
+    if buses.is_err():
+        raise buses.err()
 ```
 
 ## See Also

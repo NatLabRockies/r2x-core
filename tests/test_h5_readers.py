@@ -10,6 +10,37 @@ import pytest
 from r2x_core.h5_readers import configurable_h5_reader
 
 
+@pytest.mark.parametrize("decode_bytes", [True, False])
+def test_configurable_h5_reader_decodes_main_and_additional_string_datasets(
+    tmp_path: Path, decode_bytes: bool
+):
+    """Main and additional datasets honor byte decoding for scalar and vector values."""
+    path = tmp_path / "fuel2tech.h5"
+    with h5py.File(path, "w") as h5_file:
+        group = h5_file.create_group("fuel2tech")
+        group.create_dataset("f", data=np.array([b"NGAS", b"COAL"], dtype="S"))
+        group.create_dataset("i", data=np.array([b"GAS-CC", b"COAL"], dtype="S"))
+        group.create_dataset("scalar", data=np.bytes_(b"FUEL"))
+
+    with h5py.File(path, "r") as h5_file:
+        result = configurable_h5_reader(
+            h5_file,
+            group_key="fuel2tech",
+            data_key="f",
+            additional_keys=["i", "scalar"],
+            decode_bytes=decode_bytes,
+        )
+
+    if decode_bytes:
+        assert result["f"].tolist() == ["NGAS", "COAL"]
+        assert result["i"].tolist() == ["GAS-CC", "COAL"]
+        assert result["scalar"].tolist() == ["FUEL"]
+    else:
+        assert result["f"].tolist() == [b"NGAS", b"COAL"]
+        assert result["i"].tolist() == [b"GAS-CC", b"COAL"]
+        assert result["scalar"].tolist() == [b"FUEL"]
+
+
 def test_configurable_h5_reader_default_1d():
     """Test configurable H5 reader with no config (default) and 1D data."""
     with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as tmp:

@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 if TYPE_CHECKING:
     from .plugin_config import PluginConfig
-    from .rules import Rule
+    from .rules import Rule, RuleSource, RuleTarget
     from .store import DataStore
     from .system import System
     from .versioning import VersionStrategy
@@ -241,46 +241,28 @@ class PluginContext(Generic[ConfigT]):
 
     def get_rule(
         self,
-        source_type: str,
+        source: RuleSource,
         *,
-        target_type: str,
+        target: RuleTarget,
         version: int | None = None,
     ) -> Rule:
-        """Retrieve a transformation rule by source type, target type, and version.
+        """Retrieve one Rule by typed source, target, and version.
 
-        Parameters
-        ----------
-        source_type : str
-            Source component type name.
-        target_type : str
-            Target component type name.
-        version : int | None
-            Rule version. If None, uses active_versions from config if available,
-            otherwise defaults to version 1.
-
-        Returns
-        -------
-        Rule
-            The matching rule.
-
-        Raises
-        ------
-        KeyError
-            If no rule matches the specified source/target types and version.
+        Component source versions default to the configured active version. Dataset
+        sources default to version 1. Source and target kinds are never inferred.
         """
+        from .rules import ComponentSource
+
         if version is None:
             active_versions = getattr(self.config, "active_versions", {})
-            version = active_versions.get(source_type, 1)
+            source_name = source.component_type if isinstance(source, ComponentSource) else source.dataset
+            version = active_versions.get(source_name, 1)
 
         for rule in self.rules:
-            if (
-                source_type in rule.get_source_types()
-                and target_type in rule.get_target_types()
-                and rule.version == version
-            ):
+            if rule.source == source and rule.target == target and rule.version == version:
                 return rule
 
-        raise KeyError(f"No rule found for {source_type} → {target_type} (v{version})")
+        raise KeyError(f"No rule found for {source!r} → {target!r} (v{version})")
 
     def list_available_conversions(self) -> dict[str, list[ConversionOption]]:
         """List available conversions by source type.
@@ -291,55 +273,34 @@ class PluginContext(Generic[ConfigT]):
             Mapping of source types to list of ConversionOption objects,
             sorted by target type and version.
         """
+        from .rules import ComponentSource, ComponentTarget
+
         conversions: dict[str, list[ConversionOption]] = {}
         for rule in self.rules:
-            for source_type in rule.get_source_types():
-                if source_type not in conversions:
-                    conversions[source_type] = []
-                for target_type in rule.get_target_types():
-                    conversions[source_type].append(
-                        ConversionOption(target_type=target_type, version=rule.version)
-                    )
+            if not isinstance(rule.source, ComponentSource):
+                continue
+            source_type = rule.source.component_type
+            target_types = (
+                rule.target.component_types
+                if isinstance(rule.target, ComponentTarget)
+                else (rule.target.attribute_type,)
+            )
+            for target_type in target_types:
+                conversions.setdefault(source_type, []).append(
+                    ConversionOption(target_type=target_type, version=rule.version)
+                )
         for targets in conversions.values():
             targets.sort(key=lambda opt: (opt.target_type, opt.version))
         return conversions
 
-    def get_rules_for_source(self, source_type: str) -> list[Rule]:
-        """Get all rules for a specific source type.
-
-        Parameters
-        ----------
-        source_type : str
-            Source component type name.
-
-        Returns
-        -------
-        list[Rule]
-            List of all rules matching the source type, sorted by target type and version.
-        """
-        matching = [r for r in self.rules if source_type in r.get_source_types()]
-        matching.sort(key=lambda r: (str(r.target_type), r.version))
+    def get_rules_for_source(self, source: RuleSource) -> list[Rule]:
+        """Get all rules for one exact typed source declaration."""
+        matching = [rule for rule in self.rules if rule.source == source]
+        matching.sort(key=lambda rule: (repr(rule.target), rule.version))
         return matching
 
-    def get_rules_for_conversion(self, source_type: str, *, target_type: str) -> list[Rule]:
-        """Get all versions of a conversion between two types.
-
-        Parameters
-        ----------
-        source_type : str
-            Source component type name.
-        target_type : str
-            Target component type name.
-
-        Returns
-        -------
-        list[Rule]
-            List of all rules for this conversion, sorted by version.
-        """
-        matching = [
-            r
-            for r in self.rules
-            if source_type in r.get_source_types() and target_type in r.get_target_types()
-        ]
-        matching.sort(key=lambda r: r.version)
+    def get_rules_for_conversion(self, source: RuleSource, *, target: RuleTarget) -> list[Rule]:
+        """Get all versions matching one exact typed source/target pair."""
+        matching = [rule for rule in self.rules if rule.source == source and rule.target == target]
+        matching.sort(key=lambda rule: rule.version)
         return matching

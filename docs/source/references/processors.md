@@ -18,11 +18,11 @@ The pipeline starts with optional lowercasing and `drop_columns`. The remaining
 order depends on the reshape:
 
 - With `unpivot_on`: unpivot, split columns, replace values, strip strings,
-  rename columns, cast, scale, fill nulls, filter, aggregate, deduplicate, sort,
-  select.
+  rename columns, cast, scale, `safe_divide`, `fill_null_from`, constant `fill_null`,
+  filter, aggregate, deduplicate, sort, select.
 - Without `unpivot_on`: split columns, rename, replace values, strip strings,
-  cast, scale, fill nulls, filter, optional `pivot_on`, aggregate, deduplicate,
-  sort, select.
+  cast, scale, `safe_divide`, `fill_null_from`, constant `fill_null`, filter,
+  optional `pivot_on`, aggregate, deduplicate, sort, select.
 
 References are validated against the columns available at each step. Processing
 validation errors are returned as `Err` by `apply_processing`; `DataReader`
@@ -30,9 +30,10 @@ raises a `ReaderError` with the processing failure.
 
 ## Wide-to-long and long-to-wide
 
-`unpivot_on` is the explicit wide-to-long operation. Listed columns become
-values, remaining columns stay as identifiers, and the generated columns are
-named `variable` and `value`:
+`unpivot_on` is the explicit wide-to-long operation. A list selects value
+columns, `"all"` selects every column, and `{"all_except": [...]}` selects all
+columns except the listed identifiers. Unselected columns stay as identifiers,
+and the generated columns are named `variable` and `value`:
 
 ```python
 from r2x_core import DataFile, TabularProcessing
@@ -44,7 +45,17 @@ processing = TabularProcessing(
     filter_by={"year": "{solve_year}"},
 )
 file_spec = DataFile(name="capacity", relative_fpath="capacity.csv", proc_spec=processing)
+
+fom_processing = TabularProcessing(
+    unpivot_on={"all_except": ["technology"]},
+    column_mapping={"variable": "year", "value": "fom_cost"},
+    column_schema={"year": "int", "fom_cost": "float"},
+)
 ```
+
+Use `unpivot_on="all"` when every column contains a value and there are no
+identifier columns. For a headerless CSV, configure the reader with
+`ReaderConfig(kwargs={"has_header": False})`, then unpivot all columns.
 
 For generated compound labels, `split_column` splits a column on a literal
 separator before rename, cast, and filter operations:
@@ -93,6 +104,30 @@ processing = TabularProcessing(
 This converts values such as `2,450`, `$4.99 `, `171.20%`, and `-` to numeric
 values, with the percent column scaled to a fraction. `scale` is applied after
 casting and requires numeric columns.
+
+## Column calculations and null fallback
+
+`safe_divide` adds named Float64 columns using a numerator and denominator from
+the current table. Null numerators, null denominators, and zero denominators
+produce null outputs. `fill_null_from` fills a target column from a second
+column in the same row. Numeric columns with different numeric types are
+compatible, and a Polars `Null`-typed column can be filled from a typed column.
+
+These operations run in a fixed order after `scale`: all `safe_divide` outputs
+exist before `fill_null_from` runs, so a null fill may use a calculated output.
+Each stage is simultaneous and does not chain through another output from that
+same stage. Output columns from `safe_divide` cannot overwrite existing columns.
+
+```python
+from r2x_core import TabularProcessing
+
+processing = TabularProcessing(
+    safe_divide={
+        "line_cost_per_mile": {"numerator": "forward_cost", "denominator": "distance"}
+    },
+    fill_null_from={"reverse_capacity": "capacity"},
+)
+```
 
 ## Multi-row CSV/TSV headers
 

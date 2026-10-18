@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from r2x_core.plugin_config import PluginConfig
+from r2x_core.plugin_config import PluginConfig, PluginConfigAsset
 from r2x_core.utils.overrides import override_dictionary
 
 FILE_MAPPING = "file_mapping.json"
@@ -101,7 +101,7 @@ def test_config_path_appends_config_directory_when_missing(monkeypatch, tmp_path
 
 def test_load_config_reads_all_assets(tmp_path):
     payloads = {
-        FILE_MAPPING: [{"name": "data", "fpath": "file.csv"}],
+        FILE_MAPPING: {"files": [{"name": "data", "fpath": "file.csv"}], "tables": []},
         DEFAULTS: {"value": 1},
         EXPORTER_RULES: [{"step": "export"}],
         PARSER_RULES: [{"step": "parse"}],
@@ -109,15 +109,15 @@ def test_load_config_reads_all_assets(tmp_path):
     }
     _write_assets(tmp_path, payloads)
 
-    config = SampleConfig(param1="test")
-    result = config.load_config(config_path=tmp_path)
+    config = SampleConfig(param1="test", config_path_override=tmp_path)
+    result = config.load_config()
 
     assert result == {Path(asset).stem: payload for asset, payload in payloads.items()}
 
 
-def test_load_config_respects_overrides(tmp_path):
+def test_load_config_replaces_selected_assets(tmp_path):
     payloads = {
-        FILE_MAPPING: [{"name": "data", "fpath": "file.csv"}],
+        FILE_MAPPING: {"files": [{"name": "base", "fpath": "file.csv"}], "tables": []},
         DEFAULTS: {"value": 1, "items": ["a", "b"]},
         EXPORTER_RULES: [],
         PARSER_RULES: [],
@@ -125,21 +125,44 @@ def test_load_config_respects_overrides(tmp_path):
     }
     _write_assets(tmp_path, payloads)
 
-    overrides = {
-        "defaults": {"value": 2, "items": ["c"]},
-        "file_mapping": [{"name": "data", "fpath": "override.csv"}],
+    config = SampleConfig(
+        param1="test",
+        config_path_override=tmp_path,
+        asset_overrides={
+            "defaults": {"value": 2, "items": ["c"]},
+            "file_mapping": {
+                "files": [{"name": "replacement", "fpath": "override.csv"}],
+                "tables": [],
+            },
+        },
+    )
+
+    result = config.load_config()
+    assert result["defaults"] == {"value": 2, "items": ["c"]}
+    assert result["file_mapping"] == {
+        "files": [{"name": "replacement", "fpath": "override.csv"}],
+        "tables": [],
     }
 
-    result = SampleConfig(param1="test").load_config(config_path=tmp_path, overrides=overrides)
-    assert result["defaults"]["value"] == 2
-    assert result["defaults"]["items"][0] == "c"
-    assert result["file_mapping"][0]["fpath"] == "override.csv"
+
+def test_load_config_reads_selected_assets_only(tmp_path):
+    mapping = {"files": [{"name": "data", "fpath": "file.csv"}], "tables": []}
+    (tmp_path / FILE_MAPPING).write_text(json.dumps(mapping))
+
+    config = SampleConfig(param1="test", config_path_override=tmp_path)
+    assert config.load_config(assets=[PluginConfigAsset.FILE_MAPPING]) == {"file_mapping": mapping}
+
+
+def test_load_config_rejects_unknown_asset_overrides():
+    with pytest.raises(ValueError, match="Unknown config asset override"):
+        SampleConfig(param1="test", asset_overrides={"unknown": []})
 
 
 def test_load_config_missing_asset_raises(tmp_path):
-    (tmp_path / FILE_MAPPING).write_text(json.dumps([]))
+    (tmp_path / FILE_MAPPING).write_text(json.dumps({"files": [], "tables": []}))
+    config = SampleConfig(param1="test", config_path_override=tmp_path)
     with pytest.raises(FileNotFoundError):
-        SampleConfig(param1="test").load_config(config_path=tmp_path)
+        config.load_config()
 
 
 def test_override_dictionary_merges_scalars():

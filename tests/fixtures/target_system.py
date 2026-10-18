@@ -19,6 +19,18 @@ class NodeComponent(Component):
     area: str = Field(default="", description="Operational area identifier.")
 
 
+class ContextScopedReviewComponent(Component):
+    """Component used to verify model resolution stays scoped to PluginConfig."""
+
+
+class BuilderEdgeComponent(Component):
+    """Component exposing field names that collide with construction controls."""
+
+    capacity: float = 1.0
+    skip_validation: bool = False
+    note: str | None = "model-default"
+
+
 class CircuitComponent(Component):
     """Translated representation of a transmission asset."""
 

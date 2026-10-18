@@ -14,7 +14,13 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from r2x_core.datafile import DataFile, JSONProcessing, TabularProcessing
+from r2x_core.datafile import (
+    DataFile,
+    GroupedFillSpec,
+    JSONProcessing,
+    TabularProcessing,
+    WeightedMeanSpec,
+)
 from r2x_core.processors import (
     apply_processing,
     json_apply_filters,
@@ -180,6 +186,235 @@ def test_unpivot_on_stacks_selected_columns(sample_csv: Path):
         {"variable": "2025", "value": 200},
         {"variable": "2030", "value": 300},
     ]
+
+
+@pytest.mark.parametrize(
+    ("selector", "expected"),
+    [
+        (
+            "all",
+            [
+                {"variable": "id", "value": 1},
+                {"variable": "north", "value": 10},
+                {"variable": "south", "value": 20},
+            ],
+        ),
+        (
+            {"all_except": ["id"]},
+            [
+                {"id": 1, "variable": "north", "value": 10},
+                {"id": 1, "variable": "south", "value": 20},
+            ],
+        ),
+    ],
+    ids=["all-columns", "all-except-identifiers"],
+)
+def test_unpivot_on_column_selectors(sample_csv: Path, selector, expected):
+    data = pl.LazyFrame({"id": [1], "north": [10], "south": [20]})
+    proc_spec = TabularProcessing(unpivot_on=selector)
+    data_file = DataFile(name="test", fpath=sample_csv, proc_spec=proc_spec)
+
+    result = process_tabular_data(data, data_file=data_file, proc_spec=proc_spec).collect()
+
+    assert result.to_dicts() == expected
+
+
+def test_unpivot_on_rejects_empty_column_selection():
+    with pytest.raises(ValueError, match=r"unpivot_on.*at least one"):
+        TabularProcessing(unpivot_on=[])
+
+
+def test_unpivot_on_rejects_missing_identifier_column(sample_csv: Path):
+    data = pl.LazyFrame({"id": [1], "north": [10]})
+    proc_spec = TabularProcessing(unpivot_on={"all_except": ["missing"]})
+    data_file = DataFile(name="test", fpath=sample_csv, proc_spec=proc_spec)
+
+    with pytest.raises(ValueError, match=r"missing column.*missing"):
+        process_tabular_data(data, data_file=data_file, proc_spec=proc_spec)
+
+
+def test_unpivot_on_rejects_empty_resolved_selection(sample_csv: Path):
+    data = pl.LazyFrame({"id": [1]})
+    proc_spec = TabularProcessing(unpivot_on={"all_except": ["id"]})
+    data_file = DataFile(name="test", fpath=sample_csv, proc_spec=proc_spec)
+
+    with pytest.raises(ValueError, match="no value columns"):
+        process_tabular_data(data, data_file=data_file, proc_spec=proc_spec)
+
+
+def test_unpivot_on_rejects_output_name_collision(sample_csv: Path):
+    data = pl.LazyFrame({"id": [1], "variable": ["north"], "amount": [10]})
+    proc_spec = TabularProcessing(unpivot_on={"all_except": ["id", "variable"]})
+    data_file = DataFile(name="test", fpath=sample_csv, proc_spec=proc_spec)
+
+    with pytest.raises(ValueError, match=r"overwrite existing column.*variable"):
+        process_tabular_data(data, data_file=data_file, proc_spec=proc_spec)
+
+
+def test_grouped_fallback_fill_respects_groups_and_where_condition(sample_csv: Path):
+    frame = pl.DataFrame(
+        {
+            "technology": ["a", "a", "b", "b"],
+            "vintage": ["v1", "v1", "v1", "v1"],
+            "thermal": [True, True, False, True],
+            "heat_rate": [20.0, None, None, None],
+        }
+    )
+    processing = TabularProcessing(
+        fill_null_by_group=[
+            GroupedFillSpec(
+                column="heat_rate",
+                group_by=["technology", "vintage"],
+                fallback=10.0,
+                where={"thermal": True},
+            )
+        ]
+    )
+    data_file = DataFile(name="heat-rates", fpath=sample_csv, proc_spec=processing)
+
+    result = process_tabular_data(frame.lazy(), data_file=data_file, proc_spec=processing).collect()
+
+    assert result["heat_rate"].to_list() == [20.0, 20.0, None, 10.0]
+
+
+def test_grouped_fallback_fill_handles_entirely_null_columns(sample_csv: Path):
+    frame = pl.DataFrame(
+        {"technology": ["a", "a"], "heat_rate": [None, None]},
+        schema={"technology": pl.String, "heat_rate": pl.Null},
+    )
+    processing = TabularProcessing(
+        fill_null_by_group=[GroupedFillSpec(column="heat_rate", group_by=["technology"], fallback=10.0)]
+    )
+    data_file = DataFile(name="heat-rates", fpath=sample_csv, proc_spec=processing)
+
+    result = process_tabular_data(frame.lazy(), data_file=data_file, proc_spec=processing).collect()
+
+    assert result["heat_rate"].to_list() == [10.0, 10.0]
+    assert result.schema["heat_rate"] == pl.Float64
+
+
+def test_grouped_fallback_fill_reports_missing_columns(sample_csv: Path):
+    frame = pl.DataFrame({"technology": ["a"], "heat_rate": [None]})
+    processing = TabularProcessing(
+        fill_null_by_group=[GroupedFillSpec(column="heat_rate", group_by=["vintage"], fallback=10.0)]
+    )
+    data_file = DataFile(name="heat-rates", fpath=sample_csv, proc_spec=processing)
+
+    with pytest.raises(ValueError, match=r"fill_null_by_group.*vintage"):
+        process_tabular_data(frame.lazy(), data_file=data_file, proc_spec=processing)
+
+
+def test_weighted_mean_uses_explicit_unknown_and_nonpositive_policies(sample_csv: Path):
+    frame = pl.DataFrame(
+        {
+            "technology": ["a", "a", "b", "b"],
+            "capacity": [1.0, 3.0, 0.0, 0.0],
+            "fom_cost": [10.0, 20.0, 5.0, 7.0],
+        }
+    )
+    processing = TabularProcessing(
+        group_by=["technology"],
+        aggregate_on={"capacity": "sum"},
+        weighted_mean={
+            "fom_cost": WeightedMeanSpec(
+                weight_column="capacity",
+                unknown_positive_weight="propagate",
+                nonpositive_total="null",
+                null_weight="ignore",
+            )
+        },
+    )
+    data_file = DataFile(name="generator-costs", fpath=sample_csv, proc_spec=processing)
+
+    result = (
+        process_tabular_data(frame.lazy(), data_file=data_file, proc_spec=processing)
+        .collect()
+        .sort("technology")
+    )
+
+    assert result.to_dicts() == [
+        {"technology": "a", "capacity": 4.0, "fom_cost": 17.5},
+        {"technology": "b", "capacity": 0.0, "fom_cost": None},
+    ]
+
+
+def test_weighted_mean_ignore_excludes_unknown_values_from_both_sums(sample_csv: Path):
+    frame = pl.DataFrame({"technology": ["a", "a"], "capacity": [1.0, 1.0], "fom_cost": [10.0, None]})
+    processing = TabularProcessing(
+        group_by=["technology"],
+        weighted_mean={
+            "fom_cost": WeightedMeanSpec(
+                weight_column="capacity",
+                unknown_positive_weight="ignore",
+                nonpositive_total="null",
+                null_weight="ignore",
+            )
+        },
+    )
+    data_file = DataFile(name="generator-costs", fpath=sample_csv, proc_spec=processing)
+
+    result = process_tabular_data(frame.lazy(), data_file=data_file, proc_spec=processing).collect()
+
+    assert result.to_dicts() == [{"technology": "a", "fom_cost": 10.0}]
+
+
+def test_weighted_mean_cannot_be_combined_with_pivot_on():
+    with pytest.raises(ValueError, match="weighted_mean is not supported with pivot_on"):
+        TabularProcessing(
+            pivot_on="kind",
+            group_by=["group"],
+            aggregate_on={"weight": "sum"},
+            weighted_mean={
+                "value": WeightedMeanSpec(
+                    weight_column="weight",
+                    unknown_positive_weight="propagate",
+                    nonpositive_total="null",
+                    null_weight="ignore",
+                )
+            },
+        )
+
+
+def test_weighted_mean_propagates_unknown_positive_weight_and_rejects_bad_weights(sample_csv: Path):
+    processing = TabularProcessing(
+        group_by=["technology"],
+        weighted_mean={
+            "fom_cost": WeightedMeanSpec(
+                weight_column="capacity",
+                unknown_positive_weight="propagate",
+                nonpositive_total="error",
+                null_weight="error",
+            )
+        },
+    )
+    data_file = DataFile(name="generator-costs", fpath=sample_csv, proc_spec=processing)
+    unknown = pl.DataFrame({"technology": ["a", "a"], "capacity": [1.0, 1.0], "fom_cost": [10.0, None]})
+    unknown_result = process_tabular_data(unknown.lazy(), data_file=data_file, proc_spec=processing).collect()
+    assert unknown_result["fom_cost"].to_list() == [None]
+
+    nonpositive = pl.DataFrame({"technology": ["a"], "capacity": [0.0], "fom_cost": [10.0]})
+    with pytest.raises(ValueError, match="nonpositive total weight"):
+        process_tabular_data(nonpositive.lazy(), data_file=data_file, proc_spec=processing)
+
+    missing_weight = pl.DataFrame(
+        {"technology": ["a"], "capacity": [None], "fom_cost": [10.0]},
+        schema={"technology": pl.String, "capacity": pl.Null, "fom_cost": pl.Float64},
+    )
+    with pytest.raises(ValueError, match="null weight"):
+        process_tabular_data(missing_weight.lazy(), data_file=data_file, proc_spec=processing)
+
+
+def test_literal_columns_are_added_after_column_renaming(sample_csv: Path):
+    frame = pl.LazyFrame({"f": [2.0]})
+    processing = TabularProcessing(
+        column_mapping={"f": "fuel_price"},
+        literal_columns={"fuel_type": "biomass"},
+    )
+    data_file = DataFile(name="biofuel-prices", fpath=sample_csv, proc_spec=processing)
+
+    result = process_tabular_data(frame, data_file=data_file, proc_spec=processing).collect()
+
+    assert result.to_dicts() == [{"fuel_price": 2.0, "fuel_type": "biomass"}]
 
 
 def test_json_rename_keys_renames_keys(sample_json_file: Path):
@@ -1220,3 +1455,100 @@ def test_split_column_rejects_overwriting_existing_columns(sample_csv: Path):
 
     assert result.is_err()
     assert "overwrite existing column" in str(result.err())
+
+
+def test_tabular_column_operations_divide_safely_and_fill_from_peer(sample_csv: Path):
+    result = apply_processing(
+        pl.LazyFrame(
+            {
+                "cost": [120.0, None, 80.0, 60.0],
+                "distance": [10.0, 5.0, 0.0, None],
+                "capacity": [100.0, 200.0, 300.0, 400.0],
+                "reverse_capacity": [None, 25.0, None, None],
+            }
+        ),
+        data_file=DataFile(name="line-data", fpath=sample_csv),
+        proc_spec=TabularProcessing(
+            safe_divide={
+                "cost_per_mile": {"numerator": "cost", "denominator": "distance"},
+                "cost_per_capacity": {"numerator": "cost", "denominator": "capacity"},
+            },
+            fill_null_from={"reverse_capacity": "capacity"},
+        ),
+    )
+
+    assert result.is_ok()
+    frame = result.ok().collect()
+    assert frame["cost_per_mile"].to_list() == [12.0, None, None, None]
+    assert frame["cost_per_capacity"].to_list() == [1.2, None, 80 / 300, 0.15]
+    assert frame["reverse_capacity"].to_list() == [100.0, 25.0, 300.0, 400.0]
+
+
+def test_tabular_column_operations_support_all_null_columns(sample_csv: Path):
+    """All-null inputs and targets work through the processing API."""
+    result = apply_processing(
+        pl.LazyFrame(
+            {
+                "numerator": [None, None],
+                "denominator": [None, None],
+                "target": [None, None],
+                "fallback_ratio": [None, None],
+                "source": [1.5, 2.5],
+                "partial_numerator": [8.0, None],
+                "partial_denominator": [2.0, None],
+            }
+        ),
+        data_file=DataFile(name="null-column-operations", fpath=sample_csv),
+        proc_spec=TabularProcessing(
+            safe_divide={
+                "ratio": {"numerator": "numerator", "denominator": "denominator"},
+                "calculated_ratio": {
+                    "numerator": "partial_numerator",
+                    "denominator": "partial_denominator",
+                },
+            },
+            fill_null_from={"target": "source", "fallback_ratio": "calculated_ratio"},
+        ),
+    )
+
+    assert result.is_ok()
+    assert result.ok().select("ratio", "target", "fallback_ratio").collect().to_dicts() == [
+        {"ratio": None, "target": 1.5, "fallback_ratio": 4.0},
+        {"ratio": None, "target": 2.5, "fallback_ratio": None},
+    ]
+
+
+def test_tabular_column_operations_validate_inputs_and_collisions(sample_csv: Path):
+    data_file = DataFile(name="invalid-line-data", fpath=sample_csv)
+    with pytest.raises(ValueError, match="cannot overwrite an input column"):
+        TabularProcessing(safe_divide={"cost": {"numerator": "cost", "denominator": "distance"}})
+
+    cases = [
+        (
+            pl.LazyFrame({"cost": [1.0]}),
+            TabularProcessing(safe_divide={"ratio": {"numerator": "cost", "denominator": "missing"}}),
+            "references missing column",
+        ),
+        (
+            pl.LazyFrame({"left": [1.0], "right": ["not numeric"]}),
+            TabularProcessing(fill_null_from={"left": "right"}),
+            "matching column types",
+        ),
+    ]
+
+    for frame, proc_spec, message in cases:
+        result = apply_processing(frame, data_file=data_file, proc_spec=proc_spec)
+        assert result.is_err()
+        assert message in str(result.err())
+
+
+def test_tabular_column_operations_reject_same_stage_chaining():
+    with pytest.raises(ValueError, match="cannot depend on another safe_divide output"):
+        TabularProcessing(
+            safe_divide={
+                "first": {"numerator": "cost", "denominator": "distance"},
+                "second": {"numerator": "first", "denominator": "distance"},
+            }
+        )
+    with pytest.raises(ValueError, match="cannot chain through target columns"):
+        TabularProcessing(fill_null_from={"left": "middle", "middle": "right"})

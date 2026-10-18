@@ -26,6 +26,14 @@ class ConversionOption:
 
 
 @dataclass(frozen=True, slots=True)
+class RuleIssue:
+    """One row-attributable mapping, validation, or attachment issue."""
+
+    row: int | None
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
 class RuleResult:
     """Result of applying a single transformation rule."""
 
@@ -34,6 +42,7 @@ class RuleResult:
     skipped: int
     success: bool
     error: str | None = None
+    issues: tuple[RuleIssue, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

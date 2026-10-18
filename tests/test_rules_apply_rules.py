@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 import pytest
 from fixtures.context import FIXTURE_MODEL_MODULES
 
+from r2x_core.rules import ComponentSource, ComponentTarget
+
 if TYPE_CHECKING:
     from r2x_core import PluginContext
 
@@ -17,7 +19,7 @@ def test_convert_rule_single_component(context_example: PluginContext):
 
     from r2x_core import apply_rules_to_context
 
-    result = apply_rules_to_context(context_example)
+    result = apply_rules_to_context(context_example, on_error="continue")
 
     assert result.success
     assert result.total_rules == 3
@@ -55,7 +57,7 @@ def test_apply_rules_requires_non_empty_rule_list(source_system, target_system):
     )
 
     with pytest.raises(ValueError, match="has no rules"):
-        apply_rules_to_context(context)
+        apply_rules_to_context(context, on_error="continue")
 
 
 def test_apply_rules_reports_resolution_errors(source_system, target_system):
@@ -63,8 +65,8 @@ def test_apply_rules_reports_resolution_errors(source_system, target_system):
     from r2x_core import PluginConfig, PluginContext, Rule, apply_rules_to_context
 
     invalid_rule = Rule(
-        source_type="MissingComponent",
-        target_type="NodeComponent",
+        source=ComponentSource(component_type="MissingComponent"),
+        target=ComponentTarget(component_types=("NodeComponent",)),
         version=1,
         field_map={"name": "name"},
     )
@@ -77,10 +79,7 @@ def test_apply_rules_reports_resolution_errors(source_system, target_system):
         store=None,
     )
 
-    result = apply_rules_to_context(context)
+    with pytest.raises(ValueError, match="MissingComponent"):
+        apply_rules_to_context(context, on_error="continue")
 
-    assert not result.success
-    assert result.total_rules == 1
-    assert result.failed_rules == 1
-    assert result.rule_results[0].success is False
-    assert result.rule_results[0].error is not None and "MissingComponent" in result.rule_results[0].error
+    assert list(target_system.get_components()) == []

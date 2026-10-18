@@ -66,7 +66,9 @@ Use `filter_by` to select specific rows based on column values:
 ## Reshape, Rename, Cast, and Filter
 
 With `unpivot_on`, `column_mapping`, `column_schema`, and `filter_by` apply after
-the reshape. This supports wide year columns filtered by a runtime solve year:
+the reshape. Choose explicit value columns, every column with `"all"`, or every
+column except the identifiers with `{"all_except": [...]}`. This supports wide
+year columns filtered by a runtime solve year:
 
 ```python doctest
 >>> from r2x_core import DataFile, TabularProcessing
@@ -80,6 +82,18 @@ the reshape. This supports wide year columns filtered by a runtime solve year:
 >>> processing.column_mapping
 {'variable': 'year', 'value': 'capacity_mw'}
 ```
+
+For every value column except an identifier, configure:
+
+```python doctest
+>>> from r2x_core import TabularProcessing
+>>> processing = TabularProcessing(unpivot_on={"all_except": ["technology"]})
+>>> processing.unpivot_on.all_except
+['technology']
+```
+
+Use `unpivot_on="all"` when there are no identifier columns. A headerless CSV
+can set `ReaderConfig(kwargs={"has_header": False})` and then unpivot all columns.
 
 For a multi-row CSV/TSV header, configure `ReaderConfig(header_rows=2)`. Header
 cells are joined with `header_separator` (default `|`). Use `split_column` to
@@ -114,6 +128,28 @@ Use `replace_values` for exact tokens, `strip_chars` for literal cleanup,
 `column_schema` to cast, and `scale` for conversion factors. For example,
 replace `-` with `0`, strip commas, currency symbols, and percent signs, cast to
 float, then scale percentages by `0.01`.
+
+## Calculate columns and fill from a peer
+
+`safe_divide` adds a Float64 output column. A null numerator, null denominator,
+or zero denominator produces a null result. `fill_null_from` fills one column's
+null values from another column in the same row. Processing runs `safe_divide`
+before `fill_null_from`, so the latter can use a calculated output. Operations
+within either stage do not chain through their own outputs.
+
+```python doctest
+>>> from r2x_core import TabularProcessing
+>>> processing = TabularProcessing(
+...     safe_divide={
+...         "line_cost_per_mile": {"numerator": "forward_cost", "denominator": "distance"}
+...     },
+...     fill_null_from={"reverse_capacity": "capacity"},
+... )
+>>> processing.safe_divide["line_cost_per_mile"].denominator
+'distance'
+>>> processing.fill_null_from
+{'reverse_capacity': 'capacity'}
+```
 
 ## Placeholders in Paths
 

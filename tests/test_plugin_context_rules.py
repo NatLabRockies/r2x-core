@@ -1,10 +1,10 @@
-"""Tests for PluginContext rule lookup methods."""
+"""Tests for typed PluginContext Rule queries."""
 
 from typing import ClassVar
 
 import pytest
 
-from r2x_core import Rule
+from r2x_core import ComponentSource, ComponentTarget, Rule
 from r2x_core.plugin_config import PluginConfig
 from r2x_core.plugin_context import PluginContext
 from r2x_core.system import System
@@ -15,66 +15,76 @@ class SimpleConfig(PluginConfig):
 
 
 @pytest.fixture
-def sample_rules():
-    """Create sample rules for testing."""
-    rule_dicts = [
-        {
-            "source_type": "BusComponent",
-            "target_type": "NodeComponent",
-            "version": 1,
-            "field_map": {"name": "name", "uuid": "uuid"},
-        },
-        {
-            "source_type": "BusComponent",
-            "target_type": "NodeComponent",
-            "version": 2,
-            "field_map": {"name": "name", "uuid": "uuid"},
-        },
-        {
-            "source_type": "LineComponent",
-            "target_type": "CircuitComponent",
-            "version": 1,
-            "field_map": {"name": "name", "uuid": "uuid"},
-        },
-    ]
-    return tuple(Rule.from_records(rule_dicts))
+def sample_rules() -> tuple[Rule, ...]:
+    """Create typed Rules for source/target queries."""
+    return tuple(
+        Rule.from_records(
+            [
+                {
+                    "source": {"kind": "component", "component_type": "BusComponent"},
+                    "target": {"kind": "component", "component_types": ["NodeComponent"]},
+                    "version": 1,
+                    "field_map": {"name": "name", "uuid": "uuid"},
+                },
+                {
+                    "source": {"kind": "component", "component_type": "BusComponent"},
+                    "target": {"kind": "component", "component_types": ["NodeComponent"]},
+                    "version": 2,
+                    "field_map": {"name": "name", "uuid": "uuid"},
+                },
+                {
+                    "source": {"kind": "component", "component_type": "LineComponent"},
+                    "target": {"kind": "component", "component_types": ["CircuitComponent"]},
+                    "version": 1,
+                    "field_map": {"name": "name", "uuid": "uuid"},
+                },
+            ]
+        )
+    )
 
 
-def test_get_rule_by_exact_match(sample_rules):
-    """Test getting a rule by source, target, and version."""
-    ctx = PluginContext(
+def test_get_rule_by_exact_typed_match(sample_rules: tuple[Rule, ...]) -> None:
+    """Get one Rule by its typed source, target, and version."""
+    context = PluginContext(
         config=SimpleConfig(),
         source_system=System(name="source"),
         target_system=System(name="target"),
         rules=sample_rules,
     )
+    source = ComponentSource(component_type="BusComponent")
+    target = ComponentTarget(component_types=("NodeComponent",))
 
-    rule = ctx.get_rule("BusComponent", target_type="NodeComponent", version=1)
+    rule = context.get_rule(source, target=target, version=1)
+
     assert rule.version == 1
-    assert rule.source_type == "BusComponent"
-    assert rule.target_type == "NodeComponent"
+    assert rule.source == source
+    assert rule.target == target
 
 
-def test_get_rule_default_version(sample_rules):
-    """Test getting a rule with default version from config."""
+def test_get_rule_default_version(sample_rules: tuple[Rule, ...]) -> None:
+    """Default to the active component-source version from config."""
 
     class ConfigWithVersions(PluginConfig):
         active_versions: ClassVar[dict[str, int]] = {"BusComponent": 2}
 
-    ctx = PluginContext(
+    context = PluginContext(
         config=ConfigWithVersions(),
         source_system=System(name="source"),
         target_system=System(name="target"),
         rules=sample_rules,
     )
 
-    rule = ctx.get_rule("BusComponent", target_type="NodeComponent")
+    rule = context.get_rule(
+        ComponentSource(component_type="BusComponent"),
+        target=ComponentTarget(component_types=("NodeComponent",)),
+    )
+
     assert rule.version == 2
 
 
-def test_get_rule_not_found(sample_rules):
-    """Test getting a rule that doesn't exist."""
-    ctx = PluginContext(
+def test_get_rule_not_found(sample_rules: tuple[Rule, ...]) -> None:
+    """Unknown typed declarations raise KeyError."""
+    context = PluginContext(
         config=SimpleConfig(),
         source_system=System(name="source"),
         target_system=System(name="target"),
@@ -82,78 +92,75 @@ def test_get_rule_not_found(sample_rules):
     )
 
     with pytest.raises(KeyError, match="No rule found"):
-        ctx.get_rule("NonExistent", target_type="AlsoNone", version=1)
+        context.get_rule(
+            ComponentSource(component_type="NonExistent"),
+            target=ComponentTarget(component_types=("AlsoNone",)),
+            version=1,
+        )
 
 
-def test_list_available_conversions(sample_rules):
-    """Test listing available conversions."""
-    ctx = PluginContext(
+def test_list_available_conversions(sample_rules: tuple[Rule, ...]) -> None:
+    """List component-source conversions using target names and versions."""
+    context = PluginContext(
         config=SimpleConfig(),
         source_system=System(name="source"),
         target_system=System(name="target"),
         rules=sample_rules,
     )
 
-    conversions = ctx.list_available_conversions()
+    conversions = context.list_available_conversions()
 
-    # Check that conversions are returned as dict with sorted ConversionOption objects
-    assert isinstance(conversions, dict)
     assert "BusComponent" in conversions
     assert "LineComponent" in conversions
-
-    # Values should be sorted lists of ConversionOption objects
-    for targets in conversions.values():
-        assert isinstance(targets, list)
-        for target in targets:
-            assert hasattr(target, "target_type")
-            assert hasattr(target, "version")
+    assert [option.version for option in conversions["BusComponent"]] == [1, 2]
 
 
-def test_get_rules_for_source(sample_rules):
-    """Test getting all rules for a specific source type."""
-    ctx = PluginContext(
+def test_get_rules_for_source(sample_rules: tuple[Rule, ...]) -> None:
+    """Return all versions for one exact typed source."""
+    context = PluginContext(
         config=SimpleConfig(),
         source_system=System(name="source"),
         target_system=System(name="target"),
         rules=sample_rules,
     )
 
-    bus_rules = ctx.get_rules_for_source("BusComponent")
-    assert len(bus_rules) == 2  # Two versions
-    for rule in bus_rules:
-        assert "BusComponent" in rule.get_source_types()
+    bus_rules = context.get_rules_for_source(ComponentSource(component_type="BusComponent"))
+
+    assert [rule.version for rule in bus_rules] == [1, 2]
 
 
-def test_get_rules_for_conversion(sample_rules):
-    """Test getting all versions of a conversion."""
-    ctx = PluginContext(
+def test_get_rules_for_conversion(sample_rules: tuple[Rule, ...]) -> None:
+    """Return all versions for one exact typed source/target pair."""
+    context = PluginContext(
         config=SimpleConfig(),
         source_system=System(name="source"),
         target_system=System(name="target"),
         rules=sample_rules,
     )
 
-    conversions = ctx.get_rules_for_conversion("BusComponent", target_type="NodeComponent")
-    assert len(conversions) == 2  # Two versions
-    for rule in conversions:
-        assert "BusComponent" in rule.get_source_types()
-        assert "NodeComponent" in rule.get_target_types()
+    conversions = context.get_rules_for_conversion(
+        ComponentSource(component_type="BusComponent"),
+        target=ComponentTarget(component_types=("NodeComponent",)),
+    )
+
+    assert [rule.version for rule in conversions] == [1, 2]
 
 
-def test_empty_rules():
-    """Test with empty rules."""
-    ctx = PluginContext(
+def test_empty_rules() -> None:
+    """Typed queries return empty collections for an empty context."""
+    context = PluginContext(
         config=SimpleConfig(),
         source_system=System(name="source"),
         target_system=System(name="target"),
         rules=(),
     )
 
-    conversions = ctx.list_available_conversions()
-    assert conversions == {}
-
-    bus_rules = ctx.get_rules_for_source("BusComponent")
-    assert bus_rules == []
-
-    conversions = ctx.get_rules_for_conversion("BusComponent", target_type="NodeComponent")
-    assert conversions == []
+    assert context.list_available_conversions() == {}
+    assert context.get_rules_for_source(ComponentSource(component_type="BusComponent")) == []
+    assert (
+        context.get_rules_for_conversion(
+            ComponentSource(component_type="BusComponent"),
+            target=ComponentTarget(component_types=("NodeComponent",)),
+        )
+        == []
+    )

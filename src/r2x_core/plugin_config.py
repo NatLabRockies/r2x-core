@@ -6,7 +6,9 @@ and methods to load and override configuration assets.
 """
 
 import inspect
-from enum import Enum
+from collections.abc import Sequence
+from copy import deepcopy
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -14,10 +16,8 @@ import orjson
 from loguru import logger
 from pydantic import BaseModel, Field, field_validator
 
-from .utils.overrides import override_dictionary
 
-
-class PluginConfigAsset(str, Enum):
+class PluginConfigAsset(StrEnum):
     """Enum describing configuration assets."""
 
     FILE_MAPPING = "file_mapping.json"
@@ -45,6 +45,10 @@ class PluginConfig(BaseModel):
     config_path_override : Path | None
         Optional override for the configuration path. When provided, this path
         is used instead of the default package configuration directory.
+    asset_overrides : dict[str, Any]
+        Complete replacements for named JSON assets. Structured assets are
+        replaced as a whole, not merged by position. Keys use the file stem, such as
+        ``file_mapping`` or ``parser_rules``.
 
     Examples
     --------
@@ -55,6 +59,13 @@ class PluginConfig(BaseModel):
     PosixPath('.../config')
     >>> config.defaults_path
     PosixPath('.../config/defaults.json')
+
+    Replace a complete asset and load only the selected asset:
+
+    >>> mapping = {"files": [{"name": "buses", "relative_fpath": "buses.csv"}], "tables": []}
+    >>> config = PluginConfig(asset_overrides={"file_mapping": mapping})
+    >>> config.load_config(assets=[PluginConfigAsset.FILE_MAPPING])["file_mapping"] == mapping
+    True
     """
 
     CONFIG_DIR: ClassVar[str] = "config"
@@ -71,6 +82,21 @@ class PluginConfig(BaseModel):
         default=None,
         description="Override for the configuration path. This is used if you want to point to a different place than the `CONFIG_DIR`",
     )
+
+    asset_overrides: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Whole configuration asset replacements keyed by asset name without the .json suffix.",
+    )
+
+    @field_validator("asset_overrides")
+    @classmethod
+    def validate_asset_overrides(cls, value: dict[str, Any]) -> dict[str, Any]:
+        """Reject override names that do not identify known configuration assets."""
+        asset_names = {Path(asset.value).stem for asset in PluginConfigAsset}
+        unknown = sorted(set(value) - asset_names)
+        if unknown:
+            raise ValueError(f"Unknown config asset override(s): {unknown}")
+        return value
 
     @field_validator("models", mode="before")
     @classmethod
@@ -181,52 +207,53 @@ class PluginConfig(BaseModel):
         """
         return self.config_path / PluginConfigAsset.TRANSLATION_RULES.value
 
-    @classmethod
     def load_config(
-        cls,
+        self,
         *,
-        config_path: Path | str | None = None,
-        overrides: dict[str, Any] | None = None,
+        assets: Sequence[PluginConfigAsset] | None = None,
     ) -> dict[str, Any]:
-        """Load plugin configuration assets with optional overrides.
+        """Load selected configuration assets from this config's resolved path.
 
-        Loads all configuration assets (defaults, file mappings, rules) from the
-        specified config directory and optionally merges them with override values.
+        Asset overrides replace the complete selected asset. They are never
+        merged by list position or recursively combined with packaged values.
 
         Parameters
         ----------
-        config_path : Path | str | None, optional
-            Optional override for the config directory to load assets from.
-            If None, uses the default package configuration path.
-        overrides : dict[str, Any], optional
-            Values to merge with loaded assets. For list values, items are
-            appended and deduplicated. For scalar values, they replace defaults.
+        assets : Sequence[PluginConfigAsset] | None, optional
+            Assets to load. When omitted, all known configuration assets are loaded.
 
         Returns
         -------
         dict[str, Any]
-            Merged assets keyed by asset stem (defaults, file_mapping, etc.).
+            Loaded assets keyed by stem, such as ``file_mapping`` or ``parser_rules``.
 
         Raises
         ------
         FileNotFoundError
-            If any expected configuration asset file is not found in config_path.
+            If a selected asset has no override and is missing from ``config_path``.
+        ValueError
+            If an asset selection is not a PluginConfigAsset.
         """
-        resolved_config_path = Path(config_path) if config_path is not None else cls._package_config_path()
+        selected_assets = tuple(PluginConfigAsset) if assets is None else tuple(dict.fromkeys(assets))
+        invalid_assets = [asset for asset in selected_assets if not isinstance(asset, PluginConfigAsset)]
+        if invalid_assets:
+            raise ValueError(f"Unknown config asset selection(s): {invalid_assets}")
+
         asset_data: dict[str, Any] = {}
-        for asset in PluginConfigAsset:
-            asset_path = resolved_config_path / asset.value
+        for asset in selected_assets:
+            asset_name = Path(asset.value).stem
+            if asset_name in self.asset_overrides:
+                asset_data[asset_name] = deepcopy(self.asset_overrides[asset_name])
+                continue
+
+            asset_path = self.config_path / asset.value
             if not asset_path.exists():
                 msg = f"{asset_path=} not found on Package. Check contents of config_path"
                 raise FileNotFoundError(msg)
             with open(asset_path, "rb") as f_in:
-                data = orjson.loads(f_in.read())
-            asset_data[asset_path.stem] = data
+                asset_data[asset_name] = orjson.loads(f_in.read())
 
-        if not overrides:
-            return asset_data
-
-        return override_dictionary(base=asset_data, overrides=overrides)
+        return asset_data
 
     @classmethod
     def _package_config_path(cls) -> Path:

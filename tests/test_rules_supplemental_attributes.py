@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+import pytest
 from fixtures.source_system import BusComponent, BusGeographicInfo
-from fixtures.target_system import CircuitComponent, NodeComponent
+from fixtures.target_system import NodeComponent
 
 from r2x_core import PluginConfig, PluginContext
-from r2x_core.rules import Rule
+from r2x_core.rules import ComponentSource, ComponentTarget, OwnedSupplementalTarget, Rule
 from r2x_core.rules_executor import apply_rules_to_context
 from r2x_core.system import System
 
@@ -34,8 +35,8 @@ def test_rule_creates_supplemental_attribute():
     target_system = System(name="target", system_base=100.0)
 
     component_rule = Rule(
-        source_type="BusComponent",
-        target_type="NodeComponent",
+        source=ComponentSource(component_type="BusComponent"),
+        target=ComponentTarget(component_types=("NodeComponent",)),
         version=1,
         field_map={
             "name": "name",
@@ -47,8 +48,10 @@ def test_rule_creates_supplemental_attribute():
     )
 
     supplemental_rule = Rule(
-        source_type="BusComponent",
-        target_type="BusGeographicInfo",
+        source=ComponentSource(component_type="BusComponent"),
+        target=OwnedSupplementalTarget(
+            attribute_type="BusGeographicInfo", owner_type="NodeComponent", owner_match={"uuid": "uuid"}
+        ),
         version=1,
         field_map={"location_name": "zone", "latitude": "voltage_kv", "longitude": "load_mw"},
     )
@@ -61,7 +64,7 @@ def test_rule_creates_supplemental_attribute():
         store=None,
     )
 
-    result = apply_rules_to_context(context)
+    result = apply_rules_to_context(context, on_error="continue")
 
     assert result.successful_rules == 2
     assert result.failed_rules == 0
@@ -100,8 +103,10 @@ def test_supplemental_attribute_without_target_component_fails():
     target_system = System(name="target", system_base=100.0)
 
     supplemental_rule = Rule(
-        source_type="BusComponent",
-        target_type="BusGeographicInfo",
+        source=ComponentSource(component_type="BusComponent"),
+        target=OwnedSupplementalTarget(
+            attribute_type="BusGeographicInfo", owner_type="NodeComponent", owner_match={"uuid": "uuid"}
+        ),
         version=1,
         field_map={"location_name": "zone", "latitude": "voltage_kv", "longitude": "load_mw"},
     )
@@ -114,12 +119,12 @@ def test_supplemental_attribute_without_target_component_fails():
         store=None,
     )
 
-    result = apply_rules_to_context(context)
+    result = apply_rules_to_context(context, on_error="continue")
 
     assert result.successful_rules == 0
     assert result.failed_rules == 1
     assert result.rule_results[0].error is not None
-    assert "not found in target system" in result.rule_results[0].error
+    assert "No NodeComponent owner matched" in result.rule_results[0].error
 
 
 def test_multiple_supplemental_attributes_on_same_component():
@@ -138,8 +143,8 @@ def test_multiple_supplemental_attributes_on_same_component():
     target_system = System(name="target", system_base=100.0)
 
     component_rule = Rule(
-        source_type="BusComponent",
-        target_type="NodeComponent",
+        source=ComponentSource(component_type="BusComponent"),
+        target=ComponentTarget(component_types=("NodeComponent",)),
         version=1,
         field_map={
             "name": "name",
@@ -151,16 +156,20 @@ def test_multiple_supplemental_attributes_on_same_component():
     )
 
     supplemental_rule1 = Rule(
-        source_type="BusComponent",
-        target_type="BusGeographicInfo",
+        source=ComponentSource(component_type="BusComponent"),
+        target=OwnedSupplementalTarget(
+            attribute_type="BusGeographicInfo", owner_type="NodeComponent", owner_match={"uuid": "uuid"}
+        ),
         version=1,
         field_map={"location_name": "zone", "latitude": "voltage_kv"},
         defaults={"longitude": -122.4194},
     )
 
     supplemental_rule2 = Rule(
-        source_type="BusComponent",
-        target_type="BusGeographicInfo",
+        source=ComponentSource(component_type="BusComponent"),
+        target=OwnedSupplementalTarget(
+            attribute_type="BusGeographicInfo", owner_type="NodeComponent", owner_match={"uuid": "uuid"}
+        ),
         version=2,  # Different version to avoid duplicate rule key
         field_map={"location_name": "zone", "latitude": "load_mw"},
         defaults={"longitude": -74.0060},  # Different location
@@ -174,7 +183,7 @@ def test_multiple_supplemental_attributes_on_same_component():
         store=None,
     )
 
-    result = apply_rules_to_context(context)
+    result = apply_rules_to_context(context, on_error="continue")
 
     assert result.successful_rules == 3
     assert result.failed_rules == 0
@@ -200,8 +209,8 @@ def test_one_rule_creates_primary_and_multiple_supplemental_attributes():
     rule = Rule.from_records(
         [
             {
-                "source_type": "BusComponent",
-                "target_type": "NodeComponent",
+                "source": {"kind": "component", "component_type": "BusComponent", "system": "source"},
+                "target": {"kind": "component", "component_types": ["NodeComponent"]},
                 "version": 1,
                 "field_map": {"name": "name", "uuid": "uuid", "kv_rating": "voltage_kv"},
                 "supplemental_attributes": [
@@ -232,7 +241,8 @@ def test_one_rule_creates_primary_and_multiple_supplemental_attributes():
             target_system=target_system,
             config=_build_test_config(),
             rules=(rule,),
-        )
+        ),
+        on_error="continue",
     )
 
     assert result.successful_rules == 1
@@ -261,8 +271,8 @@ def test_rule_from_records_resolves_supplemental_getters():
     rule = Rule.from_records(
         [
             {
-                "source_type": "BusComponent",
-                "target_type": "NodeComponent",
+                "source": {"kind": "component", "component_type": "BusComponent", "system": "source"},
+                "target": {"kind": "component", "component_types": ["NodeComponent"]},
                 "version": 1,
                 "supplemental_attributes": [
                     {
@@ -286,8 +296,8 @@ def test_duplicate_supplemental_outputs_fail_before_attachment():
     source_system.add_component(source_component)
     target_system = System(name="target", system_base=100.0)
     rule = Rule(
-        source_type="BusComponent",
-        target_type="NodeComponent",
+        source=ComponentSource(component_type="BusComponent"),
+        target=ComponentTarget(component_types=("NodeComponent",)),
         version=1,
         field_map={"name": "name", "uuid": "uuid"},
         supplemental_attributes=[
@@ -308,7 +318,8 @@ def test_duplicate_supplemental_outputs_fail_before_attachment():
             target_system=target_system,
             config=_build_test_config(),
             rules=(rule,),
-        )
+        ),
+        on_error="continue",
     )
 
     assert result.failed_rules == 1
@@ -324,8 +335,8 @@ def test_empty_supplemental_output_is_not_attached():
     source_system.add_component(source_component)
     target_system = System(name="target", system_base=100.0)
     rule = Rule(
-        source_type="BusComponent",
-        target_type="NodeComponent",
+        source=ComponentSource(component_type="BusComponent"),
+        target=ComponentTarget(component_types=("NodeComponent",)),
         version=1,
         field_map={"name": "name", "uuid": "uuid"},
         supplemental_attributes=[
@@ -342,7 +353,8 @@ def test_empty_supplemental_output_is_not_attached():
             target_system=target_system,
             config=_build_test_config(),
             rules=(rule,),
-        )
+        ),
+        on_error="continue",
     )
 
     assert result.successful_rules == 1
@@ -357,8 +369,8 @@ def test_required_supplemental_output_reports_missing_value():
     source_system.add_component(source_component)
     target_system = System(name="target", system_base=100.0)
     rule = Rule(
-        source_type="BusComponent",
-        target_type="NodeComponent",
+        source=ComponentSource(component_type="BusComponent"),
+        target=ComponentTarget(component_types=("NodeComponent",)),
         version=1,
         field_map={"name": "name", "uuid": "uuid"},
         supplemental_attributes=[
@@ -376,7 +388,8 @@ def test_required_supplemental_output_reports_missing_value():
             target_system=target_system,
             config=_build_test_config(),
             rules=(rule,),
-        )
+        ),
+        on_error="continue",
     )
 
     assert result.failed_rules == 1
@@ -392,8 +405,8 @@ def test_invalid_supplemental_data_reports_rule_source_and_output():
     target_system = System(name="target", system_base=100.0)
     rule = Rule(
         name="bus_with_coordinates",
-        source_type="BusComponent",
-        target_type="NodeComponent",
+        source=ComponentSource(component_type="BusComponent"),
+        target=ComponentTarget(component_types=("NodeComponent",)),
         version=1,
         field_map={"name": "name", "uuid": "uuid"},
         supplemental_attributes=[
@@ -410,53 +423,36 @@ def test_invalid_supplemental_data_reports_rule_source_and_output():
             target_system=target_system,
             config=_build_test_config(),
             rules=(rule,),
-        )
+        ),
+        on_error="continue",
     )
 
     assert result.failed_rules == 1
     error = result.rule_results[0].error
     assert error is not None
     assert "bus_with_coordinates" in error
-    assert "test_bus" in error
+    assert "row 1" in error
     assert "BusGeographicInfo" in error
     assert list(target_system.get_components(NodeComponent)) == []
 
 
-def test_multi_target_supplemental_failure_leaves_target_unchanged():
-    """A failed multi-target supplemental rule does not leave an earlier target behind."""
-    source_system = System(name="source", system_base=100.0)
-    source_component = BusComponent(name="test_bus", zone="north")
-    source_system.add_component(source_component)
-    target_system = System(name="target", system_base=100.0)
-    rule = Rule(
-        source_type="BusComponent",
-        target_type=["NodeComponent", "CircuitComponent"],
-        version=1,
-        field_map={"name": "name", "uuid": "uuid"},
-        supplemental_attributes=[
-            {
-                "target_type": "BusGeographicInfo",
-                "field_map": {"uuid": "uuid", "location_name": "zone"},
-            }
-        ],
-    )
+def test_multiple_targets_cannot_share_nested_supplemental_outputs():
+    """Output grouping constraints reject nested attributes for multi-target Rules."""
+    from pydantic import ValidationError
 
-    result = apply_rules_to_context(
-        PluginContext(
-            source_system=source_system,
-            target_system=target_system,
-            config=_build_test_config(),
-            rules=(rule,),
+    with pytest.raises(ValidationError, match="exactly one primary target"):
+        Rule(
+            source=ComponentSource(component_type="BusComponent"),
+            target=ComponentTarget(component_types=("NodeComponent", "CircuitComponent")),
+            version=1,
+            field_map={"name": "name", "uuid": "uuid"},
+            supplemental_attributes=[
+                {
+                    "target_type": "BusGeographicInfo",
+                    "field_map": {"uuid": "uuid", "location_name": "zone"},
+                }
+            ],
         )
-    )
-
-    assert result.successful_rules == 0
-    assert result.failed_rules == 1
-    assert result.rule_results[0].error is not None
-    assert "exactly one primary target" in result.rule_results[0].error
-    assert list(target_system.get_components(NodeComponent)) == []
-    assert list(target_system.get_components(CircuitComponent)) == []
-    assert list(target_system.get_supplemental_attributes(BusGeographicInfo)) == []
 
 
 def test_missing_supplemental_target_type_reports_output():
@@ -466,8 +462,8 @@ def test_missing_supplemental_target_type_reports_output():
     source_system.add_component(source_component)
     target_system = System(name="target", system_base=100.0)
     rule = Rule(
-        source_type="BusComponent",
-        target_type="NodeComponent",
+        source=ComponentSource(component_type="BusComponent"),
+        target=ComponentTarget(component_types=("NodeComponent",)),
         version=1,
         field_map={"name": "name", "uuid": "uuid"},
         supplemental_attributes=[
@@ -478,17 +474,15 @@ def test_missing_supplemental_target_type_reports_output():
         ],
     )
 
-    result = apply_rules_to_context(
-        PluginContext(
-            source_system=source_system,
-            target_system=target_system,
-            config=_build_test_config(),
-            rules=(rule,),
+    with pytest.raises(ValueError, match="MissingSupplementalAttribute"):
+        apply_rules_to_context(
+            PluginContext(
+                source_system=source_system,
+                target_system=target_system,
+                config=_build_test_config(),
+                rules=(rule,),
+            ),
+            on_error="continue",
         )
-    )
 
-    assert result.failed_rules == 1
-    error = result.rule_results[0].error
-    assert error is not None
-    assert "MissingSupplementalAttribute" in error
-    assert "supplemental" in error
+    assert list(target_system.get_components(NodeComponent)) == []

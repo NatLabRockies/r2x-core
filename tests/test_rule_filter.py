@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING
 
 from fixtures.context import FIXTURE_MODEL_MODULES
 from fixtures.target_system import StationComponent
+from pydantic import ValidationError
+
+from r2x_core.rules import ComponentSource, ComponentTarget
 
 if TYPE_CHECKING:
     from r2x_core import RuleFilter, System
@@ -56,8 +59,8 @@ def _run_rule_with_filter(filter_spec: RuleFilter, source_system: System) -> tup
 
     config = PluginConfig(models=FIXTURE_MODEL_MODULES)
     rule = Rule(
-        source_type="PlantComponent",
-        target_type="StationComponent",
+        source=ComponentSource(component_type="PlantComponent"),
+        target=ComponentTarget(component_types=("StationComponent",)),
         version=1,
         field_map={"name": "name", "uuid": "uuid"},
         filter=filter_spec,
@@ -70,7 +73,7 @@ def _run_rule_with_filter(filter_spec: RuleFilter, source_system: System) -> tup
         rules=(rule,),
         store=None,
     )
-    result = apply_rules_to_context(context)
+    result = apply_rules_to_context(context, on_error="continue")
     return result.total_converted, target_system
 
 
@@ -322,21 +325,17 @@ def test_rulefilter_model_validator_prefixes_type():
 
     from r2x_core import RuleFilter
 
-    with pytest.raises(ValueError) as _:
-        RuleFilter(field="name", op="startswith", prefixes=cast(Any, [123]))
+    with pytest.raises(ValidationError):
+        RuleFilter(field="name", op="startswith", prefixes=[123])
 
 
-def test_rulefilter_normalized_values_casefold():
-    """_normalized_values precomputes casefolded values if casefold=True."""
+def test_rulefilter_casefold_is_observable_through_matching():
+    """Configured casefold behavior controls public RuleFilter matching."""
     from r2x_core import RuleFilter
 
-    filt = RuleFilter(field="name", op="startswith", values=["Plant_A"], casefold=True)
-    assert filt._normalized_values == ["plant_a"]
+    casefolded = RuleFilter(field="name", op="startswith", values=["Plant_A"], casefold=True)
+    case_sensitive = RuleFilter(field="name", op="startswith", values=["Plant_A"], casefold=False)
 
-
-def test_rulefilter_normalized_values_no_casefold():
-    """_normalized_values preserves original values if casefold=False."""
-    from r2x_core import RuleFilter
-
-    filt = RuleFilter(field="name", op="startswith", values=["Plant_A"], casefold=False)
-    assert filt._normalized_values == ["Plant_A"]
+    assert casefolded.matches(_Dummy(name="plant_a_renewable"))
+    assert case_sensitive.matches(_Dummy(name="Plant_A_renewable"))
+    assert not case_sensitive.matches(_Dummy(name="plant_a_renewable"))

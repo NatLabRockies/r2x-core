@@ -6,16 +6,20 @@ loading data, caching.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 import orjson
+import polars as pl
 from loguru import logger
 from pydantic import ValidationError
 
 from .datafile import DataFile, FileProcessing
-from .plugin_config import PluginConfig
+from .exceptions import ReaderError
+from .plugin_config import PluginConfig, PluginConfigAsset
+from .prepared_tables import FileMapping, FileMappingDocument, PreparedTable, PreparedTableError
+from .processors import apply_processing
 from .reader import DataReader
 from .utils import filter_valid_kwargs
 from .utils.upgrade import UpgradeCoordinator
@@ -55,14 +59,28 @@ class DataStore:
         Create a DataStore from a JSON configuration file.
     from_plugin_config(plugin_config, path)
         Create a DataStore from a PluginConfig instance.
-    add_data(*data_files, overwrite)
+    load_file_mapping(mapping_data, mapping_path)
+        Load a files/tables mapping envelope into the store.
+    add_data(data_files, overwrite)
         Add one or more DataFile instances to the store.
+    add_tables(tables, overwrite)
+        Add prepared tables whose sources are registered physical files.
     read_data(name, placeholders)
-        Load data from a file by name.
+        Read a physical file or prepared table by name.
+    read_table(name, placeholders)
+        Read and validate a prepared table.
+    is_optional(name)
+        Return whether a physical source or table may be absent.
     list_data()
-        List all data file names in the store.
+        List all physical file and prepared table names in the store.
+    list_files()
+        List physical data file names in the store.
+    list_tables()
+        List prepared table names in the store.
     remove_data(*names)
-        Remove one or more data files from the store.
+        Remove unreferenced physical data files from the store.
+    remove_table(*names)
+        Remove prepared tables from the store.
     to_json(fpath, **model_dump_kwargs)
         Export store configuration to JSON.
 
@@ -74,8 +92,9 @@ class DataStore:
 
     Notes
     -----
-    All data file names must be unique within a store. The reader cache
-    is managed separately from the file configuration cache.
+    Physical file and prepared table names must be unique within a store. Prepared
+    tables reference physical files only. The reader cache is managed separately
+    from the file configuration mapping.
     """
 
     def __init__(
@@ -106,6 +125,7 @@ class DataStore:
         self._reader = reader or DataReader()
         self._folder = folder_path.resolve()
         self._cache: dict[str, DataFile] = {}
+        self.prepared_tables: dict[str, PreparedTable] = {}
         self._upgrade = UpgradeCoordinator(handler=upgrade_handler)
         logger.debug("Initialized DataStore with folder: {}", self.folder)
 
@@ -123,12 +143,37 @@ class DataStore:
         return self._reader
 
     def __getitem__(self, key: str) -> DataFile:
-        """Access data file by name. Equivalent to :meth:`_get_data_file_by_name`."""
-        return self._get_data_file_by_name(name=key)
+        """Access a physical data file by name."""
+        return self.get_data_file(key)
 
     def __contains__(self, name: str) -> bool:
-        """Check if a :class:`DataFile` exists in the store."""
-        return name in self._cache
+        """Check whether a physical file or prepared table is registered."""
+        return name in self._cache or name in self.prepared_tables
+
+    def get_data_file(self, name: str) -> DataFile:
+        """Return one physical file mapping."""
+        if name not in self._cache:
+            available_files = sorted(self._cache)
+            raise KeyError(f"{name!r} not present in store. Available files: {available_files}")
+        return self._cache[name]
+
+    def is_optional(self, name: str) -> bool:
+        """Return whether a physical input or prepared table may be absent."""
+        if name in self.prepared_tables:
+            source = self.prepared_tables[name].source
+            data_file = self.get_data_file(source)
+        else:
+            data_file = self.get_data_file(name)
+        return bool(data_file.info and data_file.info.is_optional)
+
+    def get_table(self, name: str) -> PreparedTable:
+        """Return one prepared-table mapping."""
+        try:
+            return self.prepared_tables[name]
+        except KeyError:
+            raise KeyError(
+                f"Prepared table {name!r} not present. Available tables: {sorted(self.prepared_tables)}"
+            ) from None
 
     @classmethod
     def from_data_files(
@@ -171,7 +216,7 @@ class DataStore:
         Parameters
         ----------
         json_fpath : Path | str
-            Path to the JSON file containing data file configurations.
+            Path to a JSON mapping envelope containing ``files`` and ``tables``.
         path : Path | str | None
             Path to the folder containing data files. Defaults to the JSON's parent folder.
         upgrade_handler : Callable[..., Any] | None, optional
@@ -180,16 +225,14 @@ class DataStore:
         Returns
         -------
         DataStore
-            New DataStore instance with data files from JSON.
+            New DataStore instance with physical files and prepared tables from JSON.
 
         Raises
         ------
         FileNotFoundError
             If the data folder or json_fpath does not exist.
-        TypeError
-            If JSON file is not a JSON array.
         ValidationError
-            If data files in JSON are invalid.
+            If the mapping envelope, physical files, prepared tables, or their references are invalid.
         """
         json_fpath = Path(json_fpath)
 
@@ -234,19 +277,25 @@ class DataStore:
         logger.debug("File mapping path: {}", json_fpath)
         store = cls(path=path)
         store.configure_upgrades(plugin_config=plugin_config, upgrade_handler=upgrade_handler)
-        if not json_fpath.exists():
+        try:
+            file_mapping = plugin_config.load_config(assets=[PluginConfigAsset.FILE_MAPPING])["file_mapping"]
+        except FileNotFoundError:
             logger.warning(
                 "File mapping not found for {} at {}; continuing with empty DataStore.",
                 type(plugin_config).__name__,
                 json_fpath,
             )
             return store
+
         try:
-            store._load_file_mapping(json_fpath)
+            store.load_file_mapping(file_mapping, mapping_path=json_fpath)
         except ValidationError as exc:
             if store._upgrade.should_attempt(exc):
                 store._upgrade.run(store=store, reason="file mapping validation failed")
-                store._load_file_mapping(json_fpath)
+                file_mapping = plugin_config.load_config(assets=[PluginConfigAsset.FILE_MAPPING])[
+                    "file_mapping"
+                ]
+                store.load_file_mapping(file_mapping, mapping_path=json_fpath)
             else:
                 raise
         return store
@@ -322,18 +371,43 @@ class DataStore:
         """
         return self._add_data_file(data_files, overwrite=overwrite)
 
-    def list_data(self) -> list[str]:
-        """List all data file names in the store.
+    def add_tables(self, tables: Sequence[PreparedTable], *, overwrite: bool = False) -> None:
+        """Add prepared tables after validating names and physical-file references."""
+        if any(not isinstance(table, PreparedTable) for table in tables):
+            raise TypeError("tables must contain PreparedTable instances")
+        names = [table.name for table in tables]
+        if len(set(names)) != len(names):
+            raise KeyError("Prepared table names must be unique")
+        if set(names) & set(self._cache):
+            raise KeyError("Prepared table names cannot collide with physical file names")
+        existing = set(names) & set(self.prepared_tables)
+        if existing and not overwrite:
+            raise KeyError(f"Prepared tables already exist: {sorted(existing)}")
 
-        Returns
-        -------
-        list[str]
-            Sorted list of all data file names.
+        updated_tables = dict(self.prepared_tables)
+        updated_tables.update((table.name, table) for table in tables)
+        FileMapping.model_validate(
+            {"files": list(self._cache.values()), "tables": list(updated_tables.values())}
+        )
+        self.prepared_tables = updated_tables
+
+    def list_tables(self) -> list[str]:
+        """List all prepared table names in sorted order."""
+        return sorted(self.prepared_tables)
+
+    def list_files(self) -> list[str]:
+        """List physical file names for reader and upgrade operations."""
+        return sorted(self._cache)
+
+    def list_data(self) -> list[str]:
+        """List all physical file and prepared table names in sorted order.
+
+        Use :meth:`list_files` when physical file mappings are required.
         """
-        return sorted(self._cache.keys())
+        return sorted([*self._cache, *self.prepared_tables])
 
     def read_data(self, name: str, *, placeholders: dict[str, Any] | None = None) -> Any:
-        """Load data from a file using the configured :class:`DataReader`.
+        """Read a physical file or configured prepared table by name.
 
         Parameters
         ----------
@@ -345,14 +419,185 @@ class DataStore:
         Returns
         -------
         Any
-            Loaded data from the file.
+            Loaded data, typically a Polars LazyFrame, or ``None`` for an absent optional input.
 
         Raises
         ------
         KeyError
             If the data file name is not in the store.
         """
+        if name in self.prepared_tables:
+            return self.read_table(name, placeholders=placeholders)
         return self._read_data_file_by_name(name=name, placeholders=placeholders)
+
+    def read_table(self, name: str, *, placeholders: dict[str, Any] | None = None) -> pl.LazyFrame | None:
+        """Read and prepare a configured table from physical file inputs.
+
+        Physical inputs are collected at this boundary so schema, join, and reader
+        failures retain their table and source names. The validated result is
+        returned as a LazyFrame for downstream composition.
+        """
+        table = self.get_table(name)
+
+        def collect_source(source: str) -> pl.DataFrame | None:
+            """Collect a physical input and retain its table/source context on failure."""
+            data_file = self.get_data_file(source)
+            try:
+                data = self.read_data(source, placeholders=placeholders)
+            except (OSError, ValueError, KeyError, ReaderError, pl.exceptions.PolarsError) as exc:
+                raise PreparedTableError(
+                    f"Prepared table {table.name!r} could not read source {source!r}: {exc}"
+                ) from exc
+
+            if data is None:
+                if data_file.info and data_file.info.is_optional:
+                    return None
+                raise PreparedTableError(
+                    f"Prepared table {table.name!r} required source {source!r}, but it returned no data"
+                )
+            if isinstance(data, pl.DataFrame):
+                return data
+            if not isinstance(data, pl.LazyFrame):
+                raise PreparedTableError(
+                    f"Prepared table {table.name!r} source {source!r} returned {type(data).__name__}, "
+                    "expected a Polars DataFrame or LazyFrame"
+                )
+            try:
+                return data.collect()
+            except (OSError, ValueError, pl.exceptions.PolarsError) as exc:
+                raise PreparedTableError(
+                    f"Prepared table {table.name!r} failed while collecting source {source!r}: {exc}"
+                ) from exc
+
+        result = collect_source(table.source)
+        if result is None:
+            return None
+
+        for join in table.joins:
+            right = collect_source(join.source)
+            if right is None:
+                continue
+            for source, source_frame, columns in (
+                (
+                    join.source,
+                    right,
+                    [
+                        *join.on.values(),
+                        *join.columns,
+                        *(join.select_first.order_by if join.select_first else {}),
+                    ],
+                ),
+                (table.source, result, list(join.on)),
+            ):
+                missing = sorted(set(columns) - set(source_frame.columns))
+                if missing:
+                    raise PreparedTableError(
+                        f"Prepared table {table.name!r} source {source!r} is missing column(s): {missing}"
+                    )
+            overlapping = sorted(set(join.columns.values()) & set(result.columns))
+            if overlapping:
+                raise PreparedTableError(
+                    f"Prepared table {table.name!r} join source {join.source!r} has overlapping payload "
+                    f"column(s): {overlapping}"
+                )
+            if any(result.get_column(column).null_count() > 0 for column in join.on):
+                raise PreparedTableError(
+                    f"Prepared table {table.name!r} source {table.source!r} contains null join key(s) "
+                    f"for join source {join.source!r}: {join.on}"
+                )
+            if any(right.get_column(column).null_count() > 0 for column in join.on.values()):
+                raise PreparedTableError(
+                    f"Prepared table {table.name!r} source {join.source!r} contains null join key(s): "
+                    f"{join.on}"
+                )
+
+            if join.cardinality == "m:1" and join.select_first is None:
+                if right.select(list(join.on.values())).is_duplicated().any():
+                    raise PreparedTableError(
+                        f"Prepared table {table.name!r} join source {join.source!r} has duplicate keys "
+                        f"for {join.on}; configure select_first to choose a representative row"
+                    )
+            elif join.select_first is not None:
+                sort_columns = list(join.select_first.order_by)
+                if sort_columns:
+                    right = right.sort(
+                        sort_columns,
+                        descending=[join.select_first.order_by[column] == "desc" for column in sort_columns],
+                        maintain_order=True,
+                    )
+                right = right.unique(subset=list(join.on.values()), keep="first", maintain_order=True)
+
+            if join.cardinality == "1:m" and result.select(list(join.on)).is_duplicated().any():
+                raise PreparedTableError(
+                    f"Prepared table {table.name!r} base source {table.source!r} has duplicate keys "
+                    f"for one-to-many join source {join.source!r}: {join.on}"
+                )
+
+            right_columns = list(
+                dict.fromkeys(
+                    [
+                        *join.on.values(),
+                        *join.columns,
+                        *(join.select_first.order_by if join.select_first else {}),
+                    ]
+                )
+            )
+            right = right.select(right_columns).select(
+                [
+                    *join.on.values(),
+                    *(pl.col(source).alias(output) for source, output in join.columns.items()),
+                ]
+            )
+            try:
+                result = result.join(
+                    right,
+                    left_on=list(join.on),
+                    right_on=list(join.on.values()),
+                    how=join.how,
+                    validate=join.cardinality,
+                    maintain_order="left",
+                    coalesce=True,
+                )
+            except pl.exceptions.PolarsError as exc:
+                raise PreparedTableError(
+                    f"Prepared table {table.name!r} failed joining source {join.source!r}: {exc}"
+                ) from exc
+
+        prepared = result.lazy()
+        if table.proc_spec is not None:
+            processing = apply_processing(
+                prepared,
+                data_file=table,
+                proc_spec=table.proc_spec,
+                placeholders=placeholders,
+            )
+            if processing.is_err():
+                error = processing.err()
+                raise PreparedTableError(
+                    f"Prepared table {table.name!r} processing failed: {error}"
+                ) from error
+            prepared_result = processing.ok()
+            if isinstance(prepared_result, pl.LazyFrame):
+                prepared = prepared_result
+            elif isinstance(prepared_result, pl.DataFrame):
+                prepared = prepared_result.lazy()
+            else:
+                raise PreparedTableError(
+                    f"Prepared table {table.name!r} processing returned a non-tabular result"
+                )
+
+        try:
+            final_result = prepared.collect()
+        except (OSError, ValueError, pl.exceptions.PolarsError) as exc:
+            raise PreparedTableError(
+                f"Prepared table {table.name!r} failed while collecting source {table.source!r}: {exc}"
+            ) from exc
+        missing_result_columns = sorted(set(table.required_columns) - set(final_result.columns))
+        if missing_result_columns:
+            raise PreparedTableError(
+                f"Prepared table {table.name!r} result is missing column(s): {missing_result_columns}"
+            )
+        return final_result.lazy()
 
     def configure_upgrades(
         self,
@@ -385,9 +630,28 @@ class DataStore:
             if name not in self._cache:
                 raise KeyError(f"Data file '{name}' not found in store.")
 
+        dependencies = {
+            table.name
+            for table in self.prepared_tables.values()
+            if table.source in names or any(join.source in names for join in table.joins)
+        }
+        if dependencies:
+            raise KeyError(
+                f"Cannot remove physical file(s) referenced by prepared table(s): {sorted(dependencies)}"
+            )
+
         for name in names:
             del self._cache[name]
             logger.debug("Removed data file '{}' from store", name)
+
+    def remove_table(self, *names: str) -> None:
+        """Remove prepared tables by name."""
+        for name in names:
+            if name not in self.prepared_tables:
+                raise KeyError(f"Prepared table {name!r} not found in store.")
+        for name in names:
+            del self.prepared_tables[name]
+            logger.debug("Removed prepared table '{}' from store", name)
 
     def to_json(self, fpath: str | Path, **model_dump_kwargs: dict[str, Any]) -> None:
         """Save the :class:`DataStore` configuration to a JSON file.
@@ -403,14 +667,24 @@ class DataStore:
         -----
         Output JSON is formatted with 2-space indentation and includes Unicode.
         """
-        json_data = [
-            data_file.model_dump(
-                mode="json",
-                round_trip=True,
-                **filter_valid_kwargs(data_file.model_dump, kwargs=model_dump_kwargs),
-            )
-            for data_file in self._cache.values()
-        ]
+        json_data = {
+            "files": [
+                data_file.model_dump(
+                    mode="json",
+                    round_trip=True,
+                    **filter_valid_kwargs(data_file.model_dump, kwargs=model_dump_kwargs),
+                )
+                for data_file in self._cache.values()
+            ],
+            "tables": [
+                table.model_dump(
+                    mode="json",
+                    round_trip=True,
+                    **filter_valid_kwargs(table.model_dump, kwargs=model_dump_kwargs),
+                )
+                for table in self.prepared_tables.values()
+            ],
+        }
 
         with open(fpath, "wb") as f:
             f.write(orjson.dumps(json_data, option=orjson.OPT_INDENT_2))
@@ -433,41 +707,27 @@ class DataStore:
             If True, overwrite existing data files. Default is False.
         """
         if any(not isinstance(data_file, DataFile) for data_file in data_files):
-            raise TypeError
+            raise TypeError("data_files must contain DataFile instances")
 
+        names = [data_file.name for data_file in data_files]
+        if len(set(names)) != len(names):
+            raise KeyError("Physical file names must be unique")
+        if set(names) & set(self.prepared_tables):
+            raise KeyError("Physical file names cannot collide with prepared table names")
         if any(data_file.name in self._cache for data_file in data_files) and not overwrite:
             msg = "Some data files already exists with the same name. "
             msg += "Pass overwrite=True to replace it."
             raise KeyError(msg)
 
+        updated_files = dict(self._cache)
+        updated_files.update((data_file.name, data_file) for data_file in data_files)
+        FileMapping.model_validate(
+            {"files": list(updated_files.values()), "tables": list(self.prepared_tables.values())}
+        )
+        self._cache = updated_files
         for data_file in data_files:
-            self._cache[data_file.name] = data_file
             logger.debug("Added data file '{}' to store", data_file.name)
         return
-
-    def _get_data_file_by_name(self, name: str) -> DataFile:
-        """Retrieve a :class:`DataFile` configuration by name (internal).
-
-        Parameters
-        ----------
-        name : str
-            Name of the data file.
-
-        Returns
-        -------
-        DataFile
-            The requested data file.
-
-        Raises
-        ------
-        KeyError
-            If the data file name is not in the store.
-        """
-        if name not in self._cache:
-            available_files = list(self._cache.keys())
-            raise KeyError(f"'{name}' not present in store. Available files: {available_files}")
-
-        return self._cache[name]
 
     def _read_data_file_by_name(self, /, *, name: str, placeholders: dict[str, Any] | None = None) -> Any:
         """Load data from a file by name (internal).
@@ -489,8 +749,10 @@ class DataStore:
         KeyError
             If the data file name is not in the store.
         """
-        if name not in self:
-            raise KeyError(f"'{name}' not present in store.")
+        if name not in self._cache:
+            if name in self.prepared_tables:
+                raise ValueError(f"{name!r} is a prepared table; use read_data() to read configured datasets")
+            raise KeyError(f"'{name}' not present in store. Available files: {sorted(self._cache)}")
 
         data_file = self._cache[name]
         try:
@@ -511,14 +773,26 @@ class DataStore:
             )
 
     def _load_file_mapping(self, mapping_path: Path) -> None:
-        """Load DataFile definitions from a file-mapping JSON."""
+        """Load physical files and prepared tables from a file-mapping JSON."""
         logger.info("Loading file mapping from {}", mapping_path)
         with open(mapping_path, "rb") as f:
             data_files_json = orjson.loads(f.read())
+        self.load_file_mapping(data_files_json, mapping_path=mapping_path)
 
-        if not isinstance(data_files_json, list):
-            msg = f"JSON file `{mapping_path}` is not a JSON array."
-            raise TypeError(msg)
-
-        data_files = DataFile.from_records(data_files_json, folder_path=self.folder)
-        self.add_data(data_files)
+    def load_file_mapping(self, mapping_data: Mapping[str, object], *, mapping_path: Path) -> None:
+        """Load physical files and prepared tables from a mapping envelope."""
+        document = FileMappingDocument.model_validate(mapping_data)
+        data_files = DataFile.from_records(document.files, folder_path=self.folder)
+        mapping = FileMapping(files=data_files, tables=document.tables)
+        complete_mapping = FileMapping(
+            files=[*self._cache.values(), *mapping.files],
+            tables=[*self.prepared_tables.values(), *mapping.tables],
+        )
+        self._cache = {data_file.name: data_file for data_file in complete_mapping.files}
+        self.prepared_tables = {table.name: table for table in complete_mapping.tables}
+        logger.debug(
+            "Loaded {} physical files and {} prepared tables from {}",
+            len(mapping.files),
+            len(mapping.tables),
+            mapping_path,
+        )

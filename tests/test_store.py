@@ -52,7 +52,9 @@ def test_datastore_from_mapping_file(tmp_path):
     csv_file.write_text("a,b\n1,2\n3,4\n")
 
     mapping_path = tmp_path / "file_mapping.json"
-    mapping_path.write_text(json.dumps([{"name": "table", "fpath": "inputs/file.csv"}]))
+    mapping_path.write_text(
+        json.dumps({"files": [{"name": "table", "fpath": "inputs/file.csv"}], "tables": []})
+    )
 
     store = DataStore(path=mapping_path)
     assert "table" in store.list_data()
@@ -69,14 +71,17 @@ def test_optional_file_missing_in_mapping(tmp_path):
     mapping_path = tmp_path / "file_mapping.json"
     mapping_path.write_text(
         json.dumps(
-            [
-                {"name": "required", "fpath": "inputs/required.csv"},
-                {
-                    "name": "optional",
-                    "fpath": "inputs/optional.csv",
-                    "info": {"is_optional": True},
-                },
-            ]
+            {
+                "files": [
+                    {"name": "required", "fpath": "inputs/required.csv"},
+                    {
+                        "name": "optional",
+                        "fpath": "inputs/optional.csv",
+                        "info": {"is_optional": True},
+                    },
+                ],
+                "tables": [],
+            }
         )
     )
 
@@ -186,9 +191,10 @@ def test_to_json_serialization(data_store_example, tmp_path, folder_with_data):
 
     with open(json_path) as f:
         data = json.load(f)
-    assert isinstance(data, list)
-    assert len(data) == 2
-    assert data[0]["name"] == "test1"
+    assert isinstance(data, dict)
+    assert len(data["files"]) == 2
+    assert data["files"][0]["name"] == "test1"
+    assert data["tables"] == []
 
     new_store = DataStore.from_json(json_path, path=folder_with_data)
     assert "test1" in new_store
@@ -259,6 +265,36 @@ def test_from_plugin_config_missing_file_mapping(tmp_path, caplog):
 
     assert store.list_data() == []
     assert "File mapping not found" in caplog.text
+
+
+def test_from_plugin_config_uses_whole_file_mapping_override(tmp_path):
+    from r2x_core import DataStore
+    from r2x_core.plugin_config import PluginConfig, PluginConfigAsset
+
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    (config_dir / "file_mapping.json").write_text(
+        json.dumps({"files": [{"name": "base", "fpath": "base.csv"}], "tables": []})
+    )
+    (tmp_path / "base.csv").write_text("value\n1\n")
+    (tmp_path / "replacement.csv").write_text("value\n2\n")
+
+    class DummyConfig(PluginConfig):
+        pass
+
+    config = DummyConfig(
+        config_path_override=config_dir,
+        asset_overrides={
+            "file_mapping": {"files": [{"name": "replacement", "fpath": "replacement.csv"}], "tables": []}
+        },
+    )
+    store = DataStore.from_plugin_config(config, path=tmp_path)
+
+    assert store.list_data() == ["replacement"]
+    assert config.load_config(assets=[PluginConfigAsset.FILE_MAPPING])["file_mapping"] == {
+        "files": [{"name": "replacement", "fpath": "replacement.csv"}],
+        "tables": [],
+    }
 
 
 def test_load_file_with_json_transform_rename_keys(tmp_path):
@@ -491,7 +527,7 @@ def test_load_file_mapping_validation_error(tmp_path):
 
     store = DataStore(path=tmp_path)
     bad_mapping = tmp_path / "bad.json"
-    bad_mapping.write_text(json.dumps([{"name": 123, "fpath": "file.csv"}]))
+    bad_mapping.write_text(json.dumps({"files": [{"name": 123, "fpath": "file.csv"}], "tables": []}))
 
     with pytest.raises(ValidationError):
         store._load_file_mapping(bad_mapping)
@@ -555,14 +591,14 @@ def test_store_from_json_missing_config_file(tmp_path):
 
 
 def test_store_from_json_not_array(tmp_path):
-    import pytest
+    from pydantic import ValidationError
 
     from r2x_core import DataStore
 
     json_file = tmp_path / "config.json"
     json_file.write_text('{"not": "array"}')
 
-    with pytest.raises(TypeError):
+    with pytest.raises(ValidationError):
         DataStore.from_json(json_file, path=tmp_path)
 
 

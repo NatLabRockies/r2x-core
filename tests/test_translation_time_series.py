@@ -25,7 +25,7 @@ from r2x_core.time_series import (
 
 def test_time_series_transfer_via_fixture_context(context_example: PluginContext):
     """Translation applies fixture rules and transfers time series metadata."""
-    result = apply_rules_to_context(context_example)
+    result = apply_rules_to_context(context_example, on_error="continue")
 
     assert result.time_series_transferred > 0
 
@@ -125,7 +125,7 @@ def test_replace_single_time_series_restores_association_on_storage_failure(
 
 def test_time_series_transfer_is_idempotent(context_example: PluginContext):
     """Re-running metadata transfer does not duplicate associations."""
-    first_result = apply_rules_to_context(context_example)
+    first_result = apply_rules_to_context(context_example, on_error="continue")
     target_system = context_example.target_system
     assert target_system is not None
 
@@ -148,7 +148,7 @@ def test_time_series_transfer_is_idempotent(context_example: PluginContext):
 
 def test_time_series_transfer_deduplicates_rows(context_example: PluginContext, caplog):
     """Duplicate associations are removed and do not change totals."""
-    apply_rules_to_context(context_example)
+    apply_rules_to_context(context_example, on_error="continue")
     target_system = context_example.target_system
     assert target_system is not None
 
@@ -187,7 +187,7 @@ def test_time_series_transfer_deduplicates_rows(context_example: PluginContext, 
 
 def test_time_series_transfer_falls_back_without_db_path(monkeypatch, context_example: PluginContext):
     """When no DB path is available, transfer still succeeds via SELECT/INSERT path."""
-    apply_rules_to_context(context_example)
+    apply_rules_to_context(context_example, on_error="continue")
     target_system = context_example.target_system
     assert target_system is not None
 
@@ -211,7 +211,7 @@ def test_time_series_transfer_falls_back_without_db_path(monkeypatch, context_ex
 
 def test_time_series_transfer_uses_attach_path(tmp_path, monkeypatch, context_example: PluginContext):
     """ATTACH-based bulk copy path is exercised when a DB path is available."""
-    apply_rules_to_context(context_example)
+    apply_rules_to_context(context_example, on_error="continue")
 
     def _copy_src_to_temp(conn):
         dst = tmp_path / "src_ts.db"
@@ -227,7 +227,7 @@ def test_time_series_transfer_uses_attach_path(tmp_path, monkeypatch, context_ex
 
 def test_time_series_transfer_logs_post_remap_cleanup(monkeypatch, context_example: PluginContext, caplog):
     """Post-remap dedupe path logs when rows are removed."""
-    apply_rules_to_context(context_example)
+    apply_rules_to_context(context_example, on_error="continue")
     source_system = context_example.source_system
     target_system = context_example.target_system
     assert source_system is not None

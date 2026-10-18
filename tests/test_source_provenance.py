@@ -55,7 +55,7 @@ def context_preserve_source(
 
 def test_preserve_source_sets_provenance_info(context_preserve_source: PluginContext) -> None:
     """After translation, target system carries ProvenanceInfo pointing at the source."""
-    result = apply_rules_to_context(context_preserve_source)
+    result = apply_rules_to_context(context_preserve_source, on_error="continue")
     assert result.total_converted > 0
 
     tgt = context_preserve_source.target_system
@@ -75,7 +75,7 @@ def test_translated_components_get_source_provenance_tag(
     from fixtures.source_system import BusComponent
     from fixtures.target_system import NodeComponent
 
-    apply_rules_to_context(context_preserve_source)
+    apply_rules_to_context(context_preserve_source, on_error="continue")
 
     src = context_preserve_source.source_system
     tgt = context_preserve_source.target_system
@@ -120,7 +120,7 @@ def test_untranslated_source_component_is_preserved_with_uuid(
     phantom = UnmappedSourceType(name="phantom", payload="data")
     src.add_component(phantom)
 
-    apply_rules_to_context(context_preserve_source)
+    apply_rules_to_context(context_preserve_source, on_error="continue")
 
     preserved = list(tgt.iter_preserved_components())
     preserved_uuids = {c.uuid for c in preserved}
@@ -148,7 +148,7 @@ def test_iter_translated_excludes_preserved(context_preserve_source: PluginConte
         payload: str = Field(default="")
 
     src.add_component(UnmappedSource(name="drop_me"))
-    apply_rules_to_context(context_preserve_source)
+    apply_rules_to_context(context_preserve_source, on_error="continue")
 
     translated_uuids = {c.uuid for c in tgt.iter_translated_components()}
     preserved_uuids = {c.uuid for c in tgt.iter_preserved_components()}
@@ -180,7 +180,7 @@ def test_preserved_supplemental_attributes_are_carried_over(
     geo = BusGeographicInfo(latitude=40.7, longitude=-74.0, location_name="somewhere")
     src.add_supplemental_attribute(unmapped, geo)
 
-    apply_rules_to_context(context_preserve_source)
+    apply_rules_to_context(context_preserve_source, on_error="continue")
 
     carried = next(c for c in tgt.iter_preserved_components() if c.uuid == unmapped.uuid)
     carried_sas = tgt.get_supplemental_attributes_with_component(
@@ -206,7 +206,7 @@ def test_preserve_source_off_produces_no_provenance(
         rules=rules_simple,
         preserve_source=False,
     )
-    apply_rules_to_context(ctx)
+    apply_rules_to_context(ctx, on_error="continue")
 
     assert ctx.target_system is not None
     assert ctx.target_system.source_provenance_info is None
@@ -229,7 +229,7 @@ def test_provenance_survives_json_round_trip(context_preserve_source: PluginCont
     unmapped = RoundTripUnmappedType(name="phantom", payload="x")
     src.add_component(unmapped)
 
-    apply_rules_to_context(context_preserve_source)
+    apply_rules_to_context(context_preserve_source, on_error="continue")
 
     original_source_uuids = {
         unmapped.uuid,
@@ -273,7 +273,7 @@ def test_is_preserved_public_wrapper(context_preserve_source: PluginContext) -> 
     unmapped = RoundTripUnmappedType(name="is_preserved_probe", payload="y")
     src.add_component(unmapped)
 
-    apply_rules_to_context(context_preserve_source)
+    apply_rules_to_context(context_preserve_source, on_error="continue")
 
     preserved = next(c for c in tgt.iter_preserved_components() if c.uuid == unmapped.uuid)
     assert tgt.is_preserved(preserved) is True
@@ -286,7 +286,7 @@ def test_malformed_provenance_info_ignored_not_fatal(
     context_preserve_source: PluginContext,
 ) -> None:
     """deserialize_system_attributes tolerates malformed provenance metadata."""
-    apply_rules_to_context(context_preserve_source)
+    apply_rules_to_context(context_preserve_source, on_error="continue")
     tgt = context_preserve_source.target_system
     assert tgt is not None
 
@@ -380,7 +380,7 @@ def test_supplemental_attribute_with_no_preserved_owners_is_skipped(
     # Force at least one preserved component so the SA loop actually runs.
     src.add_component(RoundTripUnmappedType(name="forces_sa_loop", payload="x"))
 
-    apply_rules_to_context(context_preserve_source)
+    apply_rules_to_context(context_preserve_source, on_error="continue")
 
     carried_geo = list(tgt.get_supplemental_attributes(BusGeographicInfo))
     # Only the SAs attached to preserved components should appear; the translated-only one is filtered out.
@@ -457,7 +457,7 @@ def test_source_provenance_tags_are_not_carried_across(
     stray_tag = SourceProvenance(source_uuid=unmapped.uuid, preserved=True)
     src.add_supplemental_attribute(unmapped, stray_tag)
 
-    apply_rules_to_context(context_preserve_source)
+    apply_rules_to_context(context_preserve_source, on_error="continue")
 
     carried = next(c for c in tgt.iter_preserved_components() if c.uuid == unmapped.uuid)
     tags = tgt.get_supplemental_attributes_with_component(

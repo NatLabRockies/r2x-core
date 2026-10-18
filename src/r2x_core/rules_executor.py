@@ -1,66 +1,379 @@
-"""Execute a set of rules for a given translation context."""
+"""Execute shared construction rules against Systems or named datasets."""
 
 from __future__ import annotations
 
-from typing import Any, cast
-from uuid import uuid4
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass
+from types import MappingProxyType, UnionType
+from typing import Annotated, Literal, Union, get_args, get_origin
 
+import polars as pl
 from infrasys import Component, SupplementalAttribute
-from infrasys.exceptions import ISNotStored
+from infrasys.exceptions import ISBaseException, ISNotStored
 from loguru import logger
+from pydantic import BaseModel
+from pydantic import ValidationError as PydanticValidationError
 from rust_ok import Err, Ok, Result
 
+from .exceptions import ReaderError
 from .plugin_context import PluginContext
 from .provenance import ProvenanceBuilder
-from .result import RuleApplicationStats, RuleResult, TranslationResult
-from .rules import Rule
+from .result import RuleApplicationStats, RuleIssue, RuleResult, TranslationResult
+from .rules import (
+    ComponentSource,
+    ComponentTarget,
+    DatasetSource,
+    FixedMappingRoute,
+    MappingRoute,
+    MappingSelection,
+    OwnedSupplementalTarget,
+    Rule,
+    RuleLike,
+    RuleMapping,
+    RulePlanDocument,
+)
 from .time_series import transfer_time_series_metadata
 from .utils import (
     RuleOutputs,
-    build_target_fields,
     create_rule_outputs,
-    create_target_component,
     evaluate_rule_filter,
     iter_components,
     resolve_component_type,
-    sort_rules_by_dependencies,
+    to_attr_source,
+)
+from .utils import (
+    sort_rules_by_dependencies as sort_rule_dependencies,
 )
 
 
-def apply_rules_to_context(context: PluginContext) -> TranslationResult:
-    """Apply all transformation rules defined in a PluginContext.
+@dataclass(frozen=True, slots=True)
+class ResolvedRuleMapping:
+    """One shared mapping with output and owner models resolved against a PluginContext."""
 
-    Parameters
-    ----------
-    context : PluginContext
-        The plugin context containing rules and systems
+    mapping: RuleMapping
+    target_types: tuple[type[Component | SupplementalAttribute], ...]
+    nested_types: tuple[type[SupplementalAttribute], ...]
+    owner_type: type[Component] | None
 
-    Returns
-    -------
-    TranslationResult
-        Rich result object with detailed statistics and per-rule results
 
-    Raises
-    ------
-    ValueError
-        If the context has no rules defined or if circular dependencies are detected
+@dataclass(frozen=True, slots=True)
+class ResolvedMappingSelection:
+    """One mapping selection with every named output resolved during plan validation."""
+
+    selection: MappingSelection
+    mappings_by_key: Mapping[str, ResolvedRuleMapping]
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedRule:
+    """Executable Rule with source and shared mapping models resolved once."""
+
+    rule: Rule
+    source_type: type[Component] | None
+    mapping: ResolvedRuleMapping
+
+    @property
+    def target_types(self) -> tuple[type[Component | SupplementalAttribute], ...]:
+        """Return the resolved output models from the shared mapping."""
+        return self.mapping.target_types
+
+    @property
+    def nested_types(self) -> tuple[type[SupplementalAttribute], ...]:
+        """Return the resolved same-source supplemental models."""
+        return self.mapping.nested_types
+
+    @property
+    def owner_type(self) -> type[Component] | None:
+        """Return the resolved owner model for independently attached attributes."""
+        return self.mapping.owner_type
+
+
+@dataclass(frozen=True, slots=True)
+class RulePlan:
+    """Validated shared mappings, executable Rules, and explicit stage indexes."""
+
+    mappings_by_name: Mapping[str, ResolvedRuleMapping]
+    rules_by_name: Mapping[str, ResolvedRule]
+    selections_by_name: Mapping[str, ResolvedMappingSelection]
+    stages_by_name: Mapping[str, tuple[ResolvedRule, ...]]
+    mapping_names_by_target: Mapping[str, tuple[str, ...]]
+
+    @classmethod
+    def from_mapping(
+        cls,
+        source: object,
+        *,
+        context: PluginContext,
+    ) -> Result[RulePlan, ValueError]:
+        """Validate a RulePlan envelope, resolving every target and named input once."""
+        try:
+            document = RulePlanDocument.model_validate(source)
+        except (PydanticValidationError, TypeError, ValueError) as error:
+            return Err(ValueError(f"Invalid RulePlan configuration: {error}"))
+
+        if document.required_datasets:
+            if context.store is None:
+                return Err(
+                    ValueError("RulePlan declares required datasets but PluginContext has no DataStore")
+                )
+            for dataset in document.required_datasets:
+                if dataset not in context.store:
+                    return Err(ValueError(f"Required RulePlan dataset {dataset!r} is not registered"))
+                if context.store.is_optional(dataset):
+                    return Err(ValueError(f"Required RulePlan dataset {dataset!r} is marked optional"))
+
+        mappings_by_name: dict[str, ResolvedRuleMapping] = {}
+        mapping_names_by_target: dict[str, list[str]] = {}
+        for mapping in document.mappings:
+            if mapping.name is None:
+                return Err(ValueError("Every RulePlan mapping must have a name"))
+            match resolve_rule_mapping(mapping, context=context):
+                case Err(error):
+                    return Err(ValueError(f"Invalid mapping {mapping.name!r}: {error}"))
+                case Ok(resolved_mapping):
+                    mappings_by_name[mapping.name] = resolved_mapping
+                    for target_name in (
+                        mapping.target.component_types
+                        if isinstance(mapping.target, ComponentTarget)
+                        else (mapping.target.attribute_type,)
+                    ):
+                        mapping_names_by_target.setdefault(target_name, []).append(mapping.name)
+
+        selections_by_name: dict[str, ResolvedMappingSelection] = {}
+        for selection in document.mapping_selections:
+            mappings_for_key: dict[str, ResolvedRuleMapping] = {}
+            for key, mapping_name in selection.by_key.items():
+                resolved_mapping = mappings_by_name[mapping_name]
+                if not isinstance(resolved_mapping.mapping.target, ComponentTarget):
+                    return Err(
+                        ValueError(
+                            f"Selection {selection.name!r} mapping {mapping_name!r} must target Components"
+                        )
+                    )
+                if len(resolved_mapping.target_types) != 1:
+                    return Err(
+                        ValueError(
+                            f"Selection {selection.name!r} mapping {mapping_name!r} must have one Component target"
+                        )
+                    )
+                mappings_for_key[key] = resolved_mapping
+            selections_by_name[selection.name] = ResolvedMappingSelection(
+                selection=selection,
+                mappings_by_key=MappingProxyType(mappings_for_key),
+            )
+
+        rules_by_name: dict[str, ResolvedRule] = {}
+        for rule in document.rules:
+            if rule.name is None:
+                return Err(ValueError("Every RulePlan Rule must have a name"))
+            match resolve_rule(rule, context=context):
+                case Err(error):
+                    return Err(ValueError(f"Invalid Rule {rule.name!r}: {error}"))
+                case Ok(resolved_rule):
+                    rules_by_name[rule.name] = resolved_rule
+
+        stages_by_name: dict[str, tuple[ResolvedRule, ...]] = {}
+        rule_positions: dict[str, tuple[int, int]] = {}
+        for stage_index, stage in enumerate(document.execution):
+            staged_rules = tuple(rules_by_name[name] for name in stage.rules)
+            stages_by_name[stage.name] = staged_rules
+            for rule_index, rule in enumerate(staged_rules):
+                rule_positions[rule.rule.name or ""] = (stage_index, rule_index)
+        for rule_name, resolved_rule in rules_by_name.items():
+            position = rule_positions.get(rule_name)
+            if position is None and resolved_rule.rule.depends_on:
+                return Err(ValueError(f"Rule {rule_name!r} has dependencies but is not assigned to a stage"))
+            for dependency in resolved_rule.rule.depends_on:
+                dependency_position = rule_positions.get(dependency)
+                if dependency_position is None:
+                    return Err(
+                        ValueError(f"Rule {rule_name!r} dependency {dependency!r} is not assigned to a stage")
+                    )
+                if position is not None and dependency_position >= position:
+                    return Err(
+                        ValueError(
+                            f"RulePlan stage order places dependency {dependency!r} after {rule_name!r}"
+                        )
+                    )
+
+        return Ok(
+            cls(
+                mappings_by_name=MappingProxyType(mappings_by_name),
+                rules_by_name=MappingProxyType(rules_by_name),
+                selections_by_name=MappingProxyType(selections_by_name),
+                stages_by_name=MappingProxyType(stages_by_name),
+                mapping_names_by_target=MappingProxyType(
+                    {name: tuple(mapping_names) for name, mapping_names in mapping_names_by_target.items()}
+                ),
+            )
+        )
+
+    def get_mapping(self, name: str) -> Result[ResolvedRuleMapping, ValueError]:
+        """Return one named construction mapping, including an executable Rule mapping."""
+        mapping = self.mappings_by_name.get(name)
+        if mapping is not None:
+            return Ok(mapping)
+        rule = self.rules_by_name.get(name)
+        if rule is not None:
+            return Ok(rule.mapping)
+        return Err(ValueError(f"No RulePlan mapping named {name!r}"))
+
+    def get_selection(self, name: str) -> Result[ResolvedMappingSelection, ValueError]:
+        """Return one uniquely named, prevalidated mapping selection."""
+        try:
+            return Ok(self.selections_by_name[name])
+        except KeyError:
+            return Err(ValueError(f"No RulePlan mapping selection named {name!r}"))
+
+    def get_rule(self, name: str) -> Result[ResolvedRule, ValueError]:
+        """Return one uniquely named, prevalidated executable Rule."""
+        try:
+            return Ok(self.rules_by_name[name])
+        except KeyError:
+            return Err(ValueError(f"No RulePlan Rule named {name!r}"))
+
+    def mapping_for_target(
+        self, target_type: str, *, name: str | None = None
+    ) -> Result[ResolvedRuleMapping, ValueError]:
+        """Resolve an explicit mapping name or one unambiguous target mapping."""
+        candidates = self.mapping_names_by_target.get(target_type, ())
+        if name is not None:
+            if name not in candidates:
+                return Err(ValueError(f"No mapping named {name!r} targets {target_type!r}"))
+            return self.get_mapping(name)
+        if not candidates:
+            return Err(ValueError(f"No mapping targets {target_type!r}"))
+        if len(candidates) > 1:
+            return Err(ValueError(f"Multiple mappings target {target_type!r}: {candidates}"))
+        return self.get_mapping(candidates[0])
+
+    def stage(self, name: str) -> Result[tuple[ResolvedRule, ...], ValueError]:
+        """Return one explicitly ordered, prevalidated stage."""
+        try:
+            return Ok(self.stages_by_name[name])
+        except KeyError:
+            return Err(ValueError(f"No RulePlan stage named {name!r}"))
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedRuleOutputs:
+    """Constructed output group and its independently resolved owner, if any."""
+
+    outputs: tuple[RuleOutputs, ...]
+    owner: Component | None
+
+
+@dataclass(frozen=True, slots=True)
+class OwnerMatchIndex:
+    """Typed owner lookup built once for one rule execution against one System."""
+
+    target: OwnedSupplementalTarget
+    owners_by_key: Mapping[tuple[object, ...], tuple[Component, ...]]
+
+
+class RuleExecutionError(ValueError):
+    """Structured rule failure retaining row issues and completed output counts."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        rule: str | None = None,
+        mapping: str | None = None,
+        dataset: str | None = None,
+        converted: int = 0,
+        skipped: int = 0,
+        issues: Iterable[RuleIssue] = (),
+    ) -> None:
+        self.rule = rule
+        self.mapping = mapping
+        self.dataset = dataset
+        self.converted = converted
+        self.skipped = skipped
+        self.issues = tuple(issues)
+        details = "; ".join(
+            f"row {issue.row}: {issue.message}" if issue.row is not None else issue.message
+            for issue in self.issues
+        )
+        label = (
+            f"Rule {rule!r}"
+            if rule is not None
+            else f"Mapping {mapping!r}"
+            if mapping is not None
+            else "Rule"
+        )
+        if dataset is not None:
+            label += f" on dataset {dataset!r}"
+        super().__init__(f"{label}: {message}" + (f" ({details})" if details else ""))
+
+
+def apply_rules_to_context(
+    context: PluginContext,
+    /,
+    *,
+    on_error: Literal["stop", "continue"],
+    plan: RulePlan | None = None,
+    stage: str | None = None,
+) -> TranslationResult:
+    """Execute context Rules or one explicitly named stage from a validated RulePlan.
+
+    Configuration, source-System requirements, target types, and mapped target
+    fields are validated before the first System mutation. ``continue`` proceeds
+    after a runtime rule failure; ``stop`` returns after the first failure.
+    Dependency edges order rules but do not gate dependents under ``continue``.
+    Successful earlier outputs remain attached when a later rule fails.
     """
-    if not context.rules:
-        raise ValueError(f"{type(context).__name__} has no rules. Use context.list_rules().")
+    if on_error not in {"stop", "continue"}:
+        raise ValueError("on_error must be 'stop' or 'continue'")
+    if context.target_system is None:
+        raise ValueError("target_system must be set in context")
 
-    sorted_rules = sort_rules_by_dependencies(context.list_rules()).unwrap_or_raise(exc_type=ValueError)
+    if plan is not None:
+        if stage is None:
+            raise ValueError("A RulePlan invocation must select an explicit stage")
+        if context.rules:
+            raise ValueError("Use either context.rules or a RulePlan stage, not both")
+        match plan.stage(stage):
+            case Err(error):
+                raise error
+            case Ok(selected_rules):
+                resolved_rules = list(selected_rules)
+    else:
+        if stage is not None:
+            raise ValueError("stage requires a validated RulePlan")
+        if not context.rules:
+            raise ValueError(f"{type(context).__name__} has no rules. Use context.list_rules().")
+        sorted_rules = sort_rule_dependencies(list(context.rules)).unwrap_or_raise(exc_type=ValueError)
+        resolved_rules = []
+        for rule in sorted_rules:
+            match resolve_rule(rule, context=context):
+                case Ok(resolved):
+                    resolved_rules.append(resolved)
+                case Err(error):
+                    raise ValueError(f"Invalid rule '{rule.name or rule}': {error}") from error
 
-    builder = _build_provenance_builder(context)
+    for resolved in resolved_rules:
+        source = resolved.rule.source
+        if isinstance(source, ComponentSource):
+            source_system = context.source_system if source.system == "source" else context.target_system
+            if source_system is None:
+                raise ValueError(f"Required {source.system} source System is not set in context")
 
+    selected_rule_values = [resolved.rule for resolved in resolved_rules]
+    has_translation_sources = any(
+        isinstance(rule.source, ComponentSource) and rule.source.system == "source"
+        for rule in selected_rule_values
+    )
+    provenance_builder = build_provenance_builder(context) if has_translation_sources else None
     rule_results: list[RuleResult] = []
     total_converted = 0
     successful_rules = 0
     failed_rules = 0
 
-    for rule in sorted_rules:
+    for resolved in resolved_rules:
+        rule = resolved.rule
         logger.debug("Applying rule: {}", rule)
-        result = apply_single_rule(rule, context=context, builder=builder)
-
+        result = execute_rule(resolved, context=context, builder=provenance_builder)
         match result:
             case Ok(stats):
                 rule_results.append(
@@ -69,169 +382,933 @@ def apply_rules_to_context(context: PluginContext) -> TranslationResult:
                         converted=stats.converted,
                         skipped=stats.skipped,
                         success=True,
-                        error=None,
                     )
                 )
                 total_converted += stats.converted
                 successful_rules += 1
-            case Err(_):
-                error = str(result.err())
+            case Err(error):
                 logger.error("Rule {} failed: {}", rule, error)
+                converted = error.converted if isinstance(error, RuleExecutionError) else 0
+                skipped = error.skipped if isinstance(error, RuleExecutionError) else 0
+                issues = error.issues if isinstance(error, RuleExecutionError) else ()
                 rule_results.append(
                     RuleResult(
                         rule=rule,
-                        converted=0,
-                        skipped=0,
+                        converted=converted,
+                        skipped=skipped,
                         success=False,
-                        error=error,
+                        error=str(error),
+                        issues=issues,
                     )
                 )
+                total_converted += converted
                 failed_rules += 1
+                if on_error == "stop":
+                    break
 
-    if builder is not None and context.target_system is not None:
-        builder.preserve_untranslated(context.target_system)
-
-    ts_result = transfer_time_series_metadata(context)
-
-    if builder is not None and context.target_system is not None:
-        context.target_system.source_provenance_info = builder.finalize()
+    if has_translation_sources:
+        if provenance_builder is not None:
+            provenance_builder.preserve_untranslated(context.target_system)
+        time_series_result = transfer_time_series_metadata(context)
+        if provenance_builder is not None:
+            context.target_system.source_provenance_info = provenance_builder.finalize()
+    else:
+        time_series_result = None
 
     return TranslationResult(
-        total_rules=len(context.rules),
+        total_rules=len(resolved_rules),
         successful_rules=successful_rules,
         failed_rules=failed_rules,
         total_converted=total_converted,
         rule_results=rule_results,
-        time_series_transferred=ts_result.transferred,
-        time_series_updated=ts_result.updated,
+        time_series_transferred=0 if time_series_result is None else time_series_result.transferred,
+        time_series_updated=0 if time_series_result is None else time_series_result.updated,
     )
 
 
-def apply_single_rule(
-    rule: Rule,
-    *,
-    context: PluginContext,
-    builder: ProvenanceBuilder | None = None,
-) -> Result[RuleApplicationStats, ValueError]:
-    """Apply one transformation rule across matching components.
-
-    Parameters
-    ----------
-    rule : Rule
-        The rule to apply.
-    context : PluginContext
-        The plugin context containing rules and systems.
-    builder : ProvenanceBuilder, optional
-        When provided, each successfully translated target component is tagged
-        with a :class:`SourceProvenance` supplemental attribute so a later
-        reverse translation can restore the original source UUID.
-
-    Returns
-    -------
-    Result[RuleApplicationStats, ValueError]
-        Result containing application statistics or an error.
-    """
-    converted = 0
-    target_types = rule.get_target_types()
-    supplemental_rules = getattr(rule, "supplemental_attributes", ())
-    if len(target_types) > 1 and supplemental_rules:
-        return Err(ValueError("Rules with supplemental outputs must have exactly one primary target"))
-    should_regenerate_uuid = len(target_types) > 1
-
-    read_system = context.target_system if rule.system == "target" else context.source_system
-    if read_system is None:
-        return Err(ValueError(f"System '{rule.system}' is not set in context"))
-
-    source_class_result = _resolve_source_class(rule, context=context)
-    if source_class_result.is_err():
-        return source_class_result.map(lambda _: RuleApplicationStats(converted=0, skipped=0))
-    source_class = cast(type[Component], source_class_result.ok())
-
-    resolved_targets: list[type[Component | SupplementalAttribute]] = []
-    for target_type in target_types:
-        target_class_result = _resolve_component_class(
-            target_type, context=context, label="target", allow_supplemental=True
-        )
-        if target_class_result.is_err():
-            return target_class_result.map(lambda _: RuleApplicationStats(converted=0, skipped=0))
-        resolved_class = target_class_result.ok()
-        assert resolved_class is not None
-        resolved_targets.append(resolved_class)
-
-    supplemental_classes: list[type[SupplementalAttribute]] = []
-    for supplemental_rule in supplemental_rules:
-        supplemental_class_result = resolve_supplemental_class(supplemental_rule.target_type, context=context)
-        if supplemental_class_result.is_err():
+def resolve_rule(rule: Rule, *, context: PluginContext) -> Result[ResolvedRule, ValueError]:
+    """Resolve one source and its shared construction mapping against a context."""
+    source_type: type[Component] | None = None
+    if isinstance(rule.source, ComponentSource):
+        source_result = resolve_component_type(rule.source.component_type, context=context)
+        if source_result.is_err():
             return Err(
                 ValueError(
-                    f"Rule '{rule.name or rule}', supplemental target "
-                    f"'{supplemental_rule.target_type}': {supplemental_class_result.err()}"
+                    f"Could not resolve source type {rule.source.component_type!r}: {source_result.err()}"
                 )
             )
-        supplemental_class = supplemental_class_result.ok()
-        assert supplemental_class is not None
-        supplemental_classes.append(supplemental_class)
+        source_class = source_result.ok()
+        if not isinstance(source_class, type) or not issubclass(source_class, Component):
+            return Err(ValueError(f"Source type {rule.source.component_type!r} is not a Component"))
+        source_type = source_class
+    elif context.store is None:
+        return Err(ValueError("DatasetSource requires a DataStore"))
+    elif rule.source.dataset not in context.store:
+        return Err(ValueError(f"Dataset {rule.source.dataset!r} is not registered in the DataStore"))
 
-    if supplemental_rules:
-        for target_class in resolved_targets:
-            if issubclass(target_class, SupplementalAttribute):
-                return Err(
-                    ValueError("A rule with supplemental outputs must have a Component primary target")
-                )
-
-    found_component = False
-
-    for src_component in iter_components(read_system, class_type=source_class):
-        if rule.filter is not None:
-            try:
-                if not evaluate_rule_filter(src_component, rule_filter=rule.filter, context=context):
-                    continue
-            except ValueError as exc:
-                return Err(ValueError(f"Failed to evaluate filter for {src_component.label}: {exc}"))
-        found_component = True
-        for target_class in resolved_targets:
-            outputs_result = create_rule_outputs(
-                src_component,
-                rule=rule,
-                target_class=cast(type[Component], target_class),
-                supplemental_classes=supplemental_classes,
-                context=context,
-                regenerate_uuid=should_regenerate_uuid,
-            ).map_err(
-                lambda error, source_label=src_component.label: ValueError(
-                    f"Rule '{rule.name or rule}', source '{source_label}': {error}"
-                )
+    mapping_result = resolve_rule_mapping(rule, context=context)
+    if mapping_result.is_err():
+        return Err(mapping_result.err())
+    resolved_mapping = mapping_result.unwrap()
+    if isinstance(rule.target, OwnedSupplementalTarget) and isinstance(rule.source, ComponentSource):
+        source_fields = set(source_type.model_fields) if source_type is not None else set()
+        required_owner_fields = set(owner_source_fields(rule.target))
+        missing_fields = sorted(required_owner_fields - source_fields)
+        if missing_fields:
+            return Err(
+                ValueError(f"Owner-match source field(s) are missing from the Component: {missing_fields}")
             )
-            if outputs_result.is_err():
-                return outputs_result.map(lambda _: RuleApplicationStats(converted=0, skipped=0))
+    return Ok(ResolvedRule(rule=rule, source_type=source_type, mapping=resolved_mapping))
 
-            outputs = outputs_result.unwrap()
-            attach_result = attach_rule_outputs(outputs, src_component, context)
-            if attach_result.is_err():
-                return attach_result.map_err(
-                    lambda error, source_label=src_component.label: ValueError(
-                        f"Rule '{rule.name or rule}', source '{source_label}': {error}"
+
+def resolve_rule_mapping(
+    mapping: RuleMapping, *, context: PluginContext
+) -> Result[ResolvedRuleMapping, ValueError]:
+    """Resolve target, nested attribute, owner models, and all mapped fields once."""
+    target_types: list[type[Component | SupplementalAttribute]] = []
+    nested_types: list[type[SupplementalAttribute]] = []
+    owner_type: type[Component] | None = None
+    if isinstance(mapping.target, ComponentTarget):
+        for type_name in mapping.target.component_types:
+            match resolve_output_type(type_name, context=context):
+                case Err(error):
+                    return Err(error)
+                case Ok(target_class) if issubclass(target_class, Component):
+                    fields_error = mapping_fields_error(target_class, mapping)
+                    if fields_error is not None:
+                        return Err(fields_error)
+                    target_types.append(target_class)
+                case Ok(_):
+                    return Err(ValueError(f"Target type {type_name!r} is not a Component"))
+        for nested_rule in mapping.supplemental_attributes:
+            match resolve_output_type(nested_rule.target_type, context=context):
+                case Err(error):
+                    return Err(error)
+                case Ok(nested_class) if issubclass(nested_class, SupplementalAttribute):
+                    fields_error = mapping_fields_error(nested_class, nested_rule)
+                    if fields_error is not None:
+                        return Err(fields_error)
+                    nested_types.append(nested_class)
+                case Ok(_):
+                    return Err(
+                        ValueError(
+                            f"Nested target {nested_rule.target_type!r} is not a SupplementalAttribute"
+                        )
                     )
-                ).map(lambda _: RuleApplicationStats(converted=0, skipped=0))
+    else:
+        match resolve_output_type(mapping.target.attribute_type, context=context):
+            case Err(error):
+                return Err(error)
+            case Ok(attribute_class) if issubclass(attribute_class, SupplementalAttribute):
+                fields_error = mapping_fields_error(attribute_class, mapping)
+                if fields_error is not None:
+                    return Err(fields_error)
+                target_types.append(attribute_class)
+            case Ok(_):
+                return Err(
+                    ValueError(
+                        f"Owned target {mapping.target.attribute_type!r} is not a SupplementalAttribute"
+                    )
+                )
+        match resolve_output_type(mapping.target.owner_type, context=context):
+            case Err(error):
+                return Err(error)
+            case Ok(owner_class) if issubclass(owner_class, Component):
+                owner_type = owner_class
+                for owner_path in mapping.target.owner_match.values():
+                    path_error = validate_owner_path(owner_class, owner_path)
+                    if path_error is not None:
+                        return Err(path_error)
+            case Ok(_):
+                return Err(ValueError(f"Owner type {mapping.target.owner_type!r} is not a Component"))
+    return Ok(
+        ResolvedRuleMapping(
+            mapping=mapping,
+            target_types=tuple(target_types),
+            nested_types=tuple(nested_types),
+            owner_type=owner_type,
+        )
+    )
 
-            if builder is not None and rule.system == "source" and context.target_system is not None:
-                builder.record_translation(src_component, outputs.primary, context.target_system)
 
-            converted += 1
+def resolve_output_type(
+    type_name: str, *, context: PluginContext
+) -> Result[type[Component | SupplementalAttribute], ValueError]:
+    """Resolve one Component or SupplementalAttribute output type."""
+    resolution = resolve_component_type(type_name, context=context)
+    if resolution.is_err():
+        return Err(ValueError(f"Could not resolve output type {type_name!r}: {resolution.err()}"))
+    model_type = resolution.unwrap()
+    if not isinstance(model_type, type) or not issubclass(model_type, (Component, SupplementalAttribute)):
+        return Err(
+            ValueError(f"Resolved output type {type_name!r} is not a Component or SupplementalAttribute")
+        )
+    return Ok(model_type)
 
-    if not found_component:
-        logger.warning("No components found for source type '{}' in rule {}", rule.get_source_types(), rule)
 
-    logger.debug("Rule {}: {} converted", rule, converted)
-    return Ok(RuleApplicationStats(converted=converted, skipped=0))
+def mapping_fields_error(target_type: type[BaseModel], mapping: RuleLike) -> ValueError | None:
+    """Reject mapping, getter, or default names absent from a target model."""
+    known_fields = set(target_type.model_fields)
+    configured_fields = set(mapping.field_map) | set(mapping.getters) | set(mapping.defaults)
+    unknown_fields = sorted(configured_fields - known_fields)
+    if unknown_fields:
+        return ValueError(f"Rule maps unknown target field(s) for {target_type.__name__}: {unknown_fields}")
+    return None
 
 
-def _build_provenance_builder(context: PluginContext) -> ProvenanceBuilder | None:
-    """Return a provenance builder when the context opts into source preservation.
+def build_rule_outputs(
+    source: Component | Mapping[str, object],
+    /,
+    *,
+    mapping: RuleMapping,
+    context: PluginContext,
+) -> Result[tuple[RuleOutputs, ...], ValueError]:
+    """Build detached outputs from a record using the shared Rule mapping contract."""
+    resolution = resolve_rule_mapping(mapping, context=context)
+    if resolution.is_err():
+        return Err(resolution.err())
+    resolved = resolution.unwrap()
+    if not isinstance(mapping.target, ComponentTarget):
+        return Err(ValueError("Detached component construction requires a ComponentTarget"))
+    outputs: list[RuleOutputs] = []
+    for target_class in resolved.target_types:
+        if not isinstance(target_class, type) or not issubclass(target_class, Component):
+            return Err(ValueError(f"Resolved target {target_class.__name__} is not a Component"))
+        output_result = create_rule_outputs(
+            source,
+            rule=mapping,
+            target_class=target_class,
+            supplemental_classes=resolved.nested_types,
+            context=context,
+            regenerate_uuid=len(resolved.target_types) > 1,
+        )
+        if output_result.is_err():
+            return Err(output_result.err())
+        outputs.append(output_result.unwrap())
+    return Ok(tuple(outputs))
 
-    Returns None when ``preserve_source`` is False or when the context is
-    missing the source system that the builder needs to inspect.
-    """
+
+def execute_rule(
+    resolved: ResolvedRule,
+    *,
+    context: PluginContext,
+    builder: ProvenanceBuilder | None,
+) -> Result[RuleApplicationStats, RuleExecutionError]:
+    """Read or select source records, then use one preparation and attachment path."""
+    rule = resolved.rule
+    owner_index: OwnerMatchIndex | None = None
+    if isinstance(rule.target, OwnedSupplementalTarget):
+        if resolved.owner_type is None:
+            return Err(RuleExecutionError("Owned target has no resolved owner type", rule=rule.name))
+        match build_owner_match_index(rule.target, resolved.owner_type, context=context):
+            case Err(error):
+                return Err(RuleExecutionError(str(error), rule=rule.name))
+            case Ok(index):
+                owner_index = index
+    if isinstance(rule.source, ComponentSource):
+        if resolved.source_type is None:
+            return Err(RuleExecutionError("ComponentSource has no resolved type", rule=rule.name))
+        source_system = context.source_system if rule.source.system == "source" else context.target_system
+        if source_system is None:
+            return Err(RuleExecutionError("Required source System is not set", rule=rule.name))
+        records: Iterable[Component | Mapping[str, object]] = iter_components(
+            source_system,
+            class_type=resolved.source_type,
+        )
+        return execute_rule_records(
+            records,
+            resolved=resolved,
+            context=context,
+            builder=builder,
+            prevalidate_batch=False,
+            owner_index=owner_index,
+        )
+
+    if not isinstance(rule.source, DatasetSource) or context.store is None:
+        return Err(RuleExecutionError("DatasetSource requires a DataStore", rule=rule.name))
+    try:
+        data = context.store.read_data(rule.source.dataset, placeholders=context.config.model_dump())
+    except (OSError, ValueError, KeyError, ReaderError, pl.exceptions.PolarsError) as error:
+        return Err(
+            RuleExecutionError(
+                f"Could not read source dataset: {error}",
+                rule=rule.name,
+                dataset=rule.source.dataset,
+            )
+        )
+    if data is None:
+        if context.store.is_optional(rule.source.dataset):
+            logger.info("Optional dataset '{}' is absent, skipping rule {}", rule.source.dataset, rule)
+            return Ok(RuleApplicationStats(converted=0, skipped=1))
+        return Err(
+            RuleExecutionError(
+                "Required dataset returned no data",
+                rule=rule.name,
+                dataset=rule.source.dataset,
+            )
+        )
+    if not isinstance(data, (pl.DataFrame, pl.LazyFrame)):
+        return Err(
+            RuleExecutionError(
+                f"Source returned {type(data).__name__}, expected a Polars frame",
+                rule=rule.name,
+                dataset=rule.source.dataset,
+            )
+        )
+    try:
+        frame = data.collect() if isinstance(data, pl.LazyFrame) else data
+    except (OSError, ValueError, pl.exceptions.PolarsError) as error:
+        return Err(
+            RuleExecutionError(
+                f"Could not collect source dataset: {error}",
+                rule=rule.name,
+                dataset=rule.source.dataset,
+            )
+        )
+    if isinstance(rule.target, OwnedSupplementalTarget):
+        missing_fields = sorted(set(owner_source_fields(rule.target)) - set(frame.columns))
+        if missing_fields:
+            return Err(
+                RuleExecutionError(
+                    f"Owner-match source field(s) are missing from dataset: {missing_fields}",
+                    rule=rule.name,
+                    dataset=rule.source.dataset,
+                )
+            )
+    return execute_rule_records(
+        frame.iter_rows(named=True),
+        resolved=resolved,
+        context=context,
+        builder=None,
+        prevalidate_batch=True,
+        owner_index=owner_index,
+    )
+
+
+def execute_rule_records(
+    records: Iterable[Component | Mapping[str, object]],
+    /,
+    *,
+    resolved: ResolvedRule,
+    context: PluginContext,
+    builder: ProvenanceBuilder | None,
+    prevalidate_batch: bool,
+    owner_index: OwnerMatchIndex | None,
+) -> Result[RuleApplicationStats, RuleExecutionError]:
+    """Run executable Rule records through the shared mapping executor."""
+    rule = resolved.rule
+    dataset_name = rule.source.dataset if isinstance(rule.source, DatasetSource) else None
+    return execute_mapped_records(
+        records,
+        mapping_for_record=lambda record: Ok(resolved.mapping),
+        context=context,
+        builder=builder,
+        prevalidate_batch=prevalidate_batch,
+        rule_name=rule.name,
+        mapping_name=None,
+        dataset_name=dataset_name,
+        owner_indexes={id(resolved.mapping): owner_index} if owner_index is not None else {},
+    )
+
+
+def execute_mapped_records(
+    records: Iterable[Component | Mapping[str, object]],
+    /,
+    *,
+    mapping_for_record: Callable[[Component | Mapping[str, object]], Result[ResolvedRuleMapping, ValueError]],
+    context: PluginContext,
+    builder: ProvenanceBuilder | None,
+    prevalidate_batch: bool,
+    rule_name: str | None,
+    mapping_name: str | None,
+    dataset_name: str | None,
+    duplicate_policy: Literal["error", "first"] | None = None,
+    duplicate_identity: Literal["target_type_and_name", "name"] = "target_type_and_name",
+    owner_indexes: Mapping[int, OwnerMatchIndex | None] | None = None,
+) -> Result[RuleApplicationStats, RuleExecutionError]:
+    """Prepare, validate, de-duplicate, and attach records through one Rule path."""
+    staged: list[tuple[int, Component | Mapping[str, object], PreparedRuleOutputs]] = []
+    issues: list[RuleIssue] = []
+    converted = 0
+    skipped = 0
+    seen_identities: set[tuple[object, ...]] = set()
+    resolved_owner_indexes: dict[int, OwnerMatchIndex | None] = dict(owner_indexes or {})
+
+    def owner_index_for(resolved_mapping: ResolvedRuleMapping) -> Result[OwnerMatchIndex | None, ValueError]:
+        key = id(resolved_mapping)
+        if key in resolved_owner_indexes:
+            return Ok(resolved_owner_indexes[key])
+        if not isinstance(resolved_mapping.mapping.target, OwnedSupplementalTarget):
+            resolved_owner_indexes[key] = None
+            return Ok(None)
+        if resolved_mapping.owner_type is None:
+            return Err(ValueError("Owned target has no resolved owner type"))
+        result = build_owner_match_index(
+            resolved_mapping.mapping.target,
+            resolved_mapping.owner_type,
+            context=context,
+        )
+        if result.is_err():
+            return Err(result.err())
+        index = result.unwrap()
+        resolved_owner_indexes[key] = index
+        return Ok(index)
+
+    def execution_error(
+        message: str,
+        *,
+        count: int,
+        issues_override: tuple[RuleIssue, ...] | None = None,
+    ) -> RuleExecutionError:
+        return RuleExecutionError(
+            message,
+            rule=rule_name,
+            mapping=mapping_name,
+            dataset=dataset_name,
+            converted=count,
+            skipped=skipped,
+            issues=issues if issues_override is None else issues_override,
+        )
+
+    for row_number, record in enumerate(records, start=1):
+        match mapping_for_record(record):
+            case Err(error):
+                issues.append(RuleIssue(row=row_number, message=str(error)))
+                if not prevalidate_batch:
+                    return Err(execution_error("Mapping selection failed", count=converted))
+                continue
+            case Ok(resolved_mapping):
+                owner_index_result = owner_index_for(resolved_mapping)
+                if owner_index_result.is_err():
+                    issues.append(RuleIssue(row=row_number, message=str(owner_index_result.err())))
+                    if not prevalidate_batch:
+                        return Err(execution_error("Owner indexing failed", count=converted))
+                    continue
+                match prepare_rule_record(
+                    record,
+                    resolved=resolved_mapping,
+                    context=context,
+                    owner_index=owner_index_result.unwrap(),
+                ):
+                    case Err(error):
+                        issues.append(RuleIssue(row=row_number, message=str(error)))
+                        if not prevalidate_batch:
+                            return Err(execution_error("Output preparation failed", count=converted))
+                        continue
+                    case Ok(None):
+                        skipped += 1
+                        continue
+                    case Ok(prepared):
+                        selected_duplicate_policy = duplicate_policy
+                        selected_duplicate_identity = duplicate_identity
+                        if isinstance(resolved_mapping.mapping.target, ComponentTarget):
+                            if selected_duplicate_policy is None:
+                                selected_duplicate_policy = resolved_mapping.mapping.target.duplicate_policy
+                            identities = component_identities(
+                                prepared.outputs,
+                                duplicate_identity=selected_duplicate_identity,
+                            )
+                            repeated = [identity for identity in identities if identity in seen_identities]
+                            if repeated:
+                                if selected_duplicate_policy == "first":
+                                    skipped += 1
+                                    continue
+                                duplicate_names = sorted({str(identity[-1]) for identity in repeated})
+                                issues.append(
+                                    RuleIssue(
+                                        row=row_number,
+                                        message=f"duplicate component identity {duplicate_names}",
+                                    )
+                                )
+                                if not prevalidate_batch:
+                                    return Err(execution_error("Duplicate output identity", count=converted))
+                                continue
+                            seen_identities.update(identities)
+                        if prevalidate_batch:
+                            staged.append((row_number, record, prepared))
+                            continue
+                        match attach_prepared_outputs(
+                            prepared,
+                            record=record,
+                            builder=builder,
+                            rule_name=rule_name,
+                            mapping_name=mapping_name,
+                            row_number=row_number,
+                            dataset=dataset_name,
+                            context=context,
+                        ):
+                            case Err(error):
+                                return Err(
+                                    execution_error(
+                                        "Output attachment failed",
+                                        count=converted + error.converted,
+                                        issues_override=error.issues,
+                                    )
+                                )
+                            case Ok(attached):
+                                converted += attached
+
+    if issues:
+        return Err(execution_error("Output preparation failed", count=converted))
+    for row_number, record, prepared in staged:
+        match attach_prepared_outputs(
+            prepared,
+            record=record,
+            builder=builder,
+            rule_name=rule_name,
+            mapping_name=mapping_name,
+            row_number=row_number,
+            dataset=dataset_name,
+            context=context,
+        ):
+            case Err(error):
+                return Err(
+                    execution_error(
+                        "Output attachment failed",
+                        count=converted + error.converted,
+                        issues_override=error.issues,
+                    )
+                )
+            case Ok(attached):
+                converted += attached
+    return Ok(RuleApplicationStats(converted=converted, skipped=skipped))
+
+
+def apply_mapping_records(
+    records: Iterable[Mapping[str, object]],
+    /,
+    *,
+    plan: RulePlan,
+    route: MappingRoute,
+    context: PluginContext,
+) -> Result[RuleApplicationStats, RuleExecutionError]:
+    """Build and attach one fully prevalidated batch through the shared Rule path."""
+    if context.target_system is None:
+        return Err(RuleExecutionError("target_system must be set in context"))
+
+    if isinstance(route, FixedMappingRoute):
+        match plan.get_mapping(route.name):
+            case Err(error):
+                return Err(RuleExecutionError(str(error), mapping=route.name))
+            case Ok(resolved_mapping):
+                return execute_mapped_records(
+                    records,
+                    mapping_for_record=lambda record: Ok(resolved_mapping),
+                    context=context,
+                    builder=None,
+                    prevalidate_batch=True,
+                    rule_name=None,
+                    mapping_name=route.name,
+                    dataset_name=None,
+                )
+
+    selection_result = plan.get_selection(route.name)
+    if selection_result.is_err():
+        return Err(RuleExecutionError(str(selection_result.err()), mapping=route.name))
+    resolved_selection = selection_result.unwrap()
+    selection = resolved_selection.selection
+
+    def mapping_for_record(
+        record: Component | Mapping[str, object],
+    ) -> Result[ResolvedRuleMapping, ValueError]:
+        if not isinstance(record, Mapping):
+            return Err(ValueError("Mapping selection requires mapping records"))
+        if selection.key_field not in record:
+            return Err(ValueError(f"Selection field {selection.key_field!r} is missing"))
+        raw_keys = record[selection.key_field]
+        if isinstance(raw_keys, str):
+            keys: tuple[str, ...] = (raw_keys,)
+        elif isinstance(raw_keys, list | tuple):
+            if not all(isinstance(key, str) for key in raw_keys):
+                return Err(ValueError(f"Selection field {selection.key_field!r} must contain only strings"))
+            keys = tuple(key for key in raw_keys if isinstance(key, str))
+        else:
+            return Err(
+                ValueError(f"Selection field {selection.key_field!r} must be a string or sequence of strings")
+            )
+        unknown_keys = sorted(set(keys) - set(selection.priority))
+        if unknown_keys:
+            return Err(
+                ValueError(
+                    f"Selection field {selection.key_field!r} contains unconfigured keys {unknown_keys}"
+                )
+            )
+        selected_key = next(
+            (key for key in selection.priority if key in keys and key in resolved_selection.mappings_by_key),
+            None,
+        )
+        if selected_key is None:
+            return Err(ValueError(f"No mapping selected by {selection.key_field!r} values {list(keys)}"))
+        return Ok(resolved_selection.mappings_by_key[selected_key])
+
+    return execute_mapped_records(
+        records,
+        mapping_for_record=mapping_for_record,
+        context=context,
+        builder=None,
+        prevalidate_batch=True,
+        rule_name=None,
+        mapping_name=route.name,
+        dataset_name=None,
+        duplicate_policy=selection.duplicate_policy,
+        duplicate_identity=selection.duplicate_identity,
+    )
+
+
+def prepare_rule_record(
+    record: Component | Mapping[str, object],
+    /,
+    *,
+    resolved: ResolvedRuleMapping,
+    context: PluginContext,
+    owner_index: OwnerMatchIndex | None,
+) -> Result[PreparedRuleOutputs | None, ValueError]:
+    """Filter, map, validate, and owner-resolve one source record."""
+    mapping = resolved.mapping
+    if mapping.filter is not None:
+        try:
+            if not evaluate_rule_filter(to_attr_source(record), rule_filter=mapping.filter, context=context):
+                return Ok(None)
+        except ValueError as error:
+            return Err(ValueError(f"Filter failed: {error}"))
+
+    if isinstance(mapping.target, ComponentTarget):
+        outputs: list[RuleOutputs] = []
+        for target_class in resolved.target_types:
+            if not issubclass(target_class, Component):
+                return Err(ValueError(f"Target {target_class.__name__} is not a Component"))
+            match create_rule_outputs(
+                record,
+                rule=mapping,
+                target_class=target_class,
+                supplemental_classes=resolved.nested_types,
+                context=context,
+                regenerate_uuid=len(resolved.target_types) > 1,
+            ):
+                case Err(error):
+                    return Err(error)
+                case Ok(output):
+                    outputs.append(output)
+        return Ok(PreparedRuleOutputs(outputs=tuple(outputs), owner=None))
+
+    if resolved.owner_type is None:
+        return Err(ValueError("Owned SupplementalAttribute target has no resolved owner type"))
+    if owner_index is None:
+        return Err(ValueError("Owned target has no execution-scoped owner index"))
+    owner_result = resolve_record_owner(record, owner_index)
+    if owner_result.is_err():
+        return Err(owner_result.err())
+    owner = owner_result.unwrap()
+    if owner is None:
+        return Ok(None)
+
+    attribute_class = resolved.target_types[0]
+    if not issubclass(attribute_class, SupplementalAttribute):
+        return Err(ValueError(f"Target {attribute_class.__name__} is not a SupplementalAttribute"))
+    output_result = create_rule_outputs(
+        record,
+        rule=mapping,
+        target_class=attribute_class,
+        supplemental_classes=(),
+        context=context,
+    )
+    if output_result.is_err():
+        return Err(output_result.err())
+    output = output_result.unwrap()
+    if not isinstance(output.primary, SupplementalAttribute):
+        return Err(ValueError("Owned target output is not a SupplementalAttribute"))
+    return Ok(PreparedRuleOutputs(outputs=(output,), owner=owner))
+
+
+def component_identities(
+    outputs: tuple[RuleOutputs, ...],
+    *,
+    duplicate_identity: Literal["target_type_and_name", "name"],
+) -> list[tuple[object, ...]]:
+    """Return configured identities from constructed Component outputs."""
+    if duplicate_identity == "name":
+        return [(output.primary.name,) for output in outputs if isinstance(output.primary, Component)]
+    return [
+        (type(output.primary), output.primary.name)
+        for output in outputs
+        if isinstance(output.primary, Component)
+    ]
+
+
+def build_owner_match_index(
+    target: OwnedSupplementalTarget,
+    owner_type: type[Component],
+    *,
+    context: PluginContext,
+) -> Result[OwnerMatchIndex, ValueError]:
+    """Index matching owners once in their System insertion order for one rule run."""
+    target_system = context.target_system
+    if target_system is None:
+        return Err(ValueError("target_system must be set in context"))
+    mutable_index: dict[tuple[object, ...], list[Component]] = {}
+    for owner in target_system.get_components(owner_type):
+        match owner_key_for_component(owner, target):
+            case Err(error):
+                return Err(error)
+            case Ok(None):
+                continue
+            case Ok(key):
+                try:
+                    hash(key)
+                except TypeError:
+                    return Err(
+                        ValueError(f"Owner key for {target.owner_type} must contain only hashable values")
+                    )
+                mutable_index.setdefault(key, []).append(owner)
+    return Ok(
+        OwnerMatchIndex(
+            target=target,
+            owners_by_key=MappingProxyType({key: tuple(owners) for key, owners in mutable_index.items()}),
+        )
+    )
+
+
+def owner_key_for_component(
+    owner: Component, target: OwnedSupplementalTarget
+) -> Result[tuple[object, ...] | None, ValueError]:
+    """Read an owner's typed key in the configured field order."""
+    if target.owner_field is not None:
+        return Ok((owner.name,))
+    values: list[object] = []
+    for owner_path in target.owner_match.values():
+        match owner_field_path(owner, owner_path):
+            case Err(error):
+                return Err(error)
+            case Ok(value):
+                if value is None and not target.nulls_equal:
+                    return Ok(None)
+                values.append(value)
+    return Ok(tuple(values))
+
+
+def resolve_record_owner(
+    record: Component | Mapping[str, object],
+    index: OwnerMatchIndex,
+) -> Result[Component | None, ValueError]:
+    """Resolve one record by its prebuilt typed key and explicit owner policies."""
+    target = index.target
+    values: list[object] = []
+    for source_field in owner_source_fields(target):
+        match record_field_value(record, source_field):
+            case Err(error):
+                return Err(error)
+            case Ok(value):
+                if target.owner_field is not None and (
+                    not isinstance(value, str) or not value.strip() or value != value.strip()
+                ):
+                    return Err(
+                        ValueError(f"Owner key field {source_field!r} must be a non-empty trimmed string")
+                    )
+                if target.owner_field is None and value is None and not target.nulls_equal:
+                    return Err(
+                        ValueError(
+                            f"Owner-match source field {source_field!r} is null but nulls_equal is false"
+                        )
+                    )
+                values.append(value)
+    key = tuple(values)
+    try:
+        hash(key)
+    except TypeError:
+        return Err(ValueError("Owner-match source key must contain only hashable values"))
+    matches = index.owners_by_key.get(key, ())
+    if not matches:
+        if target.missing_owner == "skip":
+            return Ok(None)
+        return Err(ValueError(f"No {target.owner_type} owner matched the configured keys"))
+    if len(matches) > 1:
+        if target.ambiguous_owner == "error":
+            return Err(ValueError(f"Multiple {target.owner_type} owners matched the configured keys"))
+        logger.warning("Multiple {} owners matched, selecting the first configured match", target.owner_type)
+    return Ok(matches[0])
+
+
+def owner_source_fields(target: OwnedSupplementalTarget) -> tuple[str, ...]:
+    """Return all source fields used to identify an owner."""
+    if target.owner_field is not None:
+        return (target.owner_field,)
+    return tuple(target.owner_match)
+
+
+def record_field_value(
+    record: Component | Mapping[str, object], field_name: str
+) -> Result[object, ValueError]:
+    """Read one named source field from a mapping row or Component."""
+    if isinstance(record, Mapping):
+        if field_name not in record:
+            return Err(ValueError(f"Owner-match source field {field_name!r} is missing"))
+        return Ok(record[field_name])
+    if field_name not in type(record).model_fields:
+        return Err(ValueError(f"Owner-match source field {field_name!r} is not a Component field"))
+    return Ok(getattr(record, field_name))
+
+
+def validate_owner_path(owner_type: type[Component], path: str) -> ValueError | None:
+    """Validate every segment of a configured owner path against model types."""
+    current_type: type[BaseModel] = owner_type
+    parts = path.split(".")
+    for index, part in enumerate(parts):
+        field_info = current_type.model_fields.get(part)
+        if field_info is None:
+            return ValueError(f"Owner {current_type.__name__} has no configured field path {path!r}")
+        if index == len(parts) - 1:
+            return None
+        field_type = field_info.annotation
+        origin = get_origin(field_type)
+        if origin is Annotated:
+            field_type = get_args(field_type)[0]
+            origin = get_origin(field_type)
+        if origin in (Union, UnionType):
+            field_type = next(
+                (
+                    candidate
+                    for candidate in get_args(field_type)
+                    if isinstance(candidate, type) and issubclass(candidate, BaseModel)
+                ),
+                object,
+            )
+        if not isinstance(field_type, type) or not issubclass(field_type, BaseModel):
+            return ValueError(f"Owner field path {path!r} cannot continue through {part!r}")
+        current_type = field_type
+    return None
+
+
+def owner_field_path(owner: Component, path: str) -> Result[object, ValueError]:
+    """Resolve an explicitly configured dotted path on a prevalidated owner model."""
+    value: object = owner
+    for path_part in path.split("."):
+        if value is None:
+            return Ok(None)
+        try:
+            value = getattr(value, path_part)
+        except AttributeError:
+            return Err(ValueError(f"Owner {type(owner).__name__} has no configured field path {path!r}"))
+    return Ok(value)
+
+
+def attach_prepared_outputs(
+    prepared: PreparedRuleOutputs,
+    *,
+    record: Component | Mapping[str, object],
+    builder: ProvenanceBuilder | None,
+    rule_name: str | None,
+    mapping_name: str | None,
+    row_number: int,
+    dataset: str | None,
+    context: PluginContext,
+) -> Result[int, RuleExecutionError]:
+    """Attach output groups independently and preserve progress and provenance."""
+    converted = 0
+    for outputs in prepared.outputs:
+        match attach_rule_outputs(outputs, context=context, owner=prepared.owner):
+            case Err(error):
+                return Err(
+                    RuleExecutionError(
+                        "Output attachment failed",
+                        rule=rule_name,
+                        mapping=mapping_name,
+                        dataset=dataset,
+                        converted=converted,
+                        issues=[RuleIssue(row=row_number, message=str(error))],
+                    )
+                )
+            case Ok():
+                converted += 1
+                if builder is not None and isinstance(record, Component):
+                    target_system = context.target_system
+                    if target_system is None:
+                        return Err(
+                            RuleExecutionError(
+                                "target_system is not set after output attachment",
+                                rule=rule_name,
+                                mapping=mapping_name,
+                                dataset=dataset,
+                                converted=converted,
+                                issues=[RuleIssue(row=row_number, message="target_system is missing")],
+                            )
+                        )
+                    builder.record_translation(record, outputs.primary, target_system)
+    return Ok(converted)
+
+
+def attach_rule_outputs(
+    outputs: RuleOutputs,
+    *,
+    context: PluginContext,
+    owner: Component | None = None,
+) -> Result[None, ValueError]:
+    """Attach one output group safely, removing only objects added by this call."""
+    target_system = context.target_system
+    if target_system is None:
+        return Err(ValueError("target_system must be set in context"))
+    if isinstance(outputs.primary, SupplementalAttribute) and owner is None:
+        return Err(ValueError("An explicit owner is required for SupplementalAttribute outputs"))
+    if outputs.supplemental_attributes and not isinstance(outputs.primary, Component):
+        return Err(ValueError("Nested supplemental outputs require a primary Component"))
+
+    attributes = (
+        (outputs.primary, *outputs.supplemental_attributes)
+        if isinstance(outputs.primary, SupplementalAttribute)
+        else outputs.supplemental_attributes
+    )
+    seen_uuids: set[object] = set()
+    for attribute in attributes:
+        if attribute.uuid in seen_uuids:
+            return Err(ValueError(f"Supplemental output UUID {attribute.uuid} is duplicated in rule outputs"))
+        seen_uuids.add(attribute.uuid)
+        try:
+            target_system.get_supplemental_attribute_by_uuid(attribute.uuid)
+        except ISNotStored:
+            continue
+        except ISBaseException as error:
+            return Err(ValueError(f"Could not inspect SupplementalAttribute UUID {attribute.uuid}: {error}"))
+        return Err(
+            ValueError(f"Supplemental output UUID {attribute.uuid} is already stored in target system")
+        )
+
+    attached_primary = False
+    attached_attributes: list[SupplementalAttribute] = []
+    try:
+        if isinstance(outputs.primary, Component):
+            target_system.add_component(outputs.primary)
+            attached_primary = True
+            attribute_owner = outputs.primary
+        else:
+            if owner is None:
+                return Err(ValueError("An explicit owner is required for SupplementalAttribute outputs"))
+            target_system.add_supplemental_attribute(owner, outputs.primary)
+            attached_attributes.append(outputs.primary)
+            attribute_owner = None
+        if attribute_owner is not None:
+            for attribute in outputs.supplemental_attributes:
+                target_system.add_supplemental_attribute(attribute_owner, attribute)
+                attached_attributes.append(attribute)
+    except ISBaseException as error:
+        rollback_errors: list[str] = []
+        for attribute in reversed(attached_attributes):
+            try:
+                target_system.remove_supplemental_attribute(attribute)
+            except ISBaseException as rollback_error:
+                rollback_errors.append(str(rollback_error))
+        if attached_primary and isinstance(outputs.primary, Component):
+            try:
+                target_system.remove_component(outputs.primary)
+            except ISBaseException as rollback_error:
+                rollback_errors.append(str(rollback_error))
+        detail = f"Failed to attach rule output group: {error}"
+        if rollback_errors:
+            detail += f"; rollback failures: {rollback_errors}"
+        return Err(ValueError(detail))
+    return Ok(None)
+
+
+def build_provenance_builder(context: PluginContext) -> ProvenanceBuilder | None:
+    """Return a provenance builder when source preservation is configured."""
     if not context.preserve_source:
         return None
     if context.source_system is None:
@@ -240,298 +1317,31 @@ def _build_provenance_builder(context: PluginContext) -> ProvenanceBuilder | Non
     return ProvenanceBuilder(context.source_system)
 
 
-def _convert_component_with_class(
+def apply_single_rule(
     rule: Rule,
-    source_component: Component,
-    target_class: type[Component] | type[SupplementalAttribute],
-    context: PluginContext,
-    regenerate_uuid: bool,
-) -> Result[Component | SupplementalAttribute, ValueError]:
-    """Convert a single source component to a pre-resolved target class.
-
-    Separated from type resolution so callers can resolve once and reuse.
-    """
-    fields_result = build_target_fields(source_component, rule=rule, context=context).map_err(
-        lambda e: ValueError(f"Failed to build fields for {source_component.label}: {e}")
-    )
-
-    def create_component(kwargs: dict[str, Any]) -> Result[Component | SupplementalAttribute, ValueError]:
-        """
-        Create a target component instance with the given keyword arguments.
-
-        If `regenerate_uuid` is True and 'uuid' is present in kwargs, a new UUID is generated.
-        Returns an Ok result with the created component, or an Err if creation fails.
-
-        Parameters
-        ----------
-        kwargs : dict[str, Any]
-            The keyword arguments to use for constructing the component.
-
-        Returns
-        -------
-        Result[Any, ValueError]
-            Ok(component) if successful, Err(ValueError) if creation fails.
-        """
-        if regenerate_uuid and "uuid" in kwargs:
-            kwargs = dict(kwargs)
-            kwargs["uuid"] = str(uuid4())
-        return Ok(create_target_component(target_class, kwargs=kwargs))
-
-    return fields_result.and_then(create_component)
-
-
-def _convert_component(
-    rule: Rule,
-    source_component: Component,
-    target_type: str,
-    context: PluginContext,
-    regenerate_uuid: bool,
-) -> Result[Any, ValueError]:
-    """Convert a single source component to a target type.
-
-    Resolves the target class on every call. Prefer _convert_component_with_class
-    when converting many components with the same rule to avoid repeated resolution.
-    """
-    target_class_result = _resolve_component_class(
-        target_type, context=context, label="target", allow_supplemental=True
-    )
-    return target_class_result.and_then(
-        lambda target_class: _convert_component_with_class(
-            rule, source_component, target_class, context, regenerate_uuid
-        )
-    )
-
-
-def _resolve_component_class(
-    type_name: str,
     *,
     context: PluginContext,
-    label: str,
-    allow_supplemental: bool = False,
-) -> Result[type[Component | SupplementalAttribute], ValueError]:
-    """Resolve a named type and verify it is an infrasys component-compatible class."""
-    class_result = resolve_component_type(type_name, context=context).map_err(
-        lambda e: ValueError(f"Failed to resolve {label} type '{type_name}': {e}")
-    )
-    if class_result.is_err():
-        return class_result.map(lambda _: Component)
-
-    resolved_class = class_result.ok()
-    is_component = isinstance(resolved_class, type) and issubclass(resolved_class, Component)
-    is_supplemental = (
-        allow_supplemental
-        and isinstance(resolved_class, type)
-        and issubclass(resolved_class, SupplementalAttribute)
-    )
-    if not (is_component or is_supplemental):
-        expected = "Component or SupplementalAttribute" if allow_supplemental else "Component"
-        return Err(ValueError(f"Resolved {label} type '{type_name}' is not a {expected} subclass"))
-
-    assert resolved_class is not None
-    return Ok(cast(type[Component] | type[SupplementalAttribute], resolved_class))
-
-
-def _resolve_source_class(rule: Rule, *, context: PluginContext) -> Result[type[Component], ValueError]:
-    """Resolve all source types for a rule into a single component class.
-
-    Rules with multiple source types are not supported here; the caller
-    is responsible for deciding how to handle that case.
-    """
-    source_types = rule.get_source_types()
-    if not source_types:
-        return Err(ValueError(f"Rule '{rule}' has no source types defined"))
-
-    # For now rules only support a single source type
-    source_type = source_types[0]
-    if len(source_types) > 1:
-        logger.warning("Rule '{}' defines multiple source types; only '{}' will be used", rule, source_type)
-
-    return _resolve_component_class(source_type, context=context, label="source").map(
-        lambda resolved_class: cast(type[Component], resolved_class)
-    )
+    builder: ProvenanceBuilder | None = None,
+) -> Result[RuleApplicationStats, ValueError]:
+    """Apply one rule without finalizing whole-translation metadata or carry-over."""
+    if context.target_system is None:
+        return Err(ValueError("target_system must be set in context"))
+    resolution = resolve_rule(rule, context=context)
+    if resolution.is_err():
+        return Err(resolution.err())
+    return execute_rule(resolution.unwrap(), context=context, builder=builder)
 
 
 def resolve_supplemental_class(
     type_name: str, *, context: PluginContext
 ) -> Result[type[SupplementalAttribute], ValueError]:
-    """Resolve and validate a supplemental-attribute output type."""
-    class_result = _resolve_component_class(
-        type_name, context=context, label="supplemental target", allow_supplemental=True
-    )
-    if class_result.is_err():
-        return class_result.map(lambda _: SupplementalAttribute)
-    resolved_class = class_result.ok()
-    assert resolved_class is not None
-    if not issubclass(resolved_class, SupplementalAttribute):
+    """Resolve and validate one SupplementalAttribute class."""
+    resolution = resolve_output_type(type_name, context=context)
+    if resolution.is_err():
+        return Err(resolution.err())
+    model_type = resolution.unwrap()
+    if not issubclass(model_type, SupplementalAttribute):
         return Err(
-            ValueError(
-                f"Resolved supplemental target type '{type_name}' is not a SupplementalAttribute subclass"
-            )
+            ValueError(f"Resolved supplemental target type {type_name!r} is not a SupplementalAttribute")
         )
-    return Ok(resolved_class)
-
-
-def _is_supplemental_attribute(component: Component) -> bool:
-    """Check if a component is a supplemental attribute.
-
-    Parameters
-    ----------
-    component : Any
-        The component to check
-
-    Returns
-    -------
-    bool
-        True if the component is a supplemental attribute, False otherwise
-    """
-    return isinstance(component, SupplementalAttribute)
-
-
-def attach_rule_outputs(
-    outputs: RuleOutputs,
-    source_component: Component,
-    context: PluginContext,
-) -> Result[None, ValueError]:
-    """Attach a primary output and its supplemental attributes as one operation."""
-    target_system = context.target_system
-    if target_system is None:
-        return Err(ValueError("target_system must be set in context"))
-    if outputs.supplemental_attributes and not isinstance(outputs.primary, Component):
-        return Err(ValueError("A primary Component is required for supplemental outputs"))
-
-    seen_supplemental_uuids = set()
-    for supplemental_attribute in outputs.supplemental_attributes:
-        if supplemental_attribute.uuid in seen_supplemental_uuids:
-            return Err(
-                ValueError(
-                    f"Supplemental output UUID {supplemental_attribute.uuid} is duplicated in rule outputs"
-                )
-            )
-        seen_supplemental_uuids.add(supplemental_attribute.uuid)
-        try:
-            target_system.get_supplemental_attribute_by_uuid(supplemental_attribute.uuid)
-        except ISNotStored:
-            continue
-        except Exception as error:
-            return Err(
-                ValueError(
-                    f"Failed to inspect supplemental output UUID {supplemental_attribute.uuid}: {error}"
-                )
-            )
-        return Err(
-            ValueError(
-                f"Supplemental output UUID {supplemental_attribute.uuid} is already stored in target system"
-            )
-        )
-
-    attached_supplemental: list[SupplementalAttribute] = []
-    primary_attached = False
-
-    def fail_with_rollback(error: ValueError) -> Result[None, ValueError]:
-        """Return the attachment error after attempting to remove partial outputs."""
-        rollback_result = _rollback_rule_outputs(outputs, attached_supplemental, primary_attached, context)
-        if rollback_result.is_err():
-            return Err(ValueError(f"{error}; {rollback_result.err()}"))
-        return Err(error)
-
-    try:
-        attach_result = _attach_component(outputs.primary, source_component, context)
-        if attach_result.is_err():
-            return fail_with_rollback(attach_result.err())
-        primary_attached = isinstance(outputs.primary, Component)
-
-        for supplemental_attribute in outputs.supplemental_attributes:
-            attach_result = _attach_component(supplemental_attribute, outputs.primary, context)
-            if attach_result.is_err():
-                return fail_with_rollback(attach_result.err())
-            attached_supplemental.append(supplemental_attribute)
-            logger.trace(
-                "Attached supplemental attribute {} to {}",
-                type(supplemental_attribute).__name__,
-                outputs.primary.label,
-            )
-    except Exception as error:
-        return fail_with_rollback(ValueError(f"Failed to attach rule outputs: {error}"))
-
-    return Ok(None)
-
-
-def _rollback_rule_outputs(
-    outputs: RuleOutputs,
-    supplemental_attributes: list[SupplementalAttribute],
-    primary_attached: bool,
-    context: PluginContext,
-) -> Result[None, ValueError]:
-    """Remove outputs already attached before a later attachment failed."""
-    target_system = context.target_system
-    if target_system is None:
-        return Ok(None)
-
-    rollback_errors: list[str] = []
-    for supplemental_attribute in reversed(supplemental_attributes):
-        try:
-            target_system.remove_supplemental_attribute(supplemental_attribute)
-        except Exception as error:
-            rollback_errors.append(f"supplemental attribute: {error}")
-
-    if primary_attached:
-        try:
-            target_system.remove_component(cast(Component, outputs.primary))
-        except Exception as error:
-            rollback_errors.append(f"primary component: {error}")
-
-    if rollback_errors:
-        return Err(ValueError(f"Failed to roll back rule outputs: {'; '.join(rollback_errors)}"))
-    return Ok(None)
-
-
-def _attach_component(
-    component: Any,
-    source_component: Any,
-    context: PluginContext,
-) -> Result[None, ValueError]:
-    """Attach a component to the target system.
-
-    For regular components, adds them directly to the system.
-    For supplemental attributes, finds the corresponding target component
-    and attaches the supplemental attribute to it.
-
-    Parameters
-    ----------
-    component : Any
-        The component or supplemental attribute to attach
-    source_component : Any
-        The source component that was converted
-    context : PluginContext
-        The plugin context
-
-    Returns
-    -------
-    Result[None, ValueError]
-        Ok if attachment succeeds, Err otherwise
-    """
-    if context.target_system is None:
-        return Err(ValueError("target_system must be set in context"))
-    if not _is_supplemental_attribute(component):
-        context.target_system.add_component(component)
-        return Ok(None)
-
-    # Find the target component that corresponds to the source component
-    # We look for a component with the same UUID in the target system
-    try:
-        target_component = context.target_system.get_component_by_uuid(source_component.uuid)
-    except Exception as e:
-        logger.error(
-            "Failed to find target component with UUID {} for supplemental attribute attachment: {}",
-            source_component.uuid,
-            e,
-        )
-        return Err(
-            ValueError(
-                f"Cannot attach supplemental attribute: target component with UUID "
-                f"{source_component.uuid} not found in target system"
-            )
-        )
-
-    context.target_system.add_supplemental_attribute(target_component, component)
-    return Ok(None)
+    return Ok(model_type)

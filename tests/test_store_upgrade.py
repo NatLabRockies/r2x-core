@@ -34,12 +34,15 @@ def test_store_runs_upgrade_handler_when_mapping_missing(tmp_path: Path) -> None
 
     config_dir = tmp_path / "config"
     config_dir.mkdir()
-    mapping: list[FileMappingRecord] = [
-        {
-            "name": "test",
-            "fpath": "new.csv",
-        }
-    ]
+    mapping: dict[str, list[FileMappingRecord]] = {
+        "files": [
+            {
+                "name": "test",
+                "fpath": "new.csv",
+            }
+        ],
+        "tables": [],
+    }
     (config_dir / "file_mapping.json").write_text(json.dumps(mapping), encoding="utf-8")
 
     config = UpgradeConfig(config_path_override=config_dir)

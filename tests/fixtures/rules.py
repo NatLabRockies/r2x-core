@@ -9,8 +9,8 @@ def rules_simple() -> list[Rule]:
 
     rules = [
         {
-            "source_type": "BusComponent",
-            "target_type": "NodeComponent",
+            "source": {"kind": "component", "component_type": "BusComponent"},
+            "target": {"kind": "component", "component_types": ["NodeComponent"]},
             "version": 1,
             "field_map": {
                 "name": "name",
@@ -22,8 +22,8 @@ def rules_simple() -> list[Rule]:
             "defaults": {"area": "unspecified"},
         },
         {
-            "source_type": "LineComponent",
-            "target_type": "CircuitComponent",
+            "source": {"kind": "component", "component_type": "LineComponent"},
+            "target": {"kind": "component", "component_types": ["CircuitComponent"]},
             "version": 1,
             "field_map": {
                 "name": "name",
@@ -35,8 +35,8 @@ def rules_simple() -> list[Rule]:
             "defaults": {"capacity_mw": 0.0},
         },
         {
-            "source_type": "PlantComponent",
-            "target_type": "StationComponent",
+            "source": {"kind": "component", "component_type": "PlantComponent"},
+            "target": {"kind": "component", "component_types": ["StationComponent"]},
             "version": 1,
             "field_map": {
                 "name": "name",

@@ -1,11 +1,14 @@
 import pytest
+from pydantic import ValidationError
+
+from r2x_core import ComponentSource, ComponentTarget, Rule
 
 
 def test_simple_rule_creation(rules_simple):
     """Create and verify simple rule with single-field mapping."""
     rule_simple = rules_simple[0]
-    assert rule_simple.source_type == "BusComponent"
-    assert rule_simple.target_type == "NodeComponent"
+    assert rule_simple.source == ComponentSource(component_type="BusComponent")
+    assert rule_simple.target == ComponentTarget(component_types=("NodeComponent",))
     assert rule_simple.version == 1
     assert rule_simple.field_map == {
         "name": "name",
@@ -34,10 +37,10 @@ def test_supplemental_attribute_rule_validates_configuration():
     """Supplemental output configuration rejects invalid target and mappings."""
     from r2x_core import SupplementalAttributeRule
 
-    with pytest.raises(ValueError, match="non-empty string"):
+    with pytest.raises(ValidationError):
         SupplementalAttributeRule(target_type="")
-    with pytest.raises(TypeError, match="optional must be a bool"):
-        SupplementalAttributeRule(target_type="Output", optional=1)  # type: ignore[arg-type]
+    with pytest.raises(ValidationError, match="optional"):
+        SupplementalAttributeRule.model_validate({"target_type": "Output", "optional": 1})
     with pytest.raises(ValueError, match="Multi-field mapping"):
         SupplementalAttributeRule(target_type="Output", field_map={"value": ["a", "b"]})
 
@@ -48,8 +51,8 @@ def test_multifield_rule_requires_getter():
 
     with pytest.raises(ValueError, match=r"Multi-field mapping .* requires a getter"):
         Rule(
-            source_type="Gen",
-            target_type="PGen",
+            source=ComponentSource(component_type="Gen"),
+            target=ComponentTarget(component_types=("PGen",)),
             version=1,
             field_map={
                 "rating": ["power_a", "power_b"],  # Multi-field without getter
@@ -70,8 +73,8 @@ def test_validation_with_multiple_multifield_mappings():
 
     with pytest.raises(ValueError, match=r"Multi-field mapping .* requires a getter"):
         Rule(
-            source_type="Multi",
-            target_type="PMulti",
+            source=ComponentSource(component_type="Multi"),
+            target=ComponentTarget(component_types=("PMulti",)),
             version=1,
             field_map={
                 "field1": ["src_a", "src_b"],
@@ -85,10 +88,8 @@ def test_validation_with_multiple_multifield_mappings():
 
 def test_rule_is_frozen(rules_simple):
     """Verify rule is frozen (immutable)."""
-    from dataclasses import FrozenInstanceError
-
     rule_simple = rules_simple[0]
-    with pytest.raises(FrozenInstanceError):
+    with pytest.raises(ValidationError, match="frozen"):
         rule_simple.version = 2
 
 
@@ -106,8 +107,8 @@ def test_defaults_are_optional(defaults, expected):
     from r2x_core import Rule
 
     rule = Rule(
-        source_type="A",
-        target_type="B",
+        source=ComponentSource(component_type="A"),
+        target=ComponentTarget(component_types=("B",)),
         version=1,
         field_map={"f": "f"},
         defaults=defaults,
@@ -120,9 +121,15 @@ def test_rule_hash_and_equality():
     """Two rules with the same identity hash equal each other."""
     from r2x_core import Rule
 
-    rule_a = Rule(source_type="A", target_type="B", version=1)
-    rule_b = Rule(source_type="A", target_type="B", version=1)
-    rule_c = Rule(source_type=["A"], target_type="B", version=2)
+    rule_a = Rule(
+        source=ComponentSource(component_type="A"), target=ComponentTarget(component_types=("B",)), version=1
+    )
+    rule_b = Rule(
+        source=ComponentSource(component_type="A"), target=ComponentTarget(component_types=("B",)), version=1
+    )
+    rule_c = Rule(
+        source=ComponentSource(component_type="A"), target=ComponentTarget(component_types=("B",)), version=2
+    )
 
     assert hash(rule_a) == hash(rule_b)
     assert rule_a == rule_b
@@ -130,23 +137,31 @@ def test_rule_hash_and_equality():
     assert (rule_a == "not a rule") is False
 
 
-def test_rule_get_source_target_types_and_lists():
-    """Source/target helpers should normalize to lists."""
+def test_rule_uses_explicit_source_and_multiple_targets():
+    """One typed source can construct multiple explicitly configured targets."""
     from r2x_core import Rule
 
-    rule = Rule(source_type="A", target_type=["B", "C"], version=1)
-    assert rule.get_source_types() == ["A"]
-    assert rule.get_target_types() == ["B", "C"]
-    assert rule.has_multiple_targets()
-    assert not rule.has_multiple_sources()
+    rule = Rule(
+        source=ComponentSource(component_type="A"),
+        target=ComponentTarget(component_types=("B", "C")),
+        version=1,
+    )
+    assert rule.source == ComponentSource(component_type="A")
+    assert rule.target.component_types == ("B", "C")
 
 
-def test_rule_rejects_multi_source_and_multi_target():
-    """Rules cannot declare both multiple sources and targets."""
-    from r2x_core import Rule
-
-    with pytest.raises(NotImplementedError):
-        Rule(source_type=["A", "B"], target_type=["C", "D"], version=1)
+def test_rule_rejects_legacy_multi_source_shape():
+    """Rule records reject ambiguous untyped source lists."""
+    with pytest.raises(ValidationError):
+        Rule.from_records(
+            [
+                {
+                    "source": ["A", "B"],
+                    "target": {"kind": "component", "component_types": ["C", "D"]},
+                    "version": 1,
+                }
+            ]
+        )
 
 
 def test_rule_from_records_processes_string_getters_and_filters():
@@ -168,8 +183,8 @@ def test_rule_from_records_processes_string_getters_and_filters():
 
     records = [
         {
-            "source_type": "Source",
-            "target_type": "Target",
+            "source": {"kind": "component", "component_type": "Source"},
+            "target": {"kind": "component", "component_types": ["Target"]},
             "version": 1,
             "field_map": {"name": "name"},
             "getters": {"nested_name": "child.name"},

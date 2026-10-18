@@ -2,6 +2,8 @@
 title: "Rule Filters"
 ---
 
+<span id="rule-filters"></span>
+
 Rule filters declare predicate logic that restricts which source or target components a rule will process. They can be simple leaf filters or composed with `any_of`/`all_of` to form complex selection logic.
 
 ## Leaf filters

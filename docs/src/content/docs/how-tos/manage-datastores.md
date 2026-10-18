@@ -2,6 +2,8 @@
 title: "Managing Datastores"
 ---
 
+<span id="managing-datastores"></span>
+
 A [`DataStore`](/r2x-core/references/api/) is a collection of [`DataFile`](/r2x-core/references/api/) objects that can be read together, providing a unified interface for managing multiple data sources.
 
 ## Create a DataStore

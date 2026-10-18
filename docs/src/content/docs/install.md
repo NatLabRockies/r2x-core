@@ -2,6 +2,8 @@
 title: "Installation"
 ---
 
+<span id="installation"></span>
+
 `r2x-core` is a Python library, not a standalone executable.
 Current package metadata supports Python 3.11 through 3.14 (`>=3.11,<3.15`).
 Check the [PyPI package page](https://pypi.org/project/r2x-core/) when choosing a released version.

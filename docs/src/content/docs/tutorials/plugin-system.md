@@ -2,6 +2,8 @@
 title: "Build and run a lifecycle plugin"
 ---
 
+<span id="plugin-system"></span>
+
 Build a small plugin that creates a system and then transforms it.
 The example uses only public `config` and `system` properties; the context is
 bound through `from_context()`. No ReEDS inputs or external model package is needed.

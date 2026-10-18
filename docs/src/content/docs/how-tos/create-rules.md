@@ -2,6 +2,8 @@
 title: "Create Translation Rules"
 ---
 
+<span id="create-translation-rules"></span>
+
 Rules describe how to convert components from one model format to another.
 
 ## Basic Rule

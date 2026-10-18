@@ -2,6 +2,8 @@
 title: "Unit System Design and Architecture"
 ---
 
+<span id="unit-system-design-and-architecture"></span>
+
 This document explains the design philosophy and implementation of the unit
 handling system in r2x-core, providing insight into how it works and why certain
 architectural decisions were made.

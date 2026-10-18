@@ -2,6 +2,8 @@
 title: "Apply Translation Rules"
 ---
 
+<span id="apply-translation-rules"></span>
+
 Execute rules to convert components between formats.
 
 ## Translation Results

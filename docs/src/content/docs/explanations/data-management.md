@@ -2,6 +2,8 @@
 title: "Why file definitions are separate from loaded data"
 ---
 
+<span id="data-management-design-philosophy"></span>
+
 `DataFile` describes an input, `DataStore` registers definitions relative to a root,
 and `DataReader` loads and processes the selected input. A definition is not the
 loaded data and registration is not proof that every file can be read.

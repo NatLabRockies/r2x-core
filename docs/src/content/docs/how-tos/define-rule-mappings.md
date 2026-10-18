@@ -2,6 +2,8 @@
 title: "Working with Rules"
 ---
 
+<span id="working-with-rules"></span>
+
 The rule system provides declarative component translation between power system models. Rather than writing procedural conversion code, you describe transformations through [`Rule`](/r2x-core/references/api/) objects that specify source types, target types, and field mappings. The rule executor handles the mechanics of applying rules to systems.
 
 ## Create a Basic Rule

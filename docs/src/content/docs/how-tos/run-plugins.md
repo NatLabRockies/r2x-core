@@ -2,6 +2,8 @@
 title: "Using Plugins"
 ---
 
+<span id="using-plugins"></span>
+
 Execute plugins in your r2x-core workflows.
 
 ## Basic Usage

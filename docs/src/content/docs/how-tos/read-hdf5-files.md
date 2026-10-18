@@ -2,6 +2,8 @@
 title: "Reading HDF5 Data Files"
 ---
 
+<span id="reading-hdf5-data-files"></span>
+
 HDF5 (Hierarchical Data Format) is a flexible format for storing large amounts of structured data. r2x-core provides specialized readers for HDF5 files through [`H5Format`](/r2x-core/references/api/) and the [`h5_readers`](/r2x-core/references/api/) module, supporting both flat and hierarchical data structures.
 
 ## Configure HDF5 File Reading

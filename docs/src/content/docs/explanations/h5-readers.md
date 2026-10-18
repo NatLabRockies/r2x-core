@@ -2,6 +2,8 @@
 title: "Why HDF5 reading needs explicit dataset selectors"
 ---
 
+<span id="hdf5-reader-system"></span>
+
 HDF5 stores named datasets and groups without prescribing a power-system table
 layout. The reader needs the dataset location and the meaning of its columns;
 recognizing a `.h5` suffix alone does not supply that information.

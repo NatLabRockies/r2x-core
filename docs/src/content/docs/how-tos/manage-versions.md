@@ -2,6 +2,8 @@
 title: "Managing Versions"
 ---
 
+<span id="managing-versions"></span>
+
 r2x-core provides flexible version management through [`VersionStrategy`](/r2x-core/references/api/) implementations. Choose a strategy based on your versioning scheme and how you track changes to data files and system models.
 
 ## Create a Semantic Versioning Strategy

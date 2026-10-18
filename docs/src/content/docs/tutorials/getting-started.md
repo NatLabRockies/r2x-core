@@ -3,6 +3,8 @@ title: Build and verify a CSV capacity scenario
 description: Filter a small input, build typed components, scale capacity through lifecycle hooks, and reload the saved system.
 ---
 
+<span id="getting-started-with-r2x-core"></span>
+
 Turn three CSV records into a saved, inspectable system with two active generators.
 You will apply a 10% capacity increase, verify the resulting 165 MW total, and reload the artifact in a separate Python process.
 The complete [worked example](https://github.com/NatLabRockies/r2x-core/tree/main/docs/examples/csv-system) is included in this repository; no external dataset or CLI installation is needed.

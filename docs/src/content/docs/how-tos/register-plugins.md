@@ -2,6 +2,8 @@
 title: "Create and Register Plugins"
 ---
 
+<span id="create-and-register-plugins"></span>
+
 A plugin consists of a configuration class and a plugin implementation.
 
 ## Configuration

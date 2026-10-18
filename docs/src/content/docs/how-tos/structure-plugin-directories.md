@@ -2,6 +2,8 @@
 title: "Plugin Directory Structure"
 ---
 
+<span id="plugin-directory-structure"></span>
+
 All plugins follow a standard directory layout for consistency.
 
 ## Standard Layout

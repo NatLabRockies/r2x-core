@@ -1,5 +1,10 @@
 # Upgrade steps
 
+<span id="upgrade-system"></span>
+
+
+
+
 <span id="quick-reference"></span>
 
 <span id="overview"></span>

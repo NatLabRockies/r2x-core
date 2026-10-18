@@ -2,9 +2,13 @@
 title: "Why configuration, context and lifecycle are separate"
 ---
 
+<span id="plugin-system-architecture"></span>
+
 A translator combines three kinds of information: validated configuration,
 mutable workflow state, and operations on that state. Keeping those responsibilities
 separate lets a hook be tested without launching the CLI or loading a real model dataset.
+
+<span id="plugin-configuration"></span>
 
 ## Configuration describes intent
 

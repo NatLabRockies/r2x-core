@@ -2,6 +2,8 @@
 title: "Data schema upgrades"
 ---
 
+<span id="versioning-and-upgrades-design-philosophy"></span>
+
 <span id="the-problem-we-solve"></span>
 
 A data version describes the input schema or model state, independently of the installed package version.

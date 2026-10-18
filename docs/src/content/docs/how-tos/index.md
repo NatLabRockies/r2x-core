@@ -4,6 +4,8 @@ sidebar:
   hidden: true
 ---
 
+<span id="how-to-guides"></span>
+
 Task-focused guides for accomplishing specific goals with r2x-core.
 
 ## Data Management

@@ -2,6 +2,8 @@
 title: "Configuring Data Settings"
 ---
 
+<span id="configuring-data-settings"></span>
+
 Define data source configurations as JSON to manage file paths, units, filtering rules, and metadata. Use [`from_json`](/r2x-core/references/api/) to load configurations into a [`DataStore`](/r2x-core/references/api/).
 
 ## Define Data Configuration in JSON

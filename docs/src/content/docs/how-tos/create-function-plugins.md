@@ -2,6 +2,8 @@
 title: "Create Function-Based Transform Plugins"
 ---
 
+<span id="create-function-based-transform-plugins"></span>
+
 Function-based plugins are simple, zero-overhead transforms that modify a `System` using a `PluginConfig`. They are marked with the `@expose_plugin` decorator for CLI discovery.
 
 ## Basic Transform Function

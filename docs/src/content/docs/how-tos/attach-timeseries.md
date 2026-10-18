@@ -2,6 +2,8 @@
 title: "Attaching Time Series"
 ---
 
+<span id="attaching-time-series"></span>
+
 Time series data represents values that change over time, such as load profiles, generation forecasts, or weather data. Use [`FileInfo`](/r2x-core/references/api/) to mark data files as containing time series and optionally add descriptive metadata.
 
 ## Mark a File as Time Series

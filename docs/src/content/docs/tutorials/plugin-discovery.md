@@ -2,6 +2,8 @@
 title: "Inspect plugin contracts and discovery"
 ---
 
+<span id="plugin-discovery"></span>
+
 A plugin must be installed and registered before the CLI can discover it.
 Core defines configuration and lifecycle contracts; the Rust `r2x` executable
 owns installed-package discovery and generated command help.
@@ -33,6 +35,8 @@ This tutorial first inspects a complete class without requiring external model d
 The hook list and schema above come from the actual class and configuration,
 not a hand-written catalog claiming ReEDS or PLEXOS behavior.
 A real parser that reads files is demonstrated in [Build a parser](/r2x-core/how-tos/build-parsers/).
+
+<span id="4-generic-configuration-types"></span>
 
 ## Inspect a Python 3.12 generic transform
 
@@ -79,6 +83,8 @@ Names in these entry points are the CLI references; Python class names are not
 automatically executable commands.
 The [complete CLI fixture package](https://natlabrockies.github.io/r2x-cli/getting-started/)
 contains actual package metadata and can be installed without licensed model data.
+
+<span id="integration-with-cli"></span>
 
 ## Inspect installed references with the Rust CLI
 

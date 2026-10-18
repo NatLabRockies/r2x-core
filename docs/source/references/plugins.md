@@ -1,5 +1,10 @@
 # Plugin lifecycle
 
+<span id="plugin-system"></span>
+
+
+
+
 `Plugin[ConfigT]` binds a typed `PluginConfig` to a `PluginContext`.
 See [api](/r2x-core/references/api/) for generated signatures, attributes, defaults, and return types.
 The implementation at [this documentation baseline](https://github.com/NatLabRockies/r2x-core/blob/f107604b73885fe849aafb915f2488d77f44de67/src/r2x_core/plugin_base.py) defines the lifecycle below.

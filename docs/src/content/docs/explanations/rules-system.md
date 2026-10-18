@@ -2,6 +2,8 @@
 title: "Why rules describe translation contracts"
 ---
 
+<span id="rule-system-architecture"></span>
+
 A `Rule` separates the mapping between component schemas from the mechanics of
 finding source components and constructing target components. Model packages
 still define those schemas and the physical meaning of mapped values.

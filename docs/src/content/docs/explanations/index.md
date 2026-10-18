@@ -4,6 +4,8 @@ sidebar:
   hidden: true
 ---
 
+<span id="explanations"></span>
+
 Explanations provide background and context about the r2x-core design and architecture. These documents help you understand **why** things are the way they are.
 
 ## Architecture & Design

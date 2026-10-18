@@ -2,6 +2,8 @@
 title: "Contributing"
 ---
 
+<span id="contributing"></span>
+
 We welcome contributions to r2x-core! This guide will help you get started with contributing to the project.
 
 ## Development Setup

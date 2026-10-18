@@ -2,6 +2,8 @@
 title: "Upgrade Systems Between Versions"
 ---
 
+<span id="upgrade-systems-between-versions"></span>
+
 r2x-core provides a framework for defining version upgrades using [`UpgradeStep`](/r2x-core/references/api/) and [`UpgradeType`](/r2x-core/references/api/). Upgrades are staged to handle both raw data files and system objects.
 
 ## Understand Upgrade Types

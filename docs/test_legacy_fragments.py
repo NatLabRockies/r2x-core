@@ -33,9 +33,10 @@ class LegacyFragmentsTest(unittest.TestCase):
                 "upgrading-with-pip",
                 "verify-installation",
                 "next-steps",
+                "installation",
             ),
-            "how-tos/build-parsers": ("working-with-systems", "see-also"),
-            "how-tos/build-exporters": ("exporting-systems", "see-also"),
+            "how-tos/build-parsers": ("working-with-systems", "see-also", "parser-basics"),
+            "how-tos/build-exporters": ("exporting-systems", "see-also", "exporter-basics"),
             "tutorials/getting-started": (
                 "prerequisites",
                 "working-with-systems",
@@ -45,6 +46,7 @@ class LegacyFragmentsTest(unittest.TestCase):
                 "working-with-rules",
                 "version-management",
                 "next-steps",
+                "getting-started-with-r2x-core",
             ),
             "references/plugins": (
                 "overview",
@@ -57,6 +59,7 @@ class LegacyFragmentsTest(unittest.TestCase):
                 "pluginconfig-features",
                 "function-based-transform-plugins",
                 "see-also",
+                "plugin-system",
             ),
             "references/upgrader": (
                 "quick-reference",
@@ -67,6 +70,7 @@ class LegacyFragmentsTest(unittest.TestCase):
                 "system-upgrade",
                 "apply-upgrades",
                 "see-also",
+                "upgrade-system",
             ),
             "explanations/versioning": (
                 "the-problem-we-solve",
@@ -87,13 +91,67 @@ class LegacyFragmentsTest(unittest.TestCase):
                 "why-priority-instead-of-dependency-graphs",
                 "real-world-example",
                 "see-also",
+                "versioning-and-upgrades-design-philosophy",
             ),
+            "contributing": ("contributing",),
+            "explanations/data-management": ("data-management-design-philosophy",),
+            "explanations/h5-readers": ("hdf5-reader-system",),
+            "explanations": ("explanations",),
+            "explanations/plugin-system": ("plugin-system-architecture", "plugin-configuration"),
+            "explanations/rules-system": ("rule-system-architecture",),
+            "explanations/unit-system": ("unit-system-design-and-architecture",),
+            "how-tos/apply-rules": ("apply-translation-rules",),
+            "how-tos/attach-timeseries": ("attaching-time-series",),
+            "how-tos/configure-data-files": ("working-with-datafiles",),
+            "how-tos/configure-data-settings": ("configuring-data-settings",),
+            "how-tos/convert-units": ("work-with-units",),
+            "how-tos/create-function-plugins": ("create-function-based-transform-plugins",),
+            "how-tos/create-rule-filters": ("rule-filters",),
+            "how-tos/create-rules": ("create-translation-rules",),
+            "how-tos/define-rule-mappings": ("working-with-rules",),
+            "how-tos": ("how-to-guides",),
+            "how-tos/manage-datastores": ("managing-datastores",),
+            "how-tos/manage-systems": ("managing-systems",),
+            "how-tos/manage-versions": ("managing-versions",),
+            "how-tos/process-file-data": ("processing-file-data",),
+            "how-tos/read-hdf5-files": ("reading-hdf5-data-files",),
+            "how-tos/register-plugins": ("create-and-register-plugins",),
+            "how-tos/run-plugins": ("using-plugins",),
+            "how-tos/structure-plugin-directories": ("plugin-directory-structure",),
+            "how-tos/upgrade-data-files": ("upgrade-data-between-versions",),
+            "how-tos/upgrade-systems": ("upgrade-systems-between-versions",),
+            "": (
+                "r2x-core-documentation",
+                "about-r2x-core",
+                "key-features",
+                "quick-start",
+                "plugin-discovery",
+                "indices-and-tables",
+            ),
+            "references/processors": ("multi-row-csvtsv-headers",),
+            "tutorials": ("tutorials",),
+            "tutorials/plugin-context": ("plugin-context",),
+            "tutorials/plugin-discovery": (
+                "plugin-discovery",
+                "4-generic-configuration-types",
+                "integration-with-cli",
+            ),
+            "tutorials/plugin-system": ("plugin-system",),
+            "tutorials/plugin-utilities": (
+                "plugin-developer-utilities",
+                "components_to_records",
+                "export_components_to_csv",
+                "getter",
+            ),
+            "tutorials/working-with-units": ("create-power-system-components-with-units",),
         }
         for route, fragments in bookmarks.items():
             with self.subTest(route=route):
-                redirect = Page()
-                redirect.feed((root / f"{route}.html").read_text(encoding="utf-8"))
-                self.assertEqual(redirect.redirect, f"/r2x-core/{route}/")
+                legacy = root / f"{route}.html"
+                if route not in ("", "explanations", "how-tos", "tutorials"):
+                    redirect = Page()
+                    redirect.feed(legacy.read_text(encoding="utf-8"))
+                    self.assertEqual(redirect.redirect, f"/r2x-core/{route}/")
                 destination = Page()
                 destination.feed((root / route / "index.html").read_text(encoding="utf-8"))
                 for fragment in fragments:

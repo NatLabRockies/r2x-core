@@ -1,5 +1,10 @@
 # Data Processors
 
+<span id="multi-row-csvtsv-headers"></span>
+
+
+
+
 `DataReader` applies `TabularProcessing` to Polars `LazyFrame` inputs after a
 file is read. Operations remain lazy where Polars supports lazy execution. A
 long-to-wide `pivot_on` performs a small discovery collection of distinct pivot

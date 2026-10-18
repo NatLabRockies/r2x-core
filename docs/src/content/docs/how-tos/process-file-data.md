@@ -2,6 +2,8 @@
 title: "Processing File Data"
 ---
 
+<span id="processing-file-data"></span>
+
 Transform and filter tabular data during loading using [`TabularProcessing`](/r2x-core/references/api/). This allows you to rename columns, drop unused fields, and filter rows without modifying the original files.
 
 ## Rename Columns

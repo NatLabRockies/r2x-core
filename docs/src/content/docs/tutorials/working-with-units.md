@@ -2,6 +2,8 @@
 title: "Create Power System Components with Units"
 ---
 
+<span id="create-power-system-components-with-units"></span>
+
 Learn how to define power system components with proper unit handling, including
 per-unit normalization, multiple base values, and automatic unit conversions.
 

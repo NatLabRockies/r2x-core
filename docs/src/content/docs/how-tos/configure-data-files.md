@@ -2,6 +2,8 @@
 title: "Working with DataFiles"
 ---
 
+<span id="working-with-datafiles"></span>
+
 DataFiles configure how to load and process external data sources.
 
 ## Basic DataFile

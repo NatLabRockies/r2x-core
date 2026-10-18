@@ -2,6 +2,10 @@
 title: "Export component records and filter keyword arguments"
 ---
 
+<span id="plugin-developer-utilities"></span>
+<span id="components_to_records"></span>
+<span id="export_components_to_csv"></span>
+
 The helpers in `r2x_core.utils` work with ordinary systems, paths and callables.
 This tutorial creates its own components and temporary output; it needs no model
 dataset. Use the exact public module imports below on current main.
@@ -98,3 +102,7 @@ system metadata and companion storage. A CSV record export is a different bounda
 <span id="api-compatibility"></span>
 
 <span id="see-also"></span>
+
+<span id="getter"></span>
+
+For registered getter functions, use the [getter API contract](/r2x-core/references/api/#r2x_core.getter) and [resolve_getter contract](/r2x-core/references/api/#r2x_core.resolve_getter).

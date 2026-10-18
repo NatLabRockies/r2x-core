@@ -2,6 +2,8 @@
 title: "Pass configuration and state through PluginContext"
 ---
 
+<span id="plugin-context"></span>
+
 `PluginContext` carries configuration, optional systems/store, rules and metadata
 between lifecycle hooks. It is mutable shared state, not a copy of each system.
 This example needs only the [installed library](/r2x-core/install/).

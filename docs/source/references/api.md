@@ -124,11 +124,33 @@ Complete API documentation for all r2x-core classes and functions.
 
 ## Prepared Tables
 
-A file-mapping document contains a `files` list of physical `DataFile` inputs
-and a `tables` list of named prepared-table definitions. Prepared tables use
-left many-to-one joins, reject null keys and duplicate right keys by default,
-and can apply `TabularProcessing` after joining. Optional missing sources are
-skipped. Prepared-table errors retain the table and source names.
+A file-mapping document contains `files` (physical `DataFile` inputs),
+`sources` (named runtime frames), and `tables` (prepared-table definitions).
+Runtime sources can generate calendars, load typed config records, select the
+first present configured input, or project public System fields and time series.
+A prepared table can start from a physical file, runtime source, another table,
+or declared named frame input. Its joins use the same sources. `DataStore.prepare_table(name,
+inputs=...)` supplies in-memory frames to the same executor used by `read_table`.
+Many-to-one joins reject null keys and duplicate right keys by default. Backward
+`asof` joins preserve left row order, leave permitted null left keys unmatched,
+and reject duplicate temporal keys. Each join configures missing-source behavior
+as `error` (default), `skip`, or `null`. Physical-file optionality does not
+weaken that per-join contract. Shared sources are materialized once within one
+`prepare_tables` request and are read again on the next request. Removing a
+physical file referenced by a first-present source is rejected. Prepared-table
+errors retain table and source names.
+
+Typed assignment sources are public processing models:
+
+```python doctest
+>>> from r2x_core import AsOfJoinSpec, ColumnAssignmentSource, LiteralAssignmentSource
+>>> AsOfJoinSpec(left_on="year", right_on="year").allow_exact_matches
+False
+>>> ColumnAssignmentSource(kind="column", column="fom_cost").column
+'fom_cost'
+>>> LiteralAssignmentSource(kind="literal", value=None).value is None
+True
+```
 
 ```{eval-rst}
 .. autoclass:: r2x_core.FileMapping
@@ -138,6 +160,9 @@ skipped. Prepared-table errors retain the table and source names.
    :members:
 
 .. autoclass:: r2x_core.TableJoin
+   :members:
+
+.. autoclass:: r2x_core.AsOfJoinSpec
    :members:
 
 .. autoclass:: r2x_core.SelectFirst

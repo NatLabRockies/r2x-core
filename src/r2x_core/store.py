@@ -6,23 +6,39 @@ loading data, caching.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import orjson
 import polars as pl
 from loguru import logger
 from pydantic import ValidationError
+from rust_ok import Err, Ok
 
 from .datafile import DataFile, FileProcessing
 from .exceptions import ReaderError
 from .plugin_config import PluginConfig, PluginConfigAsset
-from .prepared_tables import FileMapping, FileMappingDocument, PreparedTable, PreparedTableError
-from .processors import apply_processing
+from .prepared_tables import (
+    FileMapping,
+    FileMappingDocument,
+    PreparedTable,
+    PreparedTableError,
+    prepare_table_frames,
+)
 from .reader import DataReader
+from .sources import (
+    CalendarSource,
+    ConfigRecordsSource,
+    FirstPresentSource,
+    RuntimeSource,
+    SystemFrameSource,
+)
 from .utils import filter_valid_kwargs
 from .utils.upgrade import UpgradeCoordinator
+
+if TYPE_CHECKING:
+    from .plugin_context import PluginContext
 
 
 class DataStore:
@@ -64,13 +80,13 @@ class DataStore:
     add_data(data_files, overwrite)
         Add one or more DataFile instances to the store.
     add_tables(tables, overwrite)
-        Add prepared tables whose sources are registered physical files.
+        Add prepared tables whose sources are registered files, tables, or frames.
     read_data(name, placeholders)
         Read a physical file or prepared table by name.
     read_table(name, placeholders)
         Read and validate a prepared table.
     is_optional(name)
-        Return whether a physical source or table may be absent.
+        Return whether a physical source or table root may be absent.
     list_data()
         List all physical file and prepared table names in the store.
     list_files()
@@ -80,7 +96,7 @@ class DataStore:
     remove_data(*names)
         Remove unreferenced physical data files from the store.
     remove_table(*names)
-        Remove prepared tables from the store.
+        Remove tables not referenced by any remaining table.
     to_json(fpath, **model_dump_kwargs)
         Export store configuration to JSON.
 
@@ -93,8 +109,8 @@ class DataStore:
     Notes
     -----
     Physical file and prepared table names must be unique within a store. Prepared
-    tables reference physical files only. The reader cache is managed separately
-    from the file configuration mapping.
+    tables may reference physical files, other prepared tables, and declared
+    named-frame inputs. The reader cache is managed separately from the mapping.
     """
 
     def __init__(
@@ -126,6 +142,7 @@ class DataStore:
         self._folder = folder_path.resolve()
         self._cache: dict[str, DataFile] = {}
         self.prepared_tables: dict[str, PreparedTable] = {}
+        self.sources: dict[str, RuntimeSource] = {}
         self._upgrade = UpgradeCoordinator(handler=upgrade_handler)
         logger.debug("Initialized DataStore with folder: {}", self.folder)
 
@@ -148,7 +165,7 @@ class DataStore:
 
     def __contains__(self, name: str) -> bool:
         """Check whether a physical file or prepared table is registered."""
-        return name in self._cache or name in self.prepared_tables
+        return name in self._cache or name in self.prepared_tables or name in self.sources
 
     def get_data_file(self, name: str) -> DataFile:
         """Return one physical file mapping."""
@@ -158,12 +175,20 @@ class DataStore:
         return self._cache[name]
 
     def is_optional(self, name: str) -> bool:
-        """Return whether a physical input or prepared table may be absent."""
+        """Return whether a physical input or table root may be absent."""
+        if name in self.sources:
+            source = self.sources[name]
+            return isinstance(source, FirstPresentSource) and source.missing == "none"
         if name in self.prepared_tables:
             source = self.prepared_tables[name].source
-            data_file = self.get_data_file(source)
-        else:
-            data_file = self.get_data_file(name)
+            if source in self.prepared_tables:
+                return self.is_optional(source)
+            if source in self.sources:
+                return self.is_optional(source)
+            if source not in self._cache:
+                return False
+            name = source
+        data_file = self.get_data_file(name)
         return bool(data_file.info and data_file.info.is_optional)
 
     def get_table(self, name: str) -> PreparedTable:
@@ -372,7 +397,7 @@ class DataStore:
         return self._add_data_file(data_files, overwrite=overwrite)
 
     def add_tables(self, tables: Sequence[PreparedTable], *, overwrite: bool = False) -> None:
-        """Add prepared tables after validating names and physical-file references."""
+        """Add prepared tables after validating names and file/frame references."""
         if any(not isinstance(table, PreparedTable) for table in tables):
             raise TypeError("tables must contain PreparedTable instances")
         names = [table.name for table in tables]
@@ -387,7 +412,11 @@ class DataStore:
         updated_tables = dict(self.prepared_tables)
         updated_tables.update((table.name, table) for table in tables)
         FileMapping.model_validate(
-            {"files": list(self._cache.values()), "tables": list(updated_tables.values())}
+            {
+                "files": list(self._cache.values()),
+                "tables": list(updated_tables.values()),
+                "sources": list(self.sources.values()),
+            }
         )
         self.prepared_tables = updated_tables
 
@@ -395,18 +424,28 @@ class DataStore:
         """List all prepared table names in sorted order."""
         return sorted(self.prepared_tables)
 
+    def list_sources(self) -> list[str]:
+        """List configured calendar and System projection sources."""
+        return sorted(self.sources)
+
     def list_files(self) -> list[str]:
         """List physical file names for reader and upgrade operations."""
         return sorted(self._cache)
 
     def list_data(self) -> list[str]:
-        """List all physical file and prepared table names in sorted order.
+        """List physical, runtime, and prepared data names in sorted order.
 
         Use :meth:`list_files` when physical file mappings are required.
         """
-        return sorted([*self._cache, *self.prepared_tables])
+        return sorted([*self._cache, *self.sources, *self.prepared_tables])
 
-    def read_data(self, name: str, *, placeholders: dict[str, Any] | None = None) -> Any:
+    def read_data(
+        self,
+        name: str,
+        *,
+        placeholders: dict[str, Any] | None = None,
+        context: PluginContext | None = None,
+    ) -> Any:
         """Read a physical file or configured prepared table by name.
 
         Parameters
@@ -427,177 +466,424 @@ class DataStore:
             If the data file name is not in the store.
         """
         if name in self.prepared_tables:
-            return self.read_table(name, placeholders=placeholders)
+            return self.read_table(name, placeholders=placeholders, context=context)
+        if name in self.sources:
+            return self._materialize_runtime_source(
+                name,
+                context=context,
+                placeholders=placeholders,
+                cache={},
+            )
         return self._read_data_file_by_name(name=name, placeholders=placeholders)
 
-    def read_table(self, name: str, *, placeholders: dict[str, Any] | None = None) -> pl.LazyFrame | None:
-        """Read and prepare a configured table from physical file inputs.
+    def validate_input_data(self, *, placeholders: dict[str, Any] | None = None) -> None:
+        """Validate required physical input tables against their file declarations."""
+        from .processors import substitute_placeholders
 
-        Physical inputs are collected at this boundary so schema, join, and reader
-        failures retain their table and source names. The validated result is
-        returned as a LazyFrame for downstream composition.
-        """
-        table = self.get_table(name)
+        for name, data_file in self._cache.items():
+            info = data_file.info
+            if info is not None and not info.is_input:
+                continue
+            validation = data_file.validation
+            is_optional = info.is_optional if info is not None else False
+            if is_optional and validation is None:
+                continue
 
-        def collect_source(source: str) -> pl.DataFrame | None:
-            """Collect a physical input and retain its table/source context on failure."""
-            data_file = self.get_data_file(source)
             try:
-                data = self.read_data(source, placeholders=placeholders)
-            except (OSError, ValueError, KeyError, ReaderError, pl.exceptions.PolarsError) as exc:
-                raise PreparedTableError(
-                    f"Prepared table {table.name!r} could not read source {source!r}: {exc}"
-                ) from exc
-
+                data = self.read_data(name, placeholders=placeholders)
+            except (KeyError, OSError, ReaderError, ValueError, pl.exceptions.PolarsError) as error:
+                raise ValueError(
+                    f"Input dataset {name!r} at {data_file.fpath} could not be read: {error}"
+                ) from error
             if data is None:
-                if data_file.info and data_file.info.is_optional:
-                    return None
-                raise PreparedTableError(
-                    f"Prepared table {table.name!r} required source {source!r}, but it returned no data"
+                if is_optional:
+                    continue
+                raise ValueError(f"Required input dataset {name!r} at {data_file.fpath} is absent")
+
+            if not isinstance(data, pl.DataFrame | pl.LazyFrame):
+                if validation is not None and (validation.required_columns or validation.required_values):
+                    raise ValueError(
+                        f"Input dataset {name!r} declares tabular constraints but is not a Polars frame"
+                    )
+                if (
+                    validation.non_empty
+                    if validation and validation.non_empty is not None
+                    else not is_optional
+                ) and not data:
+                    raise ValueError(f"Required input dataset {name!r} at {data_file.fpath} is empty")
+                continue
+
+            schema = data.collect_schema() if isinstance(data, pl.LazyFrame) else data.schema
+            available_columns = set(schema.names())
+            required_columns = set(validation.required_columns) if validation is not None else set()
+            if validation is not None:
+                required_columns.update(item.column for item in validation.required_values)
+            missing_columns = sorted(required_columns - available_columns)
+            if missing_columns:
+                raise ValueError(
+                    f"Input dataset {name!r} at {data_file.fpath} is missing required columns {missing_columns}; "
+                    f"available columns: {sorted(available_columns)}"
                 )
+
+            non_empty = (
+                validation.non_empty if validation and validation.non_empty is not None else not is_optional
+            )
+            if non_empty:
+                sample = data.limit(1).collect() if isinstance(data, pl.LazyFrame) else data.head(1)
+                if sample.is_empty():
+                    raise ValueError(f"Required input dataset {name!r} at {data_file.fpath} is empty")
+
+            if validation is None:
+                continue
+            for constraint in validation.required_values:
+                match substitute_placeholders(constraint.values, placeholders=placeholders):
+                    case Err(error):
+                        raise ValueError(
+                            f"Input dataset {name!r} required values for column {constraint.column!r}: {error}"
+                        ) from error
+                    case Ok(values):
+                        required_values = values if isinstance(values, list) else [values]
+                if isinstance(data, pl.LazyFrame):
+                    actual_values = (
+                        data.select(constraint.column).unique().collect()[constraint.column].to_list()
+                    )
+                else:
+                    actual_values = data.select(constraint.column).unique()[constraint.column].to_list()
+                missing_values = [value for value in required_values if value not in actual_values]
+                if missing_values:
+                    label = constraint.label or name
+                    raise ValueError(
+                        f"{label} {missing_values!r} not found in {data_file.fpath} "
+                        f"({name}.{constraint.column}); available values: {actual_values!r}"
+                    )
+
+    def prepare_tables(
+        self,
+        names: Sequence[str],
+        /,
+        *,
+        inputs: Mapping[str, pl.DataFrame | pl.LazyFrame | None] | None = None,
+        placeholders: dict[str, Any] | None = None,
+        context: PluginContext | None = None,
+    ) -> dict[str, pl.LazyFrame | None]:
+        """Execute several prepared tables with one request-local source cache.
+
+        Named table dependencies use the same table executor. Materialized
+        sources are shared only during this call, including across output roots.
+        Declared frame inputs may be transitive dependencies.
+        """
+        requested_names = tuple(names)
+        if not requested_names:
+            return {}
+        if len(set(requested_names)) != len(requested_names):
+            raise ValueError("prepared table request names must be unique")
+        for table_name in requested_names:
+            self.get_table(table_name)
+
+        supplied = dict(inputs or {})
+        source_cache: dict[str, pl.DataFrame | None] = {}
+        active_tables: set[str] = set()
+
+        def declared_frame_inputs(table_name: str, visited: set[str] | None = None) -> set[str]:
+            """Return all named frame inputs reachable from one configured table."""
+            visited = set() if visited is None else visited
+            if table_name in visited:
+                return set()
+            visited.add(table_name)
+            current = self.get_table(table_name)
+            sources = {current.source, *(join.source for join in current.joins)}
+            frame_names = set(current.frame_sources)
+            for source in sources & self.prepared_tables.keys():
+                frame_names.update(declared_frame_inputs(source, visited))
+            return frame_names
+
+        allowed_frames = set().union(*(declared_frame_inputs(name) for name in requested_names))
+        allowed_frames.difference_update(self.sources)
+        unknown_frames = sorted(set(supplied) - allowed_frames)
+        if unknown_frames:
+            raise PreparedTableError(
+                f"Prepared table request {requested_names!r} received undeclared frame source(s): {unknown_frames}"
+            )
+
+        def materialize_source(
+            source: str,
+            data: object,
+            *,
+            table_name: str,
+        ) -> pl.DataFrame | None:
+            """Snapshot one in-memory source for this complete table request."""
+            if data is None:
+                return None
             if isinstance(data, pl.DataFrame):
                 return data
-            if not isinstance(data, pl.LazyFrame):
-                raise PreparedTableError(
-                    f"Prepared table {table.name!r} source {source!r} returned {type(data).__name__}, "
-                    "expected a Polars DataFrame or LazyFrame"
-                )
-            try:
-                return data.collect()
-            except (OSError, ValueError, pl.exceptions.PolarsError) as exc:
-                raise PreparedTableError(
-                    f"Prepared table {table.name!r} failed while collecting source {source!r}: {exc}"
-                ) from exc
-
-        result = collect_source(table.source)
-        if result is None:
-            return None
-
-        for join in table.joins:
-            right = collect_source(join.source)
-            if right is None:
-                continue
-            for source, source_frame, columns in (
-                (
-                    join.source,
-                    right,
-                    [
-                        *join.on.values(),
-                        *join.columns,
-                        *(join.select_first.order_by if join.select_first else {}),
-                    ],
-                ),
-                (table.source, result, list(join.on)),
-            ):
-                missing = sorted(set(columns) - set(source_frame.columns))
-                if missing:
+            if isinstance(data, pl.LazyFrame):
+                try:
+                    return data.collect()
+                except (OSError, ValueError, pl.exceptions.PolarsError) as exc:
                     raise PreparedTableError(
-                        f"Prepared table {table.name!r} source {source!r} is missing column(s): {missing}"
-                    )
-            overlapping = sorted(set(join.columns.values()) & set(result.columns))
-            if overlapping:
-                raise PreparedTableError(
-                    f"Prepared table {table.name!r} join source {join.source!r} has overlapping payload "
-                    f"column(s): {overlapping}"
-                )
-            if any(result.get_column(column).null_count() > 0 for column in join.on):
-                raise PreparedTableError(
-                    f"Prepared table {table.name!r} source {table.source!r} contains null join key(s) "
-                    f"for join source {join.source!r}: {join.on}"
-                )
-            if any(right.get_column(column).null_count() > 0 for column in join.on.values()):
-                raise PreparedTableError(
-                    f"Prepared table {table.name!r} source {join.source!r} contains null join key(s): "
-                    f"{join.on}"
-                )
+                        f"Prepared table {table_name!r} failed while collecting source {source!r}: {exc}"
+                    ) from exc
+            raise PreparedTableError(
+                f"Prepared table {table_name!r} source {source!r} returned {type(data).__name__}, "
+                "expected a Polars DataFrame or LazyFrame"
+            )
 
-            if join.cardinality == "m:1" and join.select_first is None:
-                if right.select(list(join.on.values())).is_duplicated().any():
+        def resolve_source(
+            source: str,
+            *,
+            table_name: str,
+            is_root: bool,
+        ) -> pl.DataFrame | None:
+            """Resolve one configured file, table, or caller-provided frame."""
+            if source in self.prepared_tables:
+                if source in source_cache:
+                    return source_cache[source]
+                try:
+                    return resolve_table(source)
+                except PreparedTableError as exc:
                     raise PreparedTableError(
-                        f"Prepared table {table.name!r} join source {join.source!r} has duplicate keys "
-                        f"for {join.on}; configure select_first to choose a representative row"
-                    )
-            elif join.select_first is not None:
-                sort_columns = list(join.select_first.order_by)
-                if sort_columns:
-                    right = right.sort(
-                        sort_columns,
-                        descending=[join.select_first.order_by[column] == "desc" for column in sort_columns],
-                        maintain_order=True,
-                    )
-                right = right.unique(subset=list(join.on.values()), keep="first", maintain_order=True)
+                        f"Prepared table {table_name!r} dependency {source!r} failed: {exc}"
+                    ) from exc
 
-            if join.cardinality == "1:m" and result.select(list(join.on)).is_duplicated().any():
+            if source in self.sources:
+                if source in source_cache:
+                    return source_cache[source]
+                try:
+                    data = self._materialize_runtime_source(
+                        source,
+                        context=context,
+                        placeholders=placeholders,
+                        cache=source_cache,
+                    )
+                except PreparedTableError as exc:
+                    raise PreparedTableError(
+                        f"Prepared table {table_name!r} could not resolve runtime source {source!r}: {exc}"
+                    ) from exc
+                return data
+
+            if source in allowed_frames:
+                if source in source_cache:
+                    data = source_cache[source]
+                elif source not in supplied:
+                    data = None
+                    source_cache[source] = None
+                else:
+                    data = materialize_source(source, supplied[source], table_name=table_name)
+                    source_cache[source] = data
+                if data is None and is_root:
+                    if source not in supplied:
+                        raise PreparedTableError(
+                            f"Prepared table {table_name!r} requires named frame input(s): {[source]}"
+                        )
+                    raise PreparedTableError(
+                        f"Prepared table {table_name!r} required source {source!r}, but it returned no data"
+                    )
+                return data
+
+            if source not in self._cache:
                 raise PreparedTableError(
-                    f"Prepared table {table.name!r} base source {table.source!r} has duplicate keys "
-                    f"for one-to-many join source {join.source!r}: {join.on}"
+                    f"Prepared table {table_name!r} references unknown source {source!r}"
                 )
 
-            right_columns = list(
-                dict.fromkeys(
-                    [
-                        *join.on.values(),
-                        *join.columns,
-                        *(join.select_first.order_by if join.select_first else {}),
-                    ]
-                )
-            )
-            right = right.select(right_columns).select(
-                [
-                    *join.on.values(),
-                    *(pl.col(source).alias(output) for source, output in join.columns.items()),
-                ]
-            )
+            if source in source_cache:
+                data = source_cache[source]
+                data_file = self.get_data_file(source)
+                if data is None and is_root and not (data_file.info and data_file.info.is_optional):
+                    raise PreparedTableError(
+                        f"Prepared table {table_name!r} required source {source!r}, but it returned no data"
+                    )
+                return data
+
+            data_file = self.get_data_file(source)
             try:
-                result = result.join(
-                    right,
-                    left_on=list(join.on),
-                    right_on=list(join.on.values()),
-                    how=join.how,
-                    validate=join.cardinality,
-                    maintain_order="left",
-                    coalesce=True,
-                )
-            except pl.exceptions.PolarsError as exc:
+                raw_data = self._read_data_file_by_name(name=source, placeholders=placeholders)
+            except (OSError, ValueError, KeyError, ReaderError, pl.exceptions.PolarsError) as exc:
                 raise PreparedTableError(
-                    f"Prepared table {table.name!r} failed joining source {join.source!r}: {exc}"
+                    f"Prepared table {table_name!r} could not read source {source!r}: {exc}"
                 ) from exc
-
-        prepared = result.lazy()
-        if table.proc_spec is not None:
-            processing = apply_processing(
-                prepared,
-                data_file=table,
-                proc_spec=table.proc_spec,
-                placeholders=placeholders,
-            )
-            if processing.is_err():
-                error = processing.err()
+            if raw_data is None:
+                if data_file.info and data_file.info.is_optional:
+                    source_cache[source] = None
+                    return None
                 raise PreparedTableError(
-                    f"Prepared table {table.name!r} processing failed: {error}"
-                ) from error
-            prepared_result = processing.ok()
-            if isinstance(prepared_result, pl.LazyFrame):
-                prepared = prepared_result
-            elif isinstance(prepared_result, pl.DataFrame):
-                prepared = prepared_result.lazy()
-            else:
-                raise PreparedTableError(
-                    f"Prepared table {table.name!r} processing returned a non-tabular result"
+                    f"Prepared table {table_name!r} required source {source!r}, but it returned no data"
                 )
+            data = materialize_source(source, raw_data, table_name=table_name)
+            source_cache[source] = data
+            return data
 
+        class TableSources(Mapping[str, pl.DataFrame | pl.LazyFrame | None]):
+            """Resolve declared table inputs only when the join loop requests them."""
+
+            def __init__(self, table: PreparedTable, root: pl.DataFrame) -> None:
+                self.names = tuple(dict.fromkeys([table.source, *(join.source for join in table.joins)]))
+                self.table = table
+                self.root = root
+
+            def __getitem__(self, source: str) -> pl.DataFrame | None:
+                if source not in self.names:
+                    raise KeyError(source)
+                if source == self.table.source:
+                    return self.root
+                return resolve_source(source, table_name=self.table.name, is_root=False)
+
+            def __iter__(self) -> Iterator[str]:
+                return iter(self.names)
+
+            def __len__(self) -> int:
+                return len(self.names)
+
+        def resolve_table(table_name: str) -> pl.DataFrame | None:
+            """Execute a table once and cache its materialized result for this call."""
+            if table_name in source_cache:
+                return source_cache[table_name]
+            if table_name in active_tables:
+                raise PreparedTableError(f"Prepared table dependency cycle includes {table_name!r}")
+            table = self.get_table(table_name)
+            active_tables.add(table_name)
+            try:
+                root = resolve_source(table.source, table_name=table.name, is_root=True)
+                if root is None:
+                    source_cache[table_name] = None
+                    return None
+
+                required_frames = {
+                    join.source
+                    for join in table.joins
+                    if join.missing_source == "error"
+                    and join.source in table.frame_sources
+                    and join.source not in self.sources
+                }
+                missing_frames = sorted(required_frames - set(supplied))
+                if missing_frames:
+                    raise PreparedTableError(
+                        f"Prepared table {table.name!r} requires named frame input(s): {missing_frames}"
+                    )
+
+                frames = TableSources(table, root)
+                prepared = prepare_table_frames(table, frames, placeholders=placeholders)
+                result = prepared.collect() if prepared is not None else None
+                source_cache[table_name] = result
+                return result
+            finally:
+                active_tables.remove(table_name)
+
+        results: dict[str, pl.LazyFrame | None] = {}
+        for table_name in requested_names:
+            result = resolve_table(table_name)
+            results[table_name] = result.lazy() if result is not None else None
+        return results
+
+    def _materialize_runtime_source(
+        self,
+        name: str,
+        /,
+        *,
+        context: PluginContext | None,
+        placeholders: dict[str, Any] | None,
+        cache: dict[str, pl.DataFrame | None],
+    ) -> pl.DataFrame | None:
+        """Resolve one configured runtime source into a request-local snapshot."""
+        if name in cache:
+            return cache[name]
         try:
-            final_result = prepared.collect()
-        except (OSError, ValueError, pl.exceptions.PolarsError) as exc:
-            raise PreparedTableError(
-                f"Prepared table {table.name!r} failed while collecting source {table.source!r}: {exc}"
-            ) from exc
-        missing_result_columns = sorted(set(table.required_columns) - set(final_result.columns))
-        if missing_result_columns:
-            raise PreparedTableError(
-                f"Prepared table {table.name!r} result is missing column(s): {missing_result_columns}"
-            )
-        return final_result.lazy()
+            source = self.sources[name]
+            if isinstance(source, CalendarSource):
+                frame = source.to_frame(placeholders=placeholders)
+            elif isinstance(source, ConfigRecordsSource):
+                if context is None:
+                    raise ValueError("Configuration record sources require a PluginContext")
+                frame = source.to_frame(context=context)
+            elif isinstance(source, FirstPresentSource):
+                frame = None
+                for candidate in source.candidates:
+                    if candidate in cache:
+                        frame = cache[candidate]
+                    elif candidate in self._cache:
+                        data_file = self.get_data_file(candidate)
+                        try:
+                            self.reader.resolve_path(
+                                data_file,
+                                folder_path=self.folder,
+                                placeholders=placeholders,
+                            )
+                        except FileNotFoundError as error:
+                            if data_file.info and data_file.info.is_optional:
+                                cache[candidate] = None
+                                continue
+                            raise ValueError(
+                                f"Physical candidate {candidate!r} cannot be resolved: {error}"
+                            ) from error
+                        try:
+                            raw = self._read_data_file_by_name(name=candidate, placeholders=placeholders)
+                            if raw is None:
+                                raise ValueError("reader returned no data for a present file")
+                            if isinstance(raw, pl.LazyFrame):
+                                frame = raw.collect()
+                            elif isinstance(raw, pl.DataFrame):
+                                frame = raw
+                            else:
+                                raise TypeError(
+                                    f"reader returned {type(raw).__name__}, expected a Polars frame"
+                                )
+                        except (
+                            OSError,
+                            ReaderError,
+                            TypeError,
+                            ValueError,
+                            pl.exceptions.PolarsError,
+                        ) as error:
+                            raise ValueError(
+                                f"Selected physical candidate {candidate!r} failed: {error}"
+                            ) from error
+                        cache[candidate] = frame
+                    else:
+                        frame = self._materialize_runtime_source(
+                            candidate,
+                            context=context,
+                            placeholders=placeholders,
+                            cache=cache,
+                        )
+                    if frame is not None and (source.empty == "select" or not frame.is_empty()):
+                        break
+                    frame = None
+                if frame is None and source.missing == "error":
+                    raise ValueError(
+                        f"No configured source is present for first-present source {source.name!r}: "
+                        f"{source.candidates}"
+                    )
+            elif isinstance(source, SystemFrameSource):
+                if context is None:
+                    raise ValueError("System frame sources require a PluginContext")
+                frame = source.to_frame(context=context, placeholders=placeholders)
+            else:
+                raise TypeError(f"Unsupported runtime source {type(source).__name__}")
+        except (KeyError, OSError, ReaderError, TypeError, ValueError, pl.exceptions.PolarsError) as error:
+            raise PreparedTableError(f"Could not resolve runtime source {name!r}: {error}") from error
+        cache[name] = frame
+        return frame
+
+    def prepare_table(
+        self,
+        name: str,
+        /,
+        *,
+        inputs: Mapping[str, pl.DataFrame | pl.LazyFrame | None] | None = None,
+        placeholders: dict[str, Any] | None = None,
+        context: PluginContext | None = None,
+    ) -> pl.LazyFrame | None:
+        """Execute one prepared-table recipe with request-local source resolution."""
+        return self.prepare_tables((name,), inputs=inputs, placeholders=placeholders, context=context)[name]
+
+    def read_table(
+        self,
+        name: str,
+        *,
+        placeholders: dict[str, Any] | None = None,
+        context: PluginContext | None = None,
+    ) -> pl.LazyFrame | None:
+        """Resolve file, runtime, and table dependencies for one prepared table."""
+        return self.prepare_table(name, inputs={}, placeholders=placeholders, context=context)
 
     def configure_upgrades(
         self,
@@ -640,16 +926,40 @@ class DataStore:
                 f"Cannot remove physical file(s) referenced by prepared table(s): {sorted(dependencies)}"
             )
 
+        source_dependencies = {
+            source.name: sorted(set(source.candidates) & set(names))
+            for source in self.sources.values()
+            if isinstance(source, FirstPresentSource) and set(source.candidates) & set(names)
+        }
+        if source_dependencies:
+            raise KeyError(
+                "Cannot remove physical file(s) referenced by configured first-present source(s): "
+                f"{source_dependencies}"
+            )
+
         for name in names:
             del self._cache[name]
             logger.debug("Removed data file '{}' from store", name)
 
     def remove_table(self, *names: str) -> None:
-        """Remove prepared tables by name."""
-        for name in names:
-            if name not in self.prepared_tables:
-                raise KeyError(f"Prepared table {name!r} not found in store.")
-        for name in names:
+        """Remove prepared tables not referenced by any remaining table."""
+        removing = set(names)
+        missing = sorted(removing - self.prepared_tables.keys())
+        if missing:
+            raise KeyError(f"Prepared table(s) not found in store: {missing}")
+
+        dependencies = {
+            table.name: sorted({table.source, *(join.source for join in table.joins)} & removing)
+            for table in self.prepared_tables.values()
+            if table.name not in removing
+        }
+        dependencies = {name: sources for name, sources in dependencies.items() if sources}
+        if dependencies:
+            raise KeyError(
+                f"Cannot remove prepared table(s) referenced by remaining prepared table(s): {dependencies}"
+            )
+
+        for name in sorted(removing):
             del self.prepared_tables[name]
             logger.debug("Removed prepared table '{}' from store", name)
 
@@ -685,6 +995,8 @@ class DataStore:
                 for table in self.prepared_tables.values()
             ],
         }
+        if self.sources:
+            json_data["sources"] = [source.model_dump(mode="json") for source in self.sources.values()]
 
         with open(fpath, "wb") as f:
             f.write(orjson.dumps(json_data, option=orjson.OPT_INDENT_2))
@@ -722,7 +1034,11 @@ class DataStore:
         updated_files = dict(self._cache)
         updated_files.update((data_file.name, data_file) for data_file in data_files)
         FileMapping.model_validate(
-            {"files": list(updated_files.values()), "tables": list(self.prepared_tables.values())}
+            {
+                "files": list(updated_files.values()),
+                "tables": list(self.prepared_tables.values()),
+                "sources": list(self.sources.values()),
+            }
         )
         self._cache = updated_files
         for data_file in data_files:
@@ -783,16 +1099,17 @@ class DataStore:
         """Load physical files and prepared tables from a mapping envelope."""
         document = FileMappingDocument.model_validate(mapping_data)
         data_files = DataFile.from_records(document.files, folder_path=self.folder)
-        mapping = FileMapping(files=data_files, tables=document.tables)
         complete_mapping = FileMapping(
-            files=[*self._cache.values(), *mapping.files],
-            tables=[*self.prepared_tables.values(), *mapping.tables],
+            files=[*self._cache.values(), *data_files],
+            tables=[*self.prepared_tables.values(), *document.tables],
+            sources=[*self.sources.values(), *document.sources],
         )
         self._cache = {data_file.name: data_file for data_file in complete_mapping.files}
         self.prepared_tables = {table.name: table for table in complete_mapping.tables}
+        self.sources = {source.name: source for source in complete_mapping.sources}
         logger.debug(
             "Loaded {} physical files and {} prepared tables from {}",
-            len(mapping.files),
-            len(mapping.tables),
+            len(data_files),
+            len(document.tables),
             mapping_path,
         )

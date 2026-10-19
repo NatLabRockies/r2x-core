@@ -231,6 +231,26 @@ def test_read_data_file_combines_multiple_header_rows_and_processes_them(reader_
     ]
 
 
+@pytest.mark.parametrize("header_prefix", ["", "*"])
+def test_read_data_file_strips_configured_first_column_header_prefix(
+    reader_example, tmp_path, header_prefix: str
+) -> None:
+    from r2x_core.datafile import DataFile, ReaderConfig, TabularProcessing
+
+    csv_path = tmp_path / "capacity.csv"
+    csv_path.write_text(f"{header_prefix}i,r,value\nsolar,p1,10.0\n")
+    data_file = DataFile(
+        name="capacity",
+        fpath=csv_path,
+        reader=ReaderConfig(first_column_prefix="*"),
+        proc_spec=TabularProcessing(column_mapping={"i": "technology", "r": "region"}),
+    )
+
+    result = reader_example.read_data_file(data_file, folder_path=tmp_path)
+
+    assert result.collect().to_dicts() == [{"technology": "solar", "region": "p1", "value": 10.0}]
+
+
 def test_read_data_file_glob_pattern(reader_example, tmp_path):
     from r2x_core.datafile import DataFile
 

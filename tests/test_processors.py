@@ -10,14 +10,19 @@ import warnings
 from datetime import datetime, time, timedelta
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
 import polars as pl
 import pytest
 
 from r2x_core.datafile import (
+    ColumnAddSpec,
+    ColumnPredicate,
+    ConditionalAssignment,
     DataFile,
     GroupedFillSpec,
     JSONProcessing,
+    RejectRowsSpec,
     TabularProcessing,
     WeightedMeanSpec,
 )
@@ -251,6 +256,63 @@ def test_unpivot_on_rejects_output_name_collision(sample_csv: Path):
         process_tabular_data(data, data_file=data_file, proc_spec=proc_spec)
 
 
+def test_copy_columns_preserves_source_before_split(sample_csv: Path) -> None:
+    """A copied technology key remains available when the source is split."""
+    frame = pl.DataFrame({"technology": ["Gas-CC_H2-CT"]}).lazy()
+    specification = TabularProcessing(
+        copy_columns={"technology": "technology_full"},
+        split_column={"technology": {"separator": "_", "into": ["technology_base", "technology_suffix"]}},
+    )
+    source = DataFile(name="generator technology", fpath=sample_csv)
+
+    result = process_tabular_data(frame, data_file=source, proc_spec=specification).collect()
+
+    assert result.row(0, named=True) == {
+        "technology_full": "Gas-CC_H2-CT",
+        "technology_base": "Gas-CC",
+        "technology_suffix": "H2-CT",
+    }
+
+
+def test_copy_columns_rejects_missing_sources_and_existing_destinations(sample_csv: Path) -> None:
+    """Copies must name existing source columns and avoid overwriting payload."""
+    frame = pl.DataFrame({"technology": ["Gas-CC"], "technology_full": ["existing"]}).lazy()
+    source = DataFile(name="generator technology", fpath=sample_csv)
+
+    with pytest.raises(ValueError, match=r"copy_columns.*missing"):
+        process_tabular_data(
+            frame,
+            data_file=source,
+            proc_spec=TabularProcessing(copy_columns={"missing": "technology_full"}),
+        )
+    with pytest.raises(ValueError, match=r"copy_columns.*overwrite"):
+        process_tabular_data(
+            frame,
+            data_file=source,
+            proc_spec=TabularProcessing(copy_columns={"technology": "technology_full"}),
+        )
+
+
+def test_conditional_assignment_can_exclude_nan_rows(sample_csv: Path):
+    frame = pl.DataFrame({"duration": [4.0, float("nan"), None]})
+    processing = TabularProcessing(
+        literal_columns={"eligible": True},
+        conditional_assignments=[
+            ConditionalAssignment(
+                column="eligible",
+                when=[ColumnPredicate(column="duration", operator="is_nan")],
+                value_source={"kind": "literal", "value": False},
+            )
+        ],
+        filter_rows=[ColumnPredicate(column="eligible", operator="eq", value=True)],
+    )
+    data_file = DataFile(name="duration-eligibility", fpath=sample_csv, proc_spec=processing)
+
+    result = process_tabular_data(frame.lazy(), data_file=data_file, proc_spec=processing).collect()
+
+    assert result["duration"].to_list() == [4.0, None]
+
+
 def test_grouped_fallback_fill_respects_groups_and_where_condition(sample_csv: Path):
     frame = pl.DataFrame(
         {
@@ -302,6 +364,117 @@ def test_grouped_fallback_fill_reports_missing_columns(sample_csv: Path):
 
     with pytest.raises(ValueError, match=r"fill_null_by_group.*vintage"):
         process_tabular_data(frame.lazy(), data_file=data_file, proc_spec=processing)
+
+
+def test_drop_columns_after_removes_intermediates_after_conditional_processing(sample_csv: Path):
+    processing = TabularProcessing(
+        drop_columns_after=["source", "flag"],
+        conditional_assignments=[
+            ConditionalAssignment(
+                column="rate",
+                when=[ColumnPredicate(column="flag", operator="eq", value=True)],
+                value_source={"kind": "column", "column": "source"},
+            )
+        ],
+    )
+    data = pl.DataFrame({"source": [12.0], "flag": [True], "rate": [1.0]})
+    data_file = DataFile(name="drop-intermediates", fpath=sample_csv, proc_spec=processing)
+
+    result = process_tabular_data(data.lazy(), data_file=data_file, proc_spec=processing).collect()
+
+    assert result.to_dicts() == [{"rate": 12.0}]
+
+
+def test_conditional_assignment_model_dump_preserves_a_literal_null(sample_csv: Path):
+    assignment = ConditionalAssignment.model_validate(
+        {
+            "column": "rate",
+            "when": [{"column": "replace", "operator": "eq", "value": True}],
+            "value_source": {"kind": "literal", "value": None},
+        }
+    )
+    restored = ConditionalAssignment.model_validate(assignment.model_dump())
+    processing = TabularProcessing(conditional_assignments=[restored])
+    data = pl.DataFrame({"rate": [0.0], "replace": [True]})
+    data_file = DataFile(name="conditional-null", fpath=sample_csv, proc_spec=processing)
+
+    result = process_tabular_data(data.lazy(), data_file=data_file, proc_spec=processing).collect()
+
+    assert result["rate"].to_list() == [None]
+
+
+def test_conditional_assignments_are_ordered_and_addition_preserves_nulls(sample_csv: Path):
+    frame = pl.DataFrame(
+        {
+            "technology": ["dpv", "hydro", "psh", "base_zero", "unknown"],
+            "fom_cost": [80.0, 20.0, 30.0, 0.0, None],
+            "distpv": ["yes", "no", "no", "no", "no"],
+            "hintage_fom_cost": [0.0, 10.0, 20.0, 0.0, 0.0],
+            "hydro_fom_cost": [0.0, 42.0, 42.0, 0.0, 0.0],
+            "psh": ["no", "no", "yes", "no", "no"],
+            "initial_target_fom": [None, 0.0, 100.0, 0.0, None],
+            "target_hydro_fom": [5.0, None, 0.0, 0.0, 5.0],
+        }
+    )
+    processing = TabularProcessing(
+        fill_null={"target_hydro_fom": 0.0},
+        column_add=[
+            ColumnAddSpec(
+                target="initial_target_fom",
+                left="initial_target_fom",
+                right="target_hydro_fom",
+            )
+        ],
+        conditional_assignments=[
+            ConditionalAssignment(
+                column="fom_cost",
+                when=[ColumnPredicate(column="distpv", operator="eq", value="yes")],
+                value_source={"kind": "column", "column": "hintage_fom_cost"},
+            ),
+            ConditionalAssignment(
+                column="fom_cost",
+                when=[ColumnPredicate(column="hydro_fom_cost", operator="ne", value=0.0)],
+                value_source={"kind": "column", "column": "hydro_fom_cost"},
+            ),
+            ConditionalAssignment(
+                column="fom_cost",
+                when=[ColumnPredicate(column="psh", operator="eq", value="yes")],
+                value_source={"kind": "literal", "value": 130.0},
+            ),
+        ],
+    )
+    data_file = DataFile(name="generator-fom", fpath=sample_csv, proc_spec=processing)
+
+    result = process_tabular_data(frame.lazy(), data_file=data_file, proc_spec=processing).collect()
+
+    assert result["fom_cost"].to_list() == [0.0, 42.0, 130.0, 0.0, None]
+    assert result["initial_target_fom"].to_list() == [None, 0.0, 100.0, 0.0, None]
+
+
+def test_conditional_row_validation_rejects_only_matching_rows(sample_csv: Path):
+    frame = pl.DataFrame(
+        {"technology": ["unknown", "upgrade"], "upgraded": [False, True], "fom_cost": [None, None]}
+    )
+    processing = TabularProcessing(
+        reject_rows=[
+            RejectRowsSpec(
+                when=[
+                    ColumnPredicate(column="upgraded", operator="eq", value=True),
+                    ColumnPredicate(column="fom_cost", operator="is_null"),
+                ],
+                message="upgrade target has no FOM",
+            )
+        ]
+    )
+    data_file = DataFile(name="generator-fom", fpath=sample_csv, proc_spec=processing)
+
+    with pytest.raises(ValueError, match="upgrade target has no FOM"):
+        process_tabular_data(frame.lazy(), data_file=data_file, proc_spec=processing)
+
+    unknown = frame.filter(pl.col("technology") == "unknown")
+    assert (
+        process_tabular_data(unknown.lazy(), data_file=data_file, proc_spec=processing).collect().height == 1
+    )
 
 
 def test_weighted_mean_uses_explicit_unknown_and_nonpositive_policies(sample_csv: Path):
@@ -402,6 +575,35 @@ def test_weighted_mean_propagates_unknown_positive_weight_and_rejects_bad_weight
     )
     with pytest.raises(ValueError, match="null weight"):
         process_tabular_data(missing_weight.lazy(), data_file=data_file, proc_spec=processing)
+
+
+def test_ensured_null_column_is_cast_and_filled(sample_csv: Path) -> None:
+    """Missing optional columns enter the recipe before casts and fills."""
+    frame = pl.DataFrame({"technology": ["Gas-CC"]}).lazy()
+    specification = TabularProcessing(
+        ensure_null_columns=["heat_rate"],
+        column_schema={"heat_rate": "float"},
+        fill_null={"heat_rate": 10.0},
+    )
+    source = DataFile(name="generator inputs", fpath=sample_csv)
+
+    result = process_tabular_data(frame, data_file=source, proc_spec=specification).collect()
+
+    assert result.schema["heat_rate"] == pl.Float64
+    assert result["heat_rate"].to_list() == [10.0]
+
+
+def test_ensure_null_columns_adds_only_absent_columns(sample_csv: Path) -> None:
+    frame = pl.DataFrame({"id": [1, 2], "present": [3.0, 4.0]})
+    processing = TabularProcessing(ensure_null_columns=["missing", "present"])
+    data_file = DataFile(name="optional-aggregates", fpath=sample_csv, proc_spec=processing)
+
+    result = process_tabular_data(frame.lazy(), data_file=data_file, proc_spec=processing).collect()
+
+    assert result.to_dicts() == [
+        {"id": 1, "present": 3.0, "missing": None},
+        {"id": 2, "present": 4.0, "missing": None},
+    ]
 
 
 def test_literal_columns_are_added_after_column_renaming(sample_csv: Path):
@@ -597,6 +799,122 @@ def test_apply_processing_placeholder_error(sample_csv: Path):
 
     result = apply_processing(lf, data_file=df_file, proc_spec=proc_spec, placeholders={"year": 2030})
     assert result.is_err()
+
+
+def test_filter_rows_list_placeholder_round_trips_and_resolves(sample_csv: Path):
+    predicate = ColumnPredicate.model_validate({"column": "region", "operator": "in", "value": "{regions}"})
+    restored = ColumnPredicate.model_validate(predicate.model_dump())
+    proc_spec = TabularProcessing(filter_rows=[restored])
+    result = apply_processing(
+        pl.LazyFrame({"region": ["p1", "p2", "p3"]}),
+        data_file=DataFile(name="region-filter", fpath=sample_csv),
+        proc_spec=proc_spec,
+        placeholders={"regions": ["p1", "p3"]},
+    )
+
+    assert result.is_ok()
+    assert result.unwrap().collect()["region"].to_list() == ["p1", "p3"]
+
+
+def test_filter_rows_empty_list_placeholder_matches_no_rows(sample_csv: Path):
+    proc_spec = TabularProcessing(filter_rows=[{"column": "region", "operator": "in", "value": "{regions}"}])
+    result = apply_processing(
+        pl.LazyFrame({"region": ["p1"]}),
+        data_file=DataFile(name="empty-region-filter", fpath=sample_csv),
+        proc_spec=proc_spec,
+        placeholders={"regions": []},
+    )
+
+    assert result.is_ok()
+    assert result.unwrap().collect().is_empty()
+
+
+@pytest.mark.parametrize("placeholder", ["p1", 1, None])
+def test_filter_rows_list_placeholder_rejects_non_list_values(sample_csv: Path, placeholder: object):
+    proc_spec = TabularProcessing(filter_rows=[{"column": "region", "operator": "in", "value": "{regions}"}])
+    result = apply_processing(
+        pl.LazyFrame({"region": ["p1"]}),
+        data_file=DataFile(name="invalid-region-filter", fpath=sample_csv),
+        proc_spec=proc_spec,
+        placeholders={"regions": placeholder},
+    )
+
+    assert result.is_err()
+    assert "Invalid processing specification" in str(result.err())
+
+
+def test_filter_rows_list_placeholder_rejects_unresolved_names(sample_csv: Path):
+    proc_spec = TabularProcessing(
+        filter_rows=[{"column": "region", "operator": "in", "value": "{missing_regions}"}]
+    )
+    result = apply_processing(
+        pl.LazyFrame({"region": ["p1"]}),
+        data_file=DataFile(name="unresolved-region-filter", fpath=sample_csv),
+        proc_spec=proc_spec,
+        placeholders={"regions": ["p1"]},
+    )
+
+    assert result.is_err()
+    assert "Placeholder '{missing_regions}' not found" in str(result.err())
+
+
+def test_explode_columns_preserves_empty_category_rows():
+    frame = pl.DataFrame({"owner": ["wind", "unknown"], "categories": [["wind", "renewable"], []]})
+    spec = TabularProcessing(explode_columns=["categories"])
+
+    result = process_tabular_data(frame.lazy(), data_file=SimpleNamespace(name="categories"), proc_spec=spec)
+
+    assert result.collect().to_dicts() == [
+        {"owner": "wind", "categories": "wind"},
+        {"owner": "wind", "categories": "renewable"},
+        {"owner": "unknown", "categories": None},
+    ]
+
+
+def test_unique_sorted_aggregation_returns_deterministic_distinct_lists():
+    frame = pl.DataFrame({"owner": ["a", "a", "a", "b"], "reserve_name": ["z", "a", "z", "b"]})
+    spec = TabularProcessing(
+        group_by=["owner"],
+        aggregate_on={"reserve_name": "unique_sorted"},
+        sort_by={"owner": "asc"},
+    )
+
+    result = process_tabular_data(frame.lazy(), data_file=SimpleNamespace(name="memberships"), proc_spec=spec)
+
+    assert result.collect().to_dicts() == [
+        {"owner": "a", "reserve_name": ["a", "z"]},
+        {"owner": "b", "reserve_name": ["b"]},
+    ]
+
+
+def test_column_concat_uses_explicit_separator_and_propagates_nulls():
+    frame = pl.DataFrame({"region": ["controlled", None], "product": ["SPINNING", "FLEXIBILITY"]})
+    spec = TabularProcessing(
+        column_concat=[{"target": "reserve_name", "columns": ["region", "product"], "separator": "_"}]
+    )
+
+    result = process_tabular_data(frame.lazy(), data_file=SimpleNamespace(name="identities"), proc_spec=spec)
+
+    assert result.collect()["reserve_name"].to_list() == ["controlled_SPINNING", None]
+
+
+def test_column_struct_builds_nested_mapping_values():
+    frame = pl.DataFrame({"reserve_names": [["region_SPINNING", "region_REGULATION"]]})
+    spec = TabularProcessing(column_struct={"ext": {"reserves": "reserve_names"}})
+
+    result = process_tabular_data(frame.lazy(), data_file=SimpleNamespace(name="extensions"), proc_spec=spec)
+
+    assert result.collect().to_dicts() == [
+        {
+            "reserve_names": ["region_SPINNING", "region_REGULATION"],
+            "ext": {"reserves": ["region_SPINNING", "region_REGULATION"]},
+        }
+    ]
+
+
+def test_filter_rows_in_rejects_arbitrary_strings():
+    with pytest.raises(ValueError, match="complete placeholder"):
+        ColumnPredicate(column="region", operator="in", value="p1")
 
 
 def test_apply_processing_substitutes_transformation_values(sample_csv: Path):
@@ -1552,3 +1870,125 @@ def test_tabular_column_operations_reject_same_stage_chaining():
         )
     with pytest.raises(ValueError, match="cannot chain through target columns"):
         TabularProcessing(fill_null_from={"left": "middle", "middle": "right"})
+
+
+def test_categorize_uses_placeholder_policy_and_preserves_match_order(sample_csv: Path):
+    processing = TabularProcessing.model_validate(
+        {
+            "categorize": [
+                {
+                    "source_column": "technology",
+                    "categories": "{technology_categories}",
+                    "output_column": "categories",
+                    "primary_category_column": "category",
+                    "flags": {"is_variable": ["wind", "solar"]},
+                }
+            ]
+        }
+    )
+    round_trip = TabularProcessing.model_validate(processing.model_dump())
+    result = apply_processing(
+        pl.LazyFrame({"technology": ["WIND-ons_1", "upv", "unknown", "STRAẞE"]}),
+        data_file=DataFile(name="categorized-generators", fpath=sample_csv),
+        proc_spec=round_trip,
+        placeholders={
+            "technology_categories": {
+                "wind": {"prefixes": ["wind-ons"], "exact": []},
+                "renewable": {"prefixes": ["wind", "upv"], "exact": []},
+                "solar": {"prefixes": ["upv"], "exact": []},
+                "street": {"prefixes": [], "exact": ["Straße"]},
+            }
+        },
+    )
+
+    assert result.is_ok()
+    assert result.ok().collect().to_dicts() == [
+        {
+            "technology": "WIND-ons_1",
+            "categories": ["wind", "renewable"],
+            "category": "wind",
+            "is_variable": True,
+        },
+        {
+            "technology": "upv",
+            "categories": ["renewable", "solar"],
+            "category": "renewable",
+            "is_variable": True,
+        },
+        {"technology": "unknown", "categories": [], "category": None, "is_variable": False},
+        {"technology": "STRAẞE", "categories": ["street"], "category": "street", "is_variable": False},
+    ]
+
+
+def test_categorize_rejects_invalid_or_unresolved_placeholder_policy(sample_csv: Path):
+    proc_spec = TabularProcessing.model_validate(
+        {
+            "categorize": [
+                {
+                    "source_column": "technology",
+                    "categories": "{technology_categories}",
+                    "output_column": "categories",
+                }
+            ]
+        }
+    )
+    data = pl.LazyFrame({"technology": ["wind"]})
+    data_file = DataFile(name="categorized-generators", fpath=sample_csv)
+
+    unresolved = apply_processing(data, data_file=data_file, proc_spec=proc_spec)
+    wrong_type = apply_processing(
+        data,
+        data_file=data_file,
+        proc_spec=proc_spec,
+        placeholders={"technology_categories": {"wind": ["wind"]}},
+    )
+
+    assert unresolved.is_err()
+    assert "Found placeholder '{technology_categories}' but no placeholders provided" in str(unresolved.err())
+    assert wrong_type.is_err()
+    assert "Invalid processing specification after placeholder substitution" in str(wrong_type.err())
+
+
+def test_column_multiply_uses_cast_columns_and_preserves_null_arithmetic(sample_csv: Path):
+    processing = TabularProcessing.model_validate(
+        {
+            "column_schema": {"capacity": "float", "capacity_factor": "float"},
+            "column_multiply": [{"target": "power", "left": "capacity", "right": "capacity_factor"}],
+        }
+    )
+    result = apply_processing(
+        pl.LazyFrame({"capacity": ["100", "200"], "capacity_factor": ["0.25", None]}),
+        data_file=DataFile(name="scaled-profile", fpath=sample_csv),
+        proc_spec=processing,
+    )
+
+    assert result.is_ok()
+    frame = result.ok().collect()
+    assert frame["power"].to_list() == [25.0, None]
+    assert frame.schema["power"] == pl.Float64
+
+
+def test_not_in_filter_uses_configured_set_and_empty_set_is_identity(sample_csv: Path):
+    data = pl.LazyFrame({"technology": ["wind", "coal"]})
+    proc_spec = TabularProcessing(
+        filter_rows=[{"column": "technology", "operator": "not_in", "value": "{excluded}"}]
+    )
+    data_file = DataFile(name="generator-exclusions", fpath=sample_csv)
+
+    excluded = apply_processing(
+        data,
+        data_file=data_file,
+        proc_spec=proc_spec,
+        placeholders={"excluded": ["coal"]},
+    )
+    empty_set = apply_processing(
+        data,
+        data_file=data_file,
+        proc_spec=proc_spec,
+        placeholders={"excluded": []},
+    )
+
+    assert excluded.is_ok()
+    assert excluded.ok().collect()["technology"].to_list() == ["wind"]
+    assert empty_set.is_ok()
+    assert empty_set.ok().collect()["technology"].to_list() == ["wind", "coal"]

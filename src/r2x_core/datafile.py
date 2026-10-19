@@ -11,6 +11,10 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    StrictBool,
+    StrictFloat,
+    StrictInt,
+    StrictStr,
     StringConstraints,
     ValidationError,
     ValidationInfo,
@@ -26,9 +30,22 @@ from .utils.files import resolve_path
 _PLACEHOLDER_PATTERN = re.compile(r"\{[^{}]+\}")
 _ProcessingPlaceholder = Annotated[str, StringConstraints(pattern=r"^\{[^{}]+\}$")]
 _SUPPORTED_AGGREGATIONS = frozenset(
-    {"count", "first", "last", "max", "mean", "median", "min", "n_unique", "std", "sum", "var"}
+    {
+        "count",
+        "first",
+        "last",
+        "max",
+        "mean",
+        "median",
+        "min",
+        "n_unique",
+        "std",
+        "sum",
+        "unique_sorted",
+        "var",
+    }
 )
-_PIVOT_AGGREGATIONS = _SUPPORTED_AGGREGATIONS - {"n_unique", "std", "var"}
+_PIVOT_AGGREGATIONS = _SUPPORTED_AGGREGATIONS - {"n_unique", "std", "unique_sorted", "var"}
 ColumnName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 
@@ -71,6 +88,33 @@ class FileInfo(BaseModel):
     units: Annotated[str | None, Field(description="Units for single-column data")] = None
 
 
+class RequiredColumnValues(BaseModel):
+    """Require configured values to occur in one tabular column."""
+
+    column: ColumnName
+    values: list[StrictBool | StrictInt | StrictFloat | StrictStr | None] | _ProcessingPlaceholder
+    label: Annotated[str | None, StringConstraints(strip_whitespace=True, min_length=1)] = None
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class DataValidation(BaseModel):
+    """Declare simple input-table constraints checked by DataStore."""
+
+    non_empty: StrictBool | None = None
+    required_columns: list[ColumnName] = Field(default_factory=list)
+    required_values: list[RequiredColumnValues] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    @model_validator(mode="after")
+    def validate_constraints(self) -> "DataValidation":
+        """Require unique declared columns."""
+        if len(set(self.required_columns)) != len(self.required_columns):
+            raise ValueError("DataValidation.required_columns cannot contain duplicates")
+        return self
+
+
 class ReaderConfig(BaseModel):
     """Reader configuration for file loading.
 
@@ -101,6 +145,10 @@ class ReaderConfig(BaseModel):
     header_separator: Annotated[
         str, Field(min_length=1, description="Separator used to combine multi-row headers")
     ] = "|"
+    first_column_prefix: Annotated[
+        str | None,
+        Field(min_length=1, description="Optional prefix to remove from the first tabular column name"),
+    ] = None
 
 
 class SplitColumnSpec(BaseModel):
@@ -142,6 +190,165 @@ class SafeDivideSpec(BaseModel):
 
     numerator: ColumnName
     denominator: ColumnName
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class ColumnPredicate(BaseModel):
+    """One typed comparison used by a conditional processing operation.
+
+    The ``in`` operator accepts a literal list or a complete placeholder that
+    resolves to a list. An empty list is valid and matches no rows.
+    """
+
+    column: ColumnName
+    operator: Literal[
+        "eq",
+        "ne",
+        "gt",
+        "ge",
+        "lt",
+        "le",
+        "is_null",
+        "is_not_null",
+        "is_nan",
+        "starts_with",
+        "in",
+        "not_in",
+    ]
+    value: bool | int | float | str | None | list[bool | int | float | str | None] = None
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    @model_validator(mode="after")
+    def validate_value(self) -> "ColumnPredicate":
+        """Require values only for operators that consume them."""
+        if self.operator in {"is_null", "is_not_null", "is_nan"}:
+            if self.value is not None:
+                raise ValueError(f"{self.operator} does not accept a value")
+        elif self.operator in {"in", "not_in"}:
+            if isinstance(self.value, str) and _PLACEHOLDER_PATTERN.fullmatch(self.value):
+                return self
+            if not isinstance(self.value, list):
+                raise ValueError(f"{self.operator} requires a list or complete placeholder")
+        elif isinstance(self.value, list) or (self.operator not in {"eq", "ne"} and self.value is None):
+            raise ValueError(f"{self.operator} requires a scalar value")
+        if self.operator == "starts_with" and not isinstance(self.value, str):
+            raise ValueError("starts_with requires a string value")
+        return self
+
+
+class ColumnAddSpec(BaseModel):
+    """Add two numeric columns into a named output column."""
+
+    target: ColumnName
+    left: ColumnName
+    right: ColumnName
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class ColumnMultiplySpec(BaseModel):
+    """Multiply two numeric columns into a named output column."""
+
+    target: ColumnName
+    left: ColumnName
+    right: ColumnName
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class ColumnConcatSpec(BaseModel):
+    """Concatenate ordered scalar columns into a string output."""
+
+    target: ColumnName
+    columns: Annotated[list[ColumnName], Field(min_length=2)]
+    separator: str = ""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    @model_validator(mode="after")
+    def validate_columns(self) -> "ColumnConcatSpec":
+        """Require distinct inputs and prevent self-referential outputs."""
+        if len(set(self.columns)) != len(self.columns):
+            raise ValueError("column_concat columns must be unique")
+        if self.target in self.columns:
+            raise ValueError("column_concat target cannot also be an input column")
+        return self
+
+
+class ColumnAssignmentSource(BaseModel):
+    """Take a conditional assignment value from another column."""
+
+    kind: Literal["column"]
+    column: ColumnName
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class LiteralAssignmentSource(BaseModel):
+    """Take a conditional assignment value from a literal, including null."""
+
+    kind: Literal["literal"]
+    value: bool | int | float | str | None
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+AssignmentValueSource = Annotated[
+    ColumnAssignmentSource | LiteralAssignmentSource,
+    Field(discriminator="kind"),
+]
+
+
+class ConditionalAssignment(BaseModel):
+    """Set a column from a typed literal or column source when predicates match."""
+
+    column: ColumnName
+    when: Annotated[list[ColumnPredicate], Field(min_length=1)]
+    value_source: AssignmentValueSource
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class CategoryMatchSpec(BaseModel):
+    """Lowercase-normalized exact and prefix values for one string category."""
+
+    prefixes: list[ColumnName] = Field(default_factory=list)
+    exact: list[ColumnName] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class StringCategorizationSpec(BaseModel):
+    """Assign ordered categories using the same lowercase normalization as Polars."""
+
+    source_column: ColumnName
+    categories: dict[ColumnName, CategoryMatchSpec] | _ProcessingPlaceholder
+    output_column: ColumnName
+    primary_category_column: ColumnName | None = None
+    flags: dict[ColumnName, Annotated[list[ColumnName], Field(min_length=1)]] = Field(default_factory=dict)
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    @model_validator(mode="after")
+    def validate_outputs(self) -> "StringCategorizationSpec":
+        """Require distinct generated columns that do not overwrite their input."""
+        output_columns = [self.output_column, *self.flags]
+        if self.primary_category_column is not None:
+            output_columns.append(self.primary_category_column)
+        if len(set(output_columns)) != len(output_columns):
+            raise ValueError("categorization output columns must be unique")
+        if self.source_column in output_columns:
+            raise ValueError("categorization outputs cannot overwrite the source column")
+        return self
+
+
+class RejectRowsSpec(BaseModel):
+    """Fail processing when any row matches the configured predicates."""
+
+    when: Annotated[list[ColumnPredicate], Field(min_length=1)]
+    message: Annotated[str, Field(min_length=1)]
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -190,7 +397,11 @@ class TabularProcessing(BaseModel):
     select_columns : list[str] | None
         List of column names to keep. Removes all other columns.
     drop_columns : list[str] | None
-        List of column names to remove.
+        List of column names to remove before other row transformations.
+    drop_columns_after : list[str] | None
+        List of column names to remove after all other processing.
+    copy_columns : dict[str, str] | None
+        Source-to-output column copies performed before split operations.
     column_mapping : dict[str, str] | None
         Maps original column names to new names.
     column_schema : dict[str, str] | None
@@ -222,11 +433,21 @@ class TabularProcessing(BaseModel):
         Fill null values from a group mean and then an explicit fallback.
     weighted_mean : dict[str, WeightedMeanSpec] | None
         Weighted mean aggregations integrated with aggregate_on and group_by.
+    ensure_null_columns : list[str] | None
+        Columns added with null values when they are absent from the input.
     literal_columns : dict[str, scalar] | None
         Add constant columns after source-column renaming.
     safe_divide : dict[str, SafeDivideSpec] | None
         Add output columns by dividing two numeric columns. Null inputs and
         zero denominators produce null output values.
+    column_add, column_multiply : list[ColumnAddSpec | ColumnMultiplySpec] | None
+        Add or multiply pairs of numeric columns into named outputs.
+    column_concat : list[ColumnConcatSpec] | None
+        Concatenate ordered scalar columns into string outputs.
+    explode_columns : list[str] | None
+        Expand list columns into rows, preserving empty lists as null rows.
+    column_struct : dict[str, dict[str, str]] | None
+        Build typed nested record columns from named source columns.
     lowercase : bool | str
         If True, lowercase column names and string values before processing. A
         complete placeholder may defer the boolean value until processing.
@@ -245,7 +466,17 @@ class TabularProcessing(BaseModel):
     """
 
     select_columns: Annotated[list[str] | None, Field(description="Columns to keep")] = None
-    drop_columns: Annotated[list[str] | None, Field(description="Columns to remove")] = None
+    drop_columns: Annotated[
+        list[str] | None, Field(description="Columns to remove before row transforms")
+    ] = None
+    drop_columns_after: Annotated[
+        list[str] | None,
+        Field(description="Columns to remove after all other processing"),
+    ] = None
+    copy_columns: Annotated[
+        dict[ColumnName, ColumnName] | None,
+        Field(description="Source-to-output column copies before split operations"),
+    ] = None
     column_mapping: Annotated[dict[str, str] | None, Field(description="Column rename mapping")] = None
     column_schema: Annotated[dict[str, str] | None, Field(description="Column type definitions")] = None
     filter_by: Annotated[dict[str, Any] | None, Field(description="Row filters")] = None
@@ -276,9 +507,45 @@ class TabularProcessing(BaseModel):
         dict[ColumnName, bool | int | float | str | None] | None,
         Field(description="Constant columns added after source-column renaming"),
     ] = None
+    ensure_null_columns: Annotated[
+        list[ColumnName] | None,
+        Field(description="Add null values for configured columns absent from the input"),
+    ] = None
     safe_divide: Annotated[
         dict[ColumnName, SafeDivideSpec] | None,
         Field(description="Output columns calculated by safe row-wise division"),
+    ] = None
+    column_add: Annotated[
+        list[ColumnAddSpec] | None,
+        Field(description="Ordered numeric column additions"),
+    ] = None
+    column_multiply: Annotated[
+        list[ColumnMultiplySpec] | None,
+        Field(description="Ordered numeric column multiplications"),
+    ] = None
+    column_concat: Annotated[
+        list[ColumnConcatSpec] | None,
+        Field(description="Ordered string column concatenations"),
+    ] = None
+    conditional_assignments: Annotated[
+        list[ConditionalAssignment] | None,
+        Field(description="Ordered conditional column assignments"),
+    ] = None
+    explode_columns: Annotated[
+        list[ColumnName] | None,
+        Field(description="Expand list columns into rows, preserving empty lists as null rows"),
+    ] = None
+    column_struct: Annotated[
+        dict[ColumnName, dict[ColumnName, ColumnName]] | None,
+        Field(description="Build nested record columns from named source columns"),
+    ] = None
+    reject_rows: Annotated[
+        list[RejectRowsSpec] | None,
+        Field(description="Conditional row validations that fail processing"),
+    ] = None
+    filter_rows: Annotated[
+        list[ColumnPredicate] | None,
+        Field(description="Keep rows matching all configured predicates"),
     ] = None
     lowercase: Annotated[
         bool | _ProcessingPlaceholder,
@@ -293,6 +560,10 @@ class TabularProcessing(BaseModel):
     ] = None
     split_column: Annotated[
         dict[str, SplitColumnSpec] | None, Field(description="Split string columns into named fields")
+    ] = None
+    categorize: Annotated[
+        list[StringCategorizationSpec] | None,
+        Field(description="Assign ordered categories and flags from string columns"),
     ] = None
 
     model_config = ConfigDict(extra="forbid")
@@ -330,10 +601,31 @@ class TabularProcessing(BaseModel):
         if set(self.aggregate_on or ()) & set(self.weighted_mean or ()):
             overlapping = sorted(set(self.aggregate_on or ()) & set(self.weighted_mean or ()))
             raise ValueError(f"columns cannot use both aggregate_on and weighted_mean: {overlapping}")
+        if self.copy_columns:
+            output_columns = list(self.copy_columns.values())
+            if len(set(output_columns)) != len(output_columns):
+                raise ValueError("copy_columns output names must be unique")
+            if any(source == output for source, output in self.copy_columns.items()):
+                raise ValueError("copy_columns source and output names must differ")
         if self.fill_null_by_group:
             columns = [spec.column for spec in self.fill_null_by_group]
             if len(set(columns)) != len(columns):
                 raise ValueError("fill_null_by_group target columns must be unique")
+        if self.ensure_null_columns and len(set(self.ensure_null_columns)) != len(self.ensure_null_columns):
+            raise ValueError("ensure_null_columns must be unique")
+        if self.explode_columns and len(set(self.explode_columns)) != len(self.explode_columns):
+            raise ValueError("explode_columns must be unique")
+        if self.column_struct and any(not fields for fields in self.column_struct.values()):
+            raise ValueError("column_struct fields cannot be empty")
+        if self.column_concat:
+            targets = [spec.target for spec in self.column_concat]
+            if len(set(targets)) != len(targets):
+                raise ValueError("column_concat targets must be unique")
+        if self.drop_columns_after:
+            if any(not column.strip() for column in self.drop_columns_after):
+                raise ValueError("drop_columns_after names cannot be empty")
+            if len(set(self.drop_columns_after)) != len(self.drop_columns_after):
+                raise ValueError("drop_columns_after names must be unique")
         if self.literal_columns and self.column_mapping:
             literal_names = set(self.literal_columns)
             mapped_names = set(self.column_mapping.values())
@@ -515,6 +807,7 @@ class DataFile(BaseModel):
         None
     )
     info: Annotated[FileInfo | None, Field(description="File metadata")] = None
+    validation: Annotated[DataValidation | None, Field(description="Input table constraints")] = None
     reader: Annotated[ReaderConfig | None, Field(description="Reader configuration")] = None
     proc_spec: Annotated[FileProcessing | None, Field(description="Data transformations")] = None
 

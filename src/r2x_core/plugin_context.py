@@ -273,18 +273,19 @@ class PluginContext(Generic[ConfigT]):
             Mapping of source types to list of ConversionOption objects,
             sorted by target type and version.
         """
-        from .rules import ComponentSource, ComponentTarget
+        from .rules import ComponentSource, ComponentTarget, OwnedSupplementalTarget
 
         conversions: dict[str, list[ConversionOption]] = {}
         for rule in self.rules:
             if not isinstance(rule.source, ComponentSource):
                 continue
             source_type = rule.source.component_type
-            target_types = (
-                rule.target.component_types
-                if isinstance(rule.target, ComponentTarget)
-                else (rule.target.attribute_type,)
-            )
+            if isinstance(rule.target, ComponentTarget):
+                target_types = rule.target.component_types
+            elif isinstance(rule.target, OwnedSupplementalTarget):
+                target_types = (rule.target.attribute_type,)
+            else:
+                continue
             for target_type in target_types:
                 conversions.setdefault(source_type, []).append(
                     ConversionOption(target_type=target_type, version=rule.version)

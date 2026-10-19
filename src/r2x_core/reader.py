@@ -23,6 +23,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import polars as pl
 from loguru import logger
 from rust_ok import Ok
 
@@ -96,18 +97,18 @@ class DataReader:
         :func:`~r2x_core.datafile_utils.get_file_path` : Path resolution.
         """
         logger.debug("Starting reading for data_file={}", data_file.name)
-        data_file = self._substitute_path_placeholders(data_file, placeholders=placeholders)
         is_optional = data_file.info.is_optional if data_file.info else False  # By default files are no-opt
-
-        fpath_result = get_fpath(data_file, folder_path=folder_path, info=data_file.info)
-        if fpath_result.is_err():
-            error = fpath_result.err()
-            if isinstance(error, FileNotFoundError) and is_optional:
+        try:
+            data_file, fpath = self.resolve_path(
+                data_file,
+                folder_path=folder_path,
+                placeholders=placeholders,
+            )
+        except FileNotFoundError:
+            if is_optional:
                 logger.info("Skipping optional file: {}", data_file.name)
                 return None
-            raise error
-        assert isinstance(fpath_result, Ok), "Result should be Ok after error check"
-        fpath = fpath_result.value
+            raise
 
         reader = data_file.reader
         reader_kwargs = dict(reader.kwargs) if reader else {}
@@ -120,6 +121,11 @@ class DataReader:
                 data_file.reader,
             )
             raw_data = reader.function(fpath, **reader_kwargs)
+            raw_data = self._strip_first_column_prefix(
+                raw_data,
+                prefix=reader.first_column_prefix,
+                data_file_name=data_file.name,
+            )
             if data_file.proc_spec is not None:
                 processed_data = apply_processing(
                     raw_data,
@@ -159,6 +165,11 @@ class DataReader:
                 logger.debug("Skipping optional file with missing HDF5 group: {}", data_file.name)
                 return None
             raise
+        raw_data = self._strip_first_column_prefix(
+            raw_data,
+            prefix=reader.first_column_prefix if reader is not None else None,
+            data_file_name=data_file.name,
+        )
         if data_file.proc_spec is not None:
             processed_data = apply_processing(
                 raw_data, data_file=data_file, proc_spec=data_file.proc_spec, placeholders=placeholders
@@ -172,7 +183,42 @@ class DataReader:
         return processed_data
 
     @staticmethod
-    def _substitute_path_placeholders(
+    def _strip_first_column_prefix(data: Any, *, prefix: str | None, data_file_name: str) -> Any:
+        """Remove an explicitly configured prefix from a tabular input header."""
+        if prefix is None:
+            return data
+        if not isinstance(data, pl.LazyFrame | pl.DataFrame):
+            raise ValueError(f"first_column_prefix in {data_file_name!r} requires tabular data")
+
+        columns = data.collect_schema().names() if isinstance(data, pl.LazyFrame) else data.columns
+        if not columns or not columns[0].startswith(prefix):
+            return data
+        source_column = columns[0]
+        target_column = source_column.removeprefix(prefix)
+        if not target_column:
+            raise ValueError(f"first_column_prefix in {data_file_name!r} cannot produce an empty column name")
+        if target_column in columns[1:]:
+            raise ValueError(
+                f"first_column_prefix in {data_file_name!r} would duplicate column {target_column!r}"
+            )
+        return data.rename({source_column: target_column})
+
+    def resolve_path(
+        self,
+        data_file: DataFile,
+        *,
+        folder_path: Path,
+        placeholders: dict[str, Any] | None = None,
+    ) -> tuple[DataFile, Path]:
+        """Resolve a data file's path after applying the reader's placeholders."""
+        substituted = self.substitute_path_placeholders(data_file, placeholders=placeholders)
+        result = get_fpath(substituted, folder_path=folder_path, info=substituted.info)
+        if result.is_err():
+            raise result.err()
+        return substituted, result.unwrap()
+
+    @staticmethod
+    def substitute_path_placeholders(
         data_file: DataFile,
         *,
         placeholders: dict[str, Any] | None,

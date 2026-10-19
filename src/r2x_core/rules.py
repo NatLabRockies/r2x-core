@@ -3,9 +3,20 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from datetime import datetime
 from typing import Annotated, Any, Literal, Protocol, Self, TypeAlias
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, TypeAdapter, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictInt,
+    StringConstraints,
+    TypeAdapter,
+    field_validator,
+    model_validator,
+)
 from rust_ok import Result
 
 from .plugin_context import PluginContext
@@ -186,7 +197,73 @@ class OwnedSupplementalTarget(BaseModel):
         return self
 
 
-RuleTarget: TypeAlias = Annotated[ComponentTarget | OwnedSupplementalTarget, Field(discriminator="kind")]
+class TimeSeriesTarget(BaseModel):
+    """Attach one ordered numeric series to explicitly matched System owners."""
+
+    kind: Literal["time_series"] = "time_series"
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    owner_type: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    owner_field: str | None = None
+    owner_match: dict[str, str] = Field(default_factory=dict)
+    nulls_equal: StrictBool = False
+    missing_owner: Literal["error", "skip"] = "error"
+    ambiguous_owner: Literal["error", "first"] = "error"
+    hour_column: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    value_column: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    value_dtype: Literal["float32", "float64"] = "float64"
+    initial_timestamp: datetime | None = None
+    initial_timestamp_column: (
+        Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)] | None
+    ) = None
+    resolution_seconds: StrictInt = Field(gt=0)
+    metadata_columns: dict[
+        Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)],
+        Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)],
+    ] = Field(default_factory=dict)
+    expected_samples: StrictInt | None = Field(default=None, gt=0)
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    @model_validator(mode="after")
+    def validate_target(self) -> TimeSeriesTarget:
+        """Require one owner key and an explicit timestamp source."""
+        if (self.owner_field is None) == (not self.owner_match):
+            raise ValueError("Configure exactly one of owner_field or owner_match")
+        if self.owner_field is not None and (
+            not self.owner_field or self.owner_field != self.owner_field.strip()
+        ):
+            raise ValueError("TimeSeriesTarget.owner_field must be non-empty and trimmed")
+        if any(
+            not source or source != source.strip() or not target or target != target.strip()
+            for source, target in self.owner_match.items()
+        ):
+            raise ValueError("TimeSeriesTarget owner-match fields must be non-empty and trimmed")
+        if (self.initial_timestamp is None) == (self.initial_timestamp_column is None):
+            raise ValueError("Configure exactly one of initial_timestamp or initial_timestamp_column")
+        source_columns = [
+            *self.owner_match,
+            *self.metadata_columns.values(),
+            self.hour_column,
+            self.value_column,
+        ]
+        if self.owner_field is not None:
+            source_columns.append(self.owner_field)
+        if self.initial_timestamp_column is not None:
+            source_columns.append(self.initial_timestamp_column)
+        if len(set(source_columns)) != len(source_columns):
+            raise ValueError("TimeSeriesTarget source columns must be unique")
+        reserved_features = {"name", "time_series_type", "context"}
+        collisions = sorted(reserved_features & self.metadata_columns.keys())
+        if collisions:
+            raise ValueError(f"TimeSeriesTarget.metadata_columns uses reserved key(s): {collisions}")
+        return self
+
+
+RuleTarget: TypeAlias = Annotated[
+    ComponentTarget | OwnedSupplementalTarget | TimeSeriesTarget,
+    Field(discriminator="kind"),
+]
+OwnerTarget: TypeAlias = OwnedSupplementalTarget | TimeSeriesTarget
 
 
 class SupplementalAttributeRule(BaseModel):
@@ -274,7 +351,11 @@ class RuleMapping(BaseModel):
             if len(self.target.component_types) > 1 and self.supplemental_attributes:
                 raise ValueError("Rules with nested supplemental outputs require exactly one primary target")
         elif self.supplemental_attributes:
-            raise ValueError("Owned supplemental targets cannot also declare nested supplemental outputs")
+            raise ValueError("Non-component targets cannot also declare nested supplemental outputs")
+        if isinstance(self.target, TimeSeriesTarget) and (
+            self.field_map or self.getters or self.defaults or self.supplemental_attributes
+        ):
+            raise ValueError("TimeSeriesTarget rules cannot declare component field mappings")
         return self
 
     @classmethod
@@ -389,9 +470,18 @@ class Rule(RuleMapping):
     """One mapping rule with an explicit source and output target."""
 
     source: RuleSource
+    mapping_ref: str | None = None
     depends_on: tuple[str, ...] = ()
 
     model_config = ConfigDict(extra="forbid", frozen=True, arbitrary_types_allowed=True)
+
+    @field_validator("mapping_ref")
+    @classmethod
+    def validate_mapping_ref(cls, value: str | None) -> str | None:
+        """Require a trimmed optional shared mapping name."""
+        if value is not None and (not value or value != value.strip()):
+            raise ValueError("Rule.mapping_ref must be non-empty and trimmed")
+        return value
 
     @field_validator("depends_on")
     @classmethod
@@ -403,6 +493,17 @@ class Rule(RuleMapping):
             raise ValueError("Rule.depends_on cannot contain duplicates")
         return names
 
+    @model_validator(mode="after")
+    def validate_rule(self) -> Rule:
+        """Require series sources and keep referenced mappings unambiguous."""
+        if isinstance(self.target, TimeSeriesTarget) and not isinstance(self.source, DatasetSource):
+            raise ValueError("TimeSeriesTarget requires a DatasetSource")
+        if self.mapping_ref is not None and (
+            self.field_map or self.getters or self.defaults or self.filter or self.supplemental_attributes
+        ):
+            raise ValueError("A Rule with mapping_ref cannot also declare mapping fields")
+        return self
+
     def __str__(self) -> str:
         """Represent the rule's declared source and target."""
         source_name = (
@@ -413,6 +514,8 @@ class Rule(RuleMapping):
         target_name = (
             ",".join(self.target.component_types)
             if isinstance(self.target, ComponentTarget)
+            else self.target.owner_type
+            if isinstance(self.target, TimeSeriesTarget)
             else self.target.attribute_type
         )
         return f"{source_name}->{target_name}(v{self.version})"
@@ -422,22 +525,31 @@ class Rule(RuleMapping):
         target_key = (
             ("component", self.target.component_types)
             if isinstance(self.target, ComponentTarget)
+            else ("time_series", self.target.name, self.target.owner_type)
+            if isinstance(self.target, TimeSeriesTarget)
             else ("owned_supplemental", self.target.attribute_type, self.target.owner_type)
         )
-        return hash((self.source.kind, self.source.model_dump_json(), target_key, self.version))
+        return hash(
+            (self.source.kind, self.source.model_dump_json(), target_key, self.version, self.mapping_ref)
+        )
 
     def __eq__(self, other: object) -> bool:
         """Compare rules by their source, target, and version."""
         if not isinstance(other, Rule):
             return NotImplemented
-        return self.source == other.source and self.target == other.target and self.version == other.version
+        return (
+            self.source == other.source
+            and self.target == other.target
+            and self.version == other.version
+            and self.mapping_ref == other.mapping_ref
+        )
 
 
 class RuleStage(BaseModel):
     """An explicitly ordered set of named executable Rules."""
 
     name: str = Field(min_length=1)
-    rules: tuple[str, ...] = Field(min_length=1)
+    rules: tuple[str, ...] = ()
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 

@@ -6,7 +6,7 @@ organized by data type (Polars LazyFrame for tabular, dict for JSON) with a
 registration system allowing custom transformations.
 
 Pipeline architecture:
-- Tabular: optional lowercase -> drop -> reshape-aware transforms -> aggregate -> distinct -> sort -> select
+- Tabular: optional lowercase -> drop -> copy -> reshape-aware transforms -> aggregate -> distinct -> sort -> select
 - JSON: rename_keys -> drop_columns -> select_columns -> filter -> select_keys
 
 Tabular operation order is fixed and depends on whether ``unpivot_on`` is set.
@@ -40,7 +40,15 @@ from rust_ok import Err, Ok, Result
 
 from r2x_core.types import JSONType
 
-from .datafile import FileProcessing, JSONProcessing, TabularProcessing, UnpivotAllExcept
+from .datafile import (
+    ColumnAssignmentSource,
+    ColumnPredicate,
+    FileProcessing,
+    JSONProcessing,
+    LiteralAssignmentSource,
+    TabularProcessing,
+    UnpivotAllExcept,
+)
 from .exceptions import ValidationError
 
 # Regex to find simple placeholders
@@ -199,13 +207,14 @@ def process_tabular_data(
 
     Execute the reshape-aware pipeline declared in ``TabularProcessing``.
 
-    Lowercasing is optional. With ``unpivot_on``, operations run in this order:
-    lowercase, drop, unpivot, split, replace, strip, rename, add literals, cast,
-    scale, safe divide, column fill, grouped fallback fill, scalar fill, filter,
-    aggregate, deduplicate, sort, and select. Without ``unpivot_on``, split,
-    rename, add literals, replace, strip, cast, scale, safe divide, column fill,
-    grouped fallback fill, scalar fill, and filter run before an optional
-    long-to-wide ``pivot_on``. Aggregation follows reshaping.
+    Lowercasing is optional. Column copies run after drops and before reshape. With
+    ``unpivot_on``, operations run in this order: lowercase, drop, copy, unpivot,
+    split, categorize, explode, replace, strip, rename, add literals, nullable-column defaults, cast,
+    scale, safe divide, column fill, grouped fallback fill, scalar fill, column
+    addition and multiplication, conditional assignment, typed row filtering,
+    nested-record construction, row validation, and aggregation.
+    Without ``unpivot_on``, the same operations run before an optional
+    long-to-wide ``pivot_on``. Deduplication, sorting, and selection follow.
 
     Column names are tracked between steps so transformations stay lazy. Schema
     inspection is used only for validation and for operations whose output
@@ -229,19 +238,23 @@ def process_tabular_data(
     --------
     :func:`pl_lowercase` : Lowercase string columns and column names.
     :func:`pl_drop_columns` : Remove specified columns.
+    :func:`pl_copy_columns` : Copy source columns before later transforms.
     :func:`pl_rename_columns` : Apply column name mapping.
     """
     schema_names = list(data_frame.collect_schema().names())
-    common_steps = [pl_lowercase, pl_drop_columns]
+    common_steps = [pl_lowercase, pl_drop_columns, pl_copy_columns]
     if proc_spec.unpivot_on is not None:
         pipeline = [
             *common_steps,
             pl_unpivot_on,
             pl_split_columns,
+            pl_categorize,
+            pl_explode_columns,
             pl_replace_values,
             pl_strip_chars,
             pl_rename_columns,
             pl_add_literal_columns,
+            pl_ensure_null_columns,
             pl_cast_schema,
             pl_scale,
             pl_safe_divide,
@@ -249,13 +262,23 @@ def process_tabular_data(
             pl_fill_null_by_group,
             pl_fill_null,
             pl_apply_filters,
+            pl_add_columns,
+            pl_multiply_columns,
+            pl_concat_columns,
+            pl_conditional_assignments,
+            pl_filter_rows,
+            pl_column_struct,
+            pl_reject_rows,
         ]
     else:
         pipeline = [
             *common_steps,
             pl_split_columns,
+            pl_categorize,
+            pl_explode_columns,
             pl_rename_columns,
             pl_add_literal_columns,
+            pl_ensure_null_columns,
             pl_replace_values,
             pl_strip_chars,
             pl_cast_schema,
@@ -265,9 +288,16 @@ def process_tabular_data(
             pl_fill_null_by_group,
             pl_fill_null,
             pl_apply_filters,
+            pl_add_columns,
+            pl_multiply_columns,
+            pl_concat_columns,
+            pl_conditional_assignments,
+            pl_filter_rows,
+            pl_column_struct,
+            pl_reject_rows,
             pl_pivot_on,
         ]
-    pipeline.extend([pl_aggregate, pl_distinct, pl_sort, pl_select_columns])
+    pipeline.extend([pl_aggregate, pl_distinct, pl_sort, pl_select_columns, pl_drop_columns_after])
 
     for transform in pipeline:
         result = transform(data_frame, data_file=data_file, proc_spec=proc_spec, schema_names=schema_names)
@@ -480,6 +510,106 @@ def pl_split_columns(
             for name in (split_spec.into if existing == column else [existing])
         ]
     return result, current_names
+
+
+def pl_categorize(
+    data_frame: pl.LazyFrame,
+    *,
+    data_file: ProcessingContext,
+    proc_spec: TabularProcessing,
+    schema_names: list[str] | None = None,
+) -> tuple[pl.LazyFrame, list[str]]:
+    """Assign ordered string categories and configured boolean membership flags."""
+    if schema_names is None:
+        schema_names = list(data_frame.collect_schema().names())
+    if not proc_spec or not proc_spec.categorize:
+        return data_frame, schema_names
+
+    for specification in proc_spec.categorize:
+        _require_columns(
+            schema_names,
+            [specification.source_column],
+            operation="categorize",
+            data_file=data_file,
+        )
+        categories = specification.categories
+        if not isinstance(categories, dict):
+            raise ValueError(f"categorize in {data_file.name!r} requires a resolved category mapping")
+        missing_flags = sorted(
+            {category for selected in specification.flags.values() for category in selected} - set(categories)
+        )
+        if missing_flags:
+            raise ValueError(
+                f"categorize in {data_file.name!r} references unknown flag categories: {missing_flags}"
+            )
+        outputs = [specification.output_column, *specification.flags]
+        if specification.primary_category_column is not None:
+            outputs.append(specification.primary_category_column)
+        collisions = sorted(set(outputs) & set(schema_names))
+        if collisions:
+            raise ValueError(f"categorize in {data_file.name!r} would overwrite columns: {collisions}")
+
+        normalized = pl.col(specification.source_column).cast(pl.String).str.to_lowercase()
+        category_expressions: list[pl.Expr] = []
+        for category_name, match_spec in categories.items():
+            predicates: list[pl.Expr] = []
+            if match_spec.exact:
+                predicates.append(normalized.is_in([value.lower() for value in match_spec.exact]))
+            predicates.extend(normalized.str.starts_with(prefix.lower()) for prefix in match_spec.prefixes)
+            match_expression = pl.any_horizontal(predicates) if predicates else pl.lit(False)
+            category_expressions.append(
+                pl.when(match_expression)
+                .then(pl.lit(category_name, dtype=pl.String))
+                .otherwise(pl.lit(None, dtype=pl.String))
+            )
+
+        categories_expression = (
+            pl.concat_list(category_expressions).list.drop_nulls()
+            if category_expressions
+            else pl.lit([], dtype=pl.List(pl.String))
+        )
+        data_frame = data_frame.with_columns(categories_expression.alias(specification.output_column))
+        schema_names.append(specification.output_column)
+        derived: list[pl.Expr] = []
+        if specification.primary_category_column is not None:
+            derived.append(
+                pl.col(specification.output_column).list.first().alias(specification.primary_category_column)
+            )
+            schema_names.append(specification.primary_category_column)
+        for output_column, selected_categories in specification.flags.items():
+            membership = [
+                pl.col(specification.output_column).list.contains(category)
+                for category in selected_categories
+            ]
+            derived.append(pl.any_horizontal(membership).alias(output_column))
+            schema_names.append(output_column)
+        if derived:
+            data_frame = data_frame.with_columns(derived)
+
+    return data_frame, schema_names
+
+
+def pl_explode_columns(
+    data_frame: pl.LazyFrame,
+    *,
+    data_file: ProcessingContext,
+    proc_spec: TabularProcessing,
+    schema_names: list[str] | None = None,
+) -> tuple[pl.LazyFrame, list[str]]:
+    """Expand configured List columns into rows, retaining empty lists as null rows."""
+    if schema_names is None:
+        schema_names = list(data_frame.collect_schema().names())
+    if not proc_spec or not proc_spec.explode_columns:
+        return data_frame, schema_names
+
+    _require_columns(
+        schema_names, proc_spec.explode_columns, operation="explode_columns", data_file=data_file
+    )
+    schema = data_frame.collect_schema()
+    invalid = [column for column in proc_spec.explode_columns if schema[column].base_type() is not pl.List]
+    if invalid:
+        raise ValueError(f"explode_columns in {data_file.name!r} requires List columns: {invalid}")
+    return data_frame.explode(proc_spec.explode_columns), schema_names
 
 
 def pl_strip_chars(
@@ -767,6 +897,250 @@ def pl_fill_null(
     return data_frame.with_columns(expressions), schema_names
 
 
+def _predicate_expression(
+    predicate: ColumnPredicate,
+    *,
+    data_file: ProcessingContext,
+    schema_names: list[str],
+) -> pl.Expr:
+    """Build a null-safe predicate from a validated comparison spec."""
+    _require_columns(schema_names, [predicate.column], operation="conditional predicate", data_file=data_file)
+    expression = pl.col(predicate.column)
+    value = predicate.value
+    match predicate.operator:
+        case "eq":
+            condition = expression.is_null() if value is None else expression == pl.lit(value)
+        case "ne":
+            condition = expression.is_not_null() if value is None else expression != pl.lit(value)
+        case "gt":
+            condition = expression > pl.lit(value)
+        case "ge":
+            condition = expression >= pl.lit(value)
+        case "lt":
+            condition = expression < pl.lit(value)
+        case "le":
+            condition = expression <= pl.lit(value)
+        case "is_null":
+            condition = expression.is_null()
+        case "is_not_null":
+            condition = expression.is_not_null()
+        case "is_nan":
+            condition = expression.is_nan()
+        case "starts_with":
+            if not isinstance(value, str):
+                raise ValueError(f"starts_with in {data_file.name!r} requires a string value")
+            condition = expression.str.starts_with(value)
+        case "in" | "not_in":
+            if not isinstance(value, list):
+                raise ValueError(f"{predicate.operator} in {data_file.name!r} requires a list value")
+            condition = expression.is_in(value)
+            if predicate.operator == "not_in":
+                condition = ~condition
+    return condition.fill_null(False)
+
+
+def pl_add_columns(
+    data_frame: pl.LazyFrame,
+    *,
+    data_file: ProcessingContext,
+    proc_spec: TabularProcessing,
+    schema_names: list[str] | None = None,
+) -> tuple[pl.LazyFrame, list[str]]:
+    """Add configured numeric columns in sequence, preserving null arithmetic."""
+    if schema_names is None:
+        schema_names = list(data_frame.collect_schema().names())
+    if not proc_spec or not proc_spec.column_add:
+        return data_frame, schema_names
+
+    for specification in proc_spec.column_add:
+        _require_columns(
+            schema_names,
+            [specification.left, specification.right],
+            operation="column_add",
+            data_file=data_file,
+        )
+        schema = data_frame.collect_schema()
+        invalid = {
+            column: schema[column]
+            for column in (specification.left, specification.right)
+            if schema[column] != pl.Null and not schema[column].is_numeric()
+        }
+        if invalid:
+            raise ValueError(f"column_add in {data_file.name!r} requires numeric inputs: {invalid}")
+        data_frame = data_frame.with_columns(
+            (pl.col(specification.left) + pl.col(specification.right)).alias(specification.target)
+        )
+        if specification.target not in schema_names:
+            schema_names.append(specification.target)
+    return data_frame, schema_names
+
+
+def pl_multiply_columns(
+    data_frame: pl.LazyFrame,
+    *,
+    data_file: ProcessingContext,
+    proc_spec: TabularProcessing,
+    schema_names: list[str] | None = None,
+) -> tuple[pl.LazyFrame, list[str]]:
+    """Multiply configured numeric columns in order, preserving null arithmetic."""
+    if schema_names is None:
+        schema_names = list(data_frame.collect_schema().names())
+    if not proc_spec or not proc_spec.column_multiply:
+        return data_frame, schema_names
+
+    for specification in proc_spec.column_multiply:
+        _require_columns(
+            schema_names,
+            [specification.left, specification.right],
+            operation="column_multiply",
+            data_file=data_file,
+        )
+        schema = data_frame.collect_schema()
+        invalid = {
+            column: schema[column]
+            for column in (specification.left, specification.right)
+            if schema[column] != pl.Null and not schema[column].is_numeric()
+        }
+        if invalid:
+            raise ValueError(f"column_multiply in {data_file.name!r} requires numeric inputs: {invalid}")
+        data_frame = data_frame.with_columns(
+            (pl.col(specification.left) * pl.col(specification.right)).alias(specification.target)
+        )
+        if specification.target not in schema_names:
+            schema_names.append(specification.target)
+    return data_frame, schema_names
+
+
+def pl_concat_columns(
+    data_frame: pl.LazyFrame,
+    *,
+    data_file: ProcessingContext,
+    proc_spec: TabularProcessing,
+    schema_names: list[str] | None = None,
+) -> tuple[pl.LazyFrame, list[str]]:
+    """Concatenate configured scalar columns into strings, preserving nulls."""
+    if schema_names is None:
+        schema_names = list(data_frame.collect_schema().names())
+    if not proc_spec or not proc_spec.column_concat:
+        return data_frame, schema_names
+
+    for specification in proc_spec.column_concat:
+        _require_columns(
+            schema_names,
+            specification.columns,
+            operation="column_concat",
+            data_file=data_file,
+        )
+        if specification.target in schema_names:
+            raise ValueError(
+                f"column_concat in {data_file.name!r} would overwrite column {specification.target!r}"
+            )
+        data_frame = data_frame.with_columns(
+            pl.concat_str(
+                [pl.col(column) for column in specification.columns],
+                separator=specification.separator,
+                ignore_nulls=False,
+            ).alias(specification.target)
+        )
+        schema_names.append(specification.target)
+    return data_frame, schema_names
+
+
+def pl_conditional_assignments(
+    data_frame: pl.LazyFrame,
+    *,
+    data_file: ProcessingContext,
+    proc_spec: TabularProcessing,
+    schema_names: list[str] | None = None,
+) -> tuple[pl.LazyFrame, list[str]]:
+    """Apply ordered conditional column assignments, retaining prior values otherwise."""
+    if schema_names is None:
+        schema_names = list(data_frame.collect_schema().names())
+    if not proc_spec or not proc_spec.conditional_assignments:
+        return data_frame, schema_names
+
+    for assignment in proc_spec.conditional_assignments:
+        required = [predicate.column for predicate in assignment.when]
+        value_source = assignment.value_source
+        if isinstance(value_source, ColumnAssignmentSource):
+            required.append(value_source.column)
+        _require_columns(schema_names, required, operation="conditional_assignments", data_file=data_file)
+        conditions = [
+            _predicate_expression(predicate, data_file=data_file, schema_names=schema_names)
+            for predicate in assignment.when
+        ]
+        predicate = pl.all_horizontal(conditions).fill_null(False)
+        if isinstance(value_source, ColumnAssignmentSource):
+            value = pl.col(value_source.column)
+        elif isinstance(value_source, LiteralAssignmentSource):
+            value = pl.lit(value_source.value)
+        else:
+            raise TypeError(f"Unsupported conditional assignment source: {type(value_source).__name__}")
+        otherwise = pl.col(assignment.column) if assignment.column in schema_names else pl.lit(None)
+        data_frame = data_frame.with_columns(
+            pl.when(predicate).then(value).otherwise(otherwise).alias(assignment.column)
+        )
+        if assignment.column not in schema_names:
+            schema_names.append(assignment.column)
+    return data_frame, schema_names
+
+
+def pl_column_struct(
+    data_frame: pl.LazyFrame,
+    *,
+    data_file: ProcessingContext,
+    proc_spec: TabularProcessing,
+    schema_names: list[str] | None = None,
+) -> tuple[pl.LazyFrame, list[str]]:
+    """Build nested record-valued columns from explicitly mapped source columns."""
+    if schema_names is None:
+        schema_names = list(data_frame.collect_schema().names())
+    if not proc_spec or not proc_spec.column_struct:
+        return data_frame, schema_names
+
+    collisions = sorted(set(proc_spec.column_struct) & set(schema_names))
+    if collisions:
+        raise ValueError(f"column_struct in {data_file.name!r} would overwrite columns: {collisions}")
+    required = [source for fields in proc_spec.column_struct.values() for source in fields.values()]
+    _require_columns(schema_names, required, operation="column_struct", data_file=data_file)
+    expressions = [
+        pl.struct([pl.col(source).alias(field) for field, source in fields.items()]).alias(target)
+        for target, fields in proc_spec.column_struct.items()
+    ]
+    return data_frame.with_columns(expressions), [*schema_names, *proc_spec.column_struct]
+
+
+def pl_reject_rows(
+    data_frame: pl.LazyFrame,
+    *,
+    data_file: ProcessingContext,
+    proc_spec: TabularProcessing,
+    schema_names: list[str] | None = None,
+) -> tuple[pl.LazyFrame, list[str]]:
+    """Reject rows matching configured conditions before aggregation."""
+    if schema_names is None:
+        schema_names = list(data_frame.collect_schema().names())
+    if not proc_spec or not proc_spec.reject_rows:
+        return data_frame, schema_names
+
+    for validation in proc_spec.reject_rows:
+        conditions = [
+            _predicate_expression(predicate, data_file=data_file, schema_names=schema_names)
+            for predicate in validation.when
+        ]
+        matches = (
+            data_frame.filter(pl.all_horizontal(conditions).fill_null(False))
+            .select(pl.len())
+            .collect()
+            .item()
+        )
+        if matches:
+            raise ValueError(
+                f"reject_rows in {data_file.name!r}: {validation.message} ({matches} matching row(s))"
+            )
+    return data_frame, schema_names
+
+
 def _aggregate_expression(column: str, function: str) -> pl.Expr:
     """Build a Polars aggregation expression from a validated function name."""
     expression = pl.col(column)
@@ -781,9 +1155,32 @@ def _aggregate_expression(column: str, function: str) -> pl.Expr:
         "n_unique": expression.n_unique,
         "std": expression.std,
         "sum": expression.sum,
+        "unique_sorted": lambda: expression.unique().sort(),
         "var": expression.var,
     }
     return operations[function.lower()]().alias(column)
+
+
+def pl_ensure_null_columns(
+    data_frame: pl.LazyFrame,
+    *,
+    data_file: ProcessingContext,
+    proc_spec: TabularProcessing,
+    schema_names: list[str] | None = None,
+) -> tuple[pl.LazyFrame, list[str]]:
+    """Add explicitly configured null-valued columns that are absent."""
+    if schema_names is None:
+        schema_names = list(data_frame.collect_schema().names())
+    if not proc_spec or not proc_spec.ensure_null_columns:
+        return data_frame, schema_names
+
+    missing = [column for column in proc_spec.ensure_null_columns if column not in schema_names]
+    if not missing:
+        return data_frame, schema_names
+    return data_frame.with_columns(pl.lit(None).alias(column) for column in missing), [
+        *schema_names,
+        *missing,
+    ]
 
 
 def pl_aggregate(
@@ -966,6 +1363,33 @@ def pl_drop_columns(
     return data_frame.drop(existing_cols), new_names
 
 
+def pl_copy_columns(
+    data_frame: pl.LazyFrame,
+    *,
+    data_file: ProcessingContext,
+    proc_spec: TabularProcessing,
+    schema_names: list[str] | None = None,
+) -> tuple[pl.LazyFrame, list[str]]:
+    """Copy configured source columns before later transformations."""
+    if schema_names is None:
+        schema_names = list(data_frame.collect_schema().names())
+    if not proc_spec or not proc_spec.copy_columns:
+        return data_frame, schema_names
+
+    sources = list(proc_spec.copy_columns)
+    missing = sorted(set(sources) - set(schema_names))
+    if missing:
+        raise ValueError(f"copy_columns in {data_file.name!r} references missing source column(s): {missing}")
+    outputs = list(proc_spec.copy_columns.values())
+    collisions = sorted(set(outputs) & set(schema_names))
+    if collisions:
+        raise ValueError(
+            f"copy_columns in {data_file.name!r} would overwrite existing column(s): {collisions}"
+        )
+    expressions = [pl.col(source).alias(output) for source, output in proc_spec.copy_columns.items()]
+    return data_frame.with_columns(expressions), [*schema_names, *outputs]
+
+
 def pl_add_literal_columns(
     data_frame: pl.LazyFrame,
     *,
@@ -1065,6 +1489,26 @@ def pl_apply_filters(
     return data_frame.filter(combined_filter), schema_names
 
 
+def pl_filter_rows(
+    data_frame: pl.LazyFrame,
+    *,
+    data_file: ProcessingContext,
+    proc_spec: TabularProcessing,
+    schema_names: list[str] | None = None,
+) -> tuple[pl.LazyFrame, list[str]]:
+    """Keep rows matching all configured typed predicates."""
+    if schema_names is None:
+        schema_names = list(data_frame.collect_schema().names())
+    if not proc_spec or not proc_spec.filter_rows:
+        return data_frame, schema_names
+
+    conditions = [
+        _predicate_expression(predicate, data_file=data_file, schema_names=schema_names)
+        for predicate in proc_spec.filter_rows
+    ]
+    return data_frame.filter(pl.all_horizontal(conditions).fill_null(False)), schema_names
+
+
 def pl_select_columns(
     data_frame: pl.LazyFrame,
     *,
@@ -1086,6 +1530,31 @@ def pl_select_columns(
 
     logger.trace("Selecting {} columns from {}", len(cols_to_select), data_file.name)
     return data_frame.select(cols_to_select), cols_to_select
+
+
+def pl_drop_columns_after(
+    data_frame: pl.LazyFrame,
+    *,
+    data_file: ProcessingContext,
+    proc_spec: TabularProcessing,
+    schema_names: list[str] | None = None,
+) -> tuple[pl.LazyFrame, list[str]]:
+    """Drop configured intermediate columns after all other processing."""
+    if schema_names is None:
+        schema_names = list(data_frame.collect_schema().names())
+    if not proc_spec or not proc_spec.drop_columns_after:
+        return data_frame, schema_names
+
+    _require_columns(
+        schema_names,
+        proc_spec.drop_columns_after,
+        operation="drop_columns_after",
+        data_file=data_file,
+    )
+    dropped = set(proc_spec.drop_columns_after)
+    return data_frame.drop(proc_spec.drop_columns_after), [
+        column for column in schema_names if column not in dropped
+    ]
 
 
 def json_rename_keys(

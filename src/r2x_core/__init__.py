@@ -25,13 +25,25 @@ __version__ = version("r2x_core")
 # ── Eager for IDEs / type checkers (dead code at runtime) ──────────
 if TYPE_CHECKING:
     from .datafile import (
+        CategoryMatchSpec,
+        ColumnAddSpec,
+        ColumnAssignmentSource,
+        ColumnConcatSpec,
+        ColumnMultiplySpec,
+        ColumnPredicate,
+        ConditionalAssignment,
         DataFile,
+        DataValidation,
         FileInfo,
         GroupedFillSpec,
         JSONProcessing,
+        LiteralAssignmentSource,
         ReaderConfig,
+        RejectRowsSpec,
+        RequiredColumnValues,
         SafeDivideSpec,
         SplitColumnSpec,
+        StringCategorizationSpec,
         TabularProcessing,
         UnpivotAllExcept,
         WeightedMeanSpec,
@@ -45,11 +57,20 @@ if TYPE_CHECKING:
     )
     from .file_types import FileFormat, H5Format
     from .getters import getter, resolve_getter
+    from .grid import expand_keyed_grid
     from .plugin_base import Plugin
     from .plugin_config import PluginConfig, PluginConfigAsset
     from .plugin_context import PluginContext
     from .plugin_expose import expose_plugin
-    from .prepared_tables import FileMapping, PreparedTable, PreparedTableError, SelectFirst, TableJoin
+    from .prepared_tables import (
+        AsOfJoinSpec,
+        FileMapping,
+        PreparedTable,
+        PreparedTableError,
+        SelectFirst,
+        TableJoin,
+        prepare_table_frames,
+    )
     from .reader import DataReader
     from .result import RuleResult, TranslationResult
     from .rules import (
@@ -66,6 +87,7 @@ if TYPE_CHECKING:
         RuleStage,
         SelectedMappingRoute,
         SupplementalAttributeRule,
+        TimeSeriesTarget,
     )
     from .rules_executor import (
         RuleExecutionError,
@@ -76,6 +98,14 @@ if TYPE_CHECKING:
         attach_rule_outputs,
         build_rule_outputs,
         resolve_supplemental_class,
+    )
+    from .sources import (
+        CalendarSource,
+        ConfigRecordsSource,
+        FirstPresentSource,
+        SystemFieldProjection,
+        SystemFrameSource,
+        TimeSeriesProjection,
     )
     from .store import DataStore
     from .system import System
@@ -98,13 +128,25 @@ if TYPE_CHECKING:
 
 # ── Lazy at runtime ─────────────────────────────────────────────────
 _LAZY_IMPORTS: dict[str, str] = {
+    "ColumnAddSpec": ".datafile",
+    "ColumnAssignmentSource": ".datafile",
+    "ColumnConcatSpec": ".datafile",
+    "ColumnMultiplySpec": ".datafile",
+    "ColumnPredicate": ".datafile",
+    "CategoryMatchSpec": ".datafile",
+    "ConditionalAssignment": ".datafile",
     "DataFile": ".datafile",
+    "DataValidation": ".datafile",
     "FileInfo": ".datafile",
     "GroupedFillSpec": ".datafile",
     "JSONProcessing": ".datafile",
+    "LiteralAssignmentSource": ".datafile",
     "ReaderConfig": ".datafile",
+    "RejectRowsSpec": ".datafile",
+    "RequiredColumnValues": ".datafile",
     "SafeDivideSpec": ".datafile",
     "SplitColumnSpec": ".datafile",
+    "StringCategorizationSpec": ".datafile",
     "TabularProcessing": ".datafile",
     "UnpivotAllExcept": ".datafile",
     "WeightedMeanSpec": ".datafile",
@@ -115,17 +157,20 @@ _LAZY_IMPORTS: dict[str, str] = {
     "ValidationError": ".exceptions",
     "FileFormat": ".file_types",
     "H5Format": ".file_types",
+    "expand_keyed_grid": ".grid",
     "getter": ".getters",
     "resolve_getter": ".getters",
     "Plugin": ".plugin_base",
     "PluginConfig": ".plugin_config",
     "PluginConfigAsset": ".plugin_config",
     "PluginContext": ".plugin_context",
+    "AsOfJoinSpec": ".prepared_tables",
     "FileMapping": ".prepared_tables",
     "PreparedTable": ".prepared_tables",
     "PreparedTableError": ".prepared_tables",
     "SelectFirst": ".prepared_tables",
     "TableJoin": ".prepared_tables",
+    "prepare_table_frames": ".prepared_tables",
     "expose_plugin": ".plugin_expose",
     "ProvenanceBuilder": ".provenance",
     "ProvenanceInfo": ".provenance",
@@ -148,12 +193,19 @@ _LAZY_IMPORTS: dict[str, str] = {
     "RuleStage": ".rules",
     "SelectedMappingRoute": ".rules",
     "SupplementalAttributeRule": ".rules",
+    "TimeSeriesTarget": ".rules",
     "apply_mapping_records": ".rules_executor",
     "apply_rules_to_context": ".rules_executor",
     "apply_single_rule": ".rules_executor",
     "attach_rule_outputs": ".rules_executor",
     "build_rule_outputs": ".rules_executor",
     "resolve_supplemental_class": ".rules_executor",
+    "CalendarSource": ".sources",
+    "ConfigRecordsSource": ".sources",
+    "FirstPresentSource": ".sources",
+    "SystemFieldProjection": ".sources",
+    "SystemFrameSource": ".sources",
+    "TimeSeriesProjection": ".sources",
     "DataStore": ".store",
     "System": ".system",
     "replace_single_time_series": ".time_series",
@@ -196,18 +248,30 @@ def __getattr__(name: str) -> object:
 
 # ── Public API ──────────────────────────────────────────────────────
 __all__ = [
+    "AsOfJoinSpec",
     "CLIError",
+    "CalendarSource",
+    "CategoryMatchSpec",
+    "ColumnAddSpec",
+    "ColumnAssignmentSource",
+    "ColumnConcatSpec",
+    "ColumnMultiplySpec",
+    "ColumnPredicate",
     "ComponentCreationError",
     "ComponentSource",
     "ComponentTarget",
+    "ConditionalAssignment",
+    "ConfigRecordsSource",
     "DataFile",
     "DataReader",
     "DataStore",
+    "DataValidation",
     "DatasetSource",
     "Err",
     "FileFormat",
     "FileInfo",
     "FileMapping",
+    "FirstPresentSource",
     "FixedMappingRoute",
     "GitVersioningStrategy",
     "GroupedFillSpec",
@@ -215,6 +279,7 @@ __all__ = [
     "HasPerUnit",
     "HasUnits",
     "JSONProcessing",
+    "LiteralAssignmentSource",
     "MappingSelection",
     "Ok",
     "OwnedSupplementalTarget",
@@ -226,6 +291,8 @@ __all__ = [
     "PreparedTable",
     "PreparedTableError",
     "ReaderConfig",
+    "RejectRowsSpec",
+    "RequiredColumnValues",
     "Result",
     "Rule",
     "RuleExecutionError",
@@ -240,10 +307,15 @@ __all__ = [
     "SelectedMappingRoute",
     "SemanticVersioningStrategy",
     "SplitColumnSpec",
+    "StringCategorizationSpec",
     "SupplementalAttributeRule",
     "System",
+    "SystemFieldProjection",
+    "SystemFrameSource",
     "TableJoin",
     "TabularProcessing",
+    "TimeSeriesProjection",
+    "TimeSeriesTarget",
     "TranslationResult",
     "Unit",
     "UnitSystem",
@@ -262,6 +334,7 @@ __all__ = [
     "build_rule_outputs",
     "components_to_records",
     "create_component",
+    "expand_keyed_grid",
     "export_components_to_csv",
     "expose_plugin",
     "get_unit_system",
@@ -269,6 +342,7 @@ __all__ = [
     "h5_readers",
     "is_err",
     "is_ok",
+    "prepare_table_frames",
     "replace_single_time_series",
     "resolve_getter",
     "resolve_supplemental_class",

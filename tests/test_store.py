@@ -91,6 +91,66 @@ def test_optional_file_missing_in_mapping(tmp_path):
     assert store.read_data("optional") is None
 
 
+def test_validate_inputs_uses_declared_empty_and_required_value_constraints(tmp_path):
+    from r2x_core import DataStore
+
+    (tmp_path / "years.csv").write_text("year\n2030\n2032\n")
+    (tmp_path / "empty.csv").write_text("source,target\n")
+    store = DataStore(path=tmp_path)
+    store.load_file_mapping(
+        {
+            "files": [
+                {
+                    "name": "modeled_years",
+                    "relative_fpath": "years.csv",
+                    "info": {"is_input": True, "is_optional": False},
+                    "validation": {
+                        "required_values": [
+                            {"column": "year", "values": "{solve_year}", "label": "Solve year(s)"}
+                        ]
+                    },
+                },
+                {
+                    "name": "empty_set",
+                    "relative_fpath": "empty.csv",
+                    "info": {"is_input": True, "is_optional": False},
+                    "validation": {"non_empty": False, "required_columns": ["source", "target"]},
+                },
+            ],
+            "tables": [],
+        },
+        mapping_path=tmp_path / "file_mapping.json",
+    )
+
+    store.validate_input_data(placeholders={"solve_year": [2032]})
+
+    with pytest.raises(ValueError, match=r"Solve year\(s\).*2031"):
+        store.validate_input_data(placeholders={"solve_year": [2031]})
+
+
+def test_validate_inputs_rejects_required_missing_column(tmp_path):
+    from r2x_core import DataStore
+
+    (tmp_path / "input.csv").write_text("present\n1\n")
+    store = DataStore(path=tmp_path)
+    store.load_file_mapping(
+        {
+            "files": [
+                {
+                    "name": "input",
+                    "relative_fpath": "input.csv",
+                    "validation": {"required_columns": ["missing"]},
+                }
+            ],
+            "tables": [],
+        },
+        mapping_path=tmp_path / "file_mapping.json",
+    )
+
+    with pytest.raises(ValueError, match="missing"):
+        store.validate_input_data()
+
+
 def test_add_data_overwrite_datafile(data_store_example, folder_with_data):
     from r2x_core import DataFile
 

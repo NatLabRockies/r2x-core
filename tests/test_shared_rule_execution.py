@@ -788,6 +788,57 @@ def test_validated_rule_plan_runs_named_dataset_stage_and_resolves_detached_mapp
     assert [node.name for node in target.get_components(NodeComponent)] == ["node-a"]
 
 
+def test_rule_reuses_named_mapping_for_stage_source(tmp_path: Path) -> None:
+    source_path = tmp_path / "nodes.csv"
+    source_path.write_text("name,area\nnode-a,north\n", encoding="utf-8")
+    store = DataStore.from_data_files([DataFile(name="nodes", fpath=source_path)], path=tmp_path)
+    target = System(name="target")
+    context = PluginContext(
+        config=PluginConfig(models=("fixtures.target_system",)),
+        target_system=target,
+        store=store,
+    )
+    result = RulePlan.from_mapping(
+        {
+            "mappings": [
+                {
+                    "name": "node_mapping",
+                    "target": {"kind": "component", "component_types": ["NodeComponent"]},
+                    "field_map": {"name": "name", "area": "area"},
+                }
+            ],
+            "rules": [
+                {
+                    "name": "nodes_rule",
+                    "source": {"kind": "dataset", "dataset": "nodes"},
+                    "target": {"kind": "component", "component_types": ["NodeComponent"]},
+                    "mapping_ref": "node_mapping",
+                }
+            ],
+            "execution": [{"name": "components", "rules": ["nodes_rule"]}],
+        },
+        context=context,
+    )
+
+    assert result.is_ok()
+    plan = result.unwrap()
+    resolved_rule = plan.get_rule("nodes_rule").unwrap()
+    assert Rule.model_validate(resolved_rule.rule.model_dump()) == resolved_rule.rule
+    standalone = apply_single_rule(resolved_rule.rule, context=context)
+    assert standalone.is_err()
+    assert "resolve it through a RulePlan" in str(standalone.err())
+
+    execution = apply_rules_to_context(
+        context,
+        plan=plan,
+        stage="components",
+        on_error="stop",
+    )
+
+    assert execution.success
+    assert [(node.name, node.area) for node in target.get_components(NodeComponent)] == [("node-a", "north")]
+
+
 def test_rule_plan_enforces_declared_required_datasets(tmp_path: Path) -> None:
     from r2x_core import FileInfo
 

@@ -13,8 +13,9 @@ R2X Core provides data file management, plugin configuration, and system managem
 - {py:class}`~r2x_core.TabularProcessing` - Tabular processing pipeline
 - {py:class}`~r2x_core.SafeDivideSpec` - Typed safe-division columns
 - {py:class}`~r2x_core.JSONProcessing` - JSON processing pipeline
-- {py:class}`~r2x_core.PreparedTable` - Prepared table built from physical files
-- {py:class}`~r2x_core.TableJoin` - Configured left many-to-one join
+- {py:class}`~r2x_core.PreparedTable` - Prepared table built from files or named frames
+- {py:class}`~r2x_core.TableJoin` - Configured relational or temporal join
+- {py:class}`~r2x_core.AsOfJoinSpec` - Backward temporal join options
 - {py:class}`~r2x_core.PluginConfig` - Plugin configuration
 - {py:class}`~r2x_core.PluginConfigAsset` - Selectable plugin configuration assets
 - {py:class}`~r2x_core.Plugin` - Plugin base class

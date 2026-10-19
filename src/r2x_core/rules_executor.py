@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from types import MappingProxyType, UnionType
 from typing import Annotated, Literal, Union, get_args, get_origin
 
+import numpy as np
 import polars as pl
-from infrasys import Component, SupplementalAttribute
+from infrasys import Component, SingleTimeSeries, SupplementalAttribute
 from infrasys.exceptions import ISBaseException, ISNotStored
 from loguru import logger
 from pydantic import BaseModel
@@ -27,10 +29,12 @@ from .rules import (
     MappingRoute,
     MappingSelection,
     OwnedSupplementalTarget,
+    OwnerTarget,
     Rule,
     RuleLike,
     RuleMapping,
     RulePlanDocument,
+    TimeSeriesTarget,
 )
 from .time_series import transfer_time_series_metadata
 from .utils import (
@@ -135,6 +139,8 @@ class RulePlan:
                     for target_name in (
                         mapping.target.component_types
                         if isinstance(mapping.target, ComponentTarget)
+                        else (mapping.target.owner_type,)
+                        if isinstance(mapping.target, TimeSeriesTarget)
                         else (mapping.target.attribute_type,)
                     ):
                         mapping_names_by_target.setdefault(target_name, []).append(mapping.name)
@@ -166,11 +172,43 @@ class RulePlan:
         for rule in document.rules:
             if rule.name is None:
                 return Err(ValueError("Every RulePlan Rule must have a name"))
-            match resolve_rule(rule, context=context):
-                case Err(error):
-                    return Err(ValueError(f"Invalid Rule {rule.name!r}: {error}"))
-                case Ok(resolved_rule):
-                    rules_by_name[rule.name] = resolved_rule
+            if rule.mapping_ref is not None:
+                shared_mapping = mappings_by_name.get(rule.mapping_ref)
+                if shared_mapping is None:
+                    return Err(
+                        ValueError(f"Rule {rule.name!r} references unknown mapping {rule.mapping_ref!r}")
+                    )
+                if rule.target != shared_mapping.mapping.target:
+                    return Err(
+                        ValueError(f"Rule {rule.name!r} target does not match mapping {rule.mapping_ref!r}")
+                    )
+                source_type = resolve_rule_source(rule, context=context)
+                if source_type.is_err():
+                    return Err(ValueError(f"Invalid Rule {rule.name!r}: {source_type.err()}"))
+                source_class = source_type.unwrap()
+                if isinstance(rule.target, OwnedSupplementalTarget) and isinstance(
+                    rule.source, ComponentSource
+                ):
+                    source_fields = set(source_class.model_fields) if source_class is not None else set()
+                    missing_fields = sorted(set(owner_source_fields(rule.target)) - source_fields)
+                    if missing_fields:
+                        return Err(
+                            ValueError(
+                                f"Invalid Rule {rule.name!r}: owner-match source fields are missing: "
+                                f"{missing_fields}"
+                            )
+                        )
+                rules_by_name[rule.name] = ResolvedRule(
+                    rule=rule,
+                    source_type=source_class,
+                    mapping=shared_mapping,
+                )
+            else:
+                match resolve_rule(rule, context=context):
+                    case Err(error):
+                        return Err(ValueError(f"Invalid Rule {rule.name!r}: {error}"))
+                    case Ok(resolved_rule):
+                        rules_by_name[rule.name] = resolved_rule
 
         stages_by_name: dict[str, tuple[ResolvedRule, ...]] = {}
         rule_positions: dict[str, tuple[int, int]] = {}
@@ -267,7 +305,7 @@ class PreparedRuleOutputs:
 class OwnerMatchIndex:
     """Typed owner lookup built once for one rule execution against one System."""
 
-    target: OwnedSupplementalTarget
+    target: OwnerTarget
     owners_by_key: Mapping[tuple[object, ...], tuple[Component, ...]]
 
 
@@ -427,24 +465,18 @@ def apply_rules_to_context(
 
 
 def resolve_rule(rule: Rule, *, context: PluginContext) -> Result[ResolvedRule, ValueError]:
-    """Resolve one source and its shared construction mapping against a context."""
-    source_type: type[Component] | None = None
-    if isinstance(rule.source, ComponentSource):
-        source_result = resolve_component_type(rule.source.component_type, context=context)
-        if source_result.is_err():
-            return Err(
-                ValueError(
-                    f"Could not resolve source type {rule.source.component_type!r}: {source_result.err()}"
-                )
+    """Resolve one standalone Rule with its inline mapping against a context."""
+    if rule.mapping_ref is not None:
+        return Err(
+            ValueError(
+                f"Rule {rule.name!r} references shared mapping {rule.mapping_ref!r}; "
+                "resolve it through a RulePlan"
             )
-        source_class = source_result.ok()
-        if not isinstance(source_class, type) or not issubclass(source_class, Component):
-            return Err(ValueError(f"Source type {rule.source.component_type!r} is not a Component"))
-        source_type = source_class
-    elif context.store is None:
-        return Err(ValueError("DatasetSource requires a DataStore"))
-    elif rule.source.dataset not in context.store:
-        return Err(ValueError(f"Dataset {rule.source.dataset!r} is not registered in the DataStore"))
+        )
+    source_result = resolve_rule_source(rule, context=context)
+    if source_result.is_err():
+        return Err(source_result.err())
+    source_type = source_result.unwrap()
 
     mapping_result = resolve_rule_mapping(rule, context=context)
     if mapping_result.is_err():
@@ -459,6 +491,27 @@ def resolve_rule(rule: Rule, *, context: PluginContext) -> Result[ResolvedRule, 
                 ValueError(f"Owner-match source field(s) are missing from the Component: {missing_fields}")
             )
     return Ok(ResolvedRule(rule=rule, source_type=source_type, mapping=resolved_mapping))
+
+
+def resolve_rule_source(rule: Rule, *, context: PluginContext) -> Result[type[Component] | None, ValueError]:
+    """Resolve a Rule's explicitly declared source independently of its mapping."""
+    if isinstance(rule.source, ComponentSource):
+        source_result = resolve_component_type(rule.source.component_type, context=context)
+        if source_result.is_err():
+            return Err(
+                ValueError(
+                    f"Could not resolve source type {rule.source.component_type!r}: {source_result.err()}"
+                )
+            )
+        source_class = source_result.ok()
+        if not isinstance(source_class, type) or not issubclass(source_class, Component):
+            return Err(ValueError(f"Source type {rule.source.component_type!r} is not a Component"))
+        return Ok(source_class)
+    if context.store is None:
+        return Err(ValueError("DatasetSource requires a DataStore"))
+    if rule.source.dataset not in context.store:
+        return Err(ValueError(f"Dataset {rule.source.dataset!r} is not registered in the DataStore"))
+    return Ok(None)
 
 
 def resolve_rule_mapping(
@@ -495,6 +548,18 @@ def resolve_rule_mapping(
                             f"Nested target {nested_rule.target_type!r} is not a SupplementalAttribute"
                         )
                     )
+    elif isinstance(mapping.target, TimeSeriesTarget):
+        match resolve_output_type(mapping.target.owner_type, context=context):
+            case Err(error):
+                return Err(error)
+            case Ok(owner_class) if issubclass(owner_class, Component):
+                owner_type = owner_class
+                for owner_path in mapping.target.owner_match.values():
+                    path_error = validate_owner_path(owner_class, owner_path)
+                    if path_error is not None:
+                        return Err(path_error)
+            case Ok(_):
+                return Err(ValueError(f"Owner type {mapping.target.owner_type!r} is not a Component"))
     else:
         match resolve_output_type(mapping.target.attribute_type, context=context):
             case Err(error):
@@ -597,9 +662,9 @@ def execute_rule(
     """Read or select source records, then use one preparation and attachment path."""
     rule = resolved.rule
     owner_index: OwnerMatchIndex | None = None
-    if isinstance(rule.target, OwnedSupplementalTarget):
+    if isinstance(rule.target, OwnerTarget):
         if resolved.owner_type is None:
-            return Err(RuleExecutionError("Owned target has no resolved owner type", rule=rule.name))
+            return Err(RuleExecutionError("Owner target has no resolved owner type", rule=rule.name))
         match build_owner_match_index(rule.target, resolved.owner_type, context=context):
             case Err(error):
                 return Err(RuleExecutionError(str(error), rule=rule.name))
@@ -627,7 +692,11 @@ def execute_rule(
     if not isinstance(rule.source, DatasetSource) or context.store is None:
         return Err(RuleExecutionError("DatasetSource requires a DataStore", rule=rule.name))
     try:
-        data = context.store.read_data(rule.source.dataset, placeholders=context.config.model_dump())
+        data = context.store.read_data(
+            rule.source.dataset,
+            placeholders={**context.metadata, **context.config.model_dump()},
+            context=context,
+        )
     except (OSError, ValueError, KeyError, ReaderError, pl.exceptions.PolarsError) as error:
         return Err(
             RuleExecutionError(
@@ -665,6 +734,17 @@ def execute_rule(
                 dataset=rule.source.dataset,
             )
         )
+    if isinstance(rule.target, TimeSeriesTarget):
+        if owner_index is None:
+            return Err(RuleExecutionError("TimeSeriesTarget has no owner index", rule=rule.name))
+        return execute_time_series_frame(
+            frame,
+            target=rule.target,
+            owner_index=owner_index,
+            context=context,
+            rule_name=rule.name,
+            dataset_name=rule.source.dataset,
+        )
     if isinstance(rule.target, OwnedSupplementalTarget):
         missing_fields = sorted(set(owner_source_fields(rule.target)) - set(frame.columns))
         if missing_fields:
@@ -683,6 +763,195 @@ def execute_rule(
         prevalidate_batch=True,
         owner_index=owner_index,
     )
+
+
+def execute_time_series_frame(
+    frame: pl.DataFrame,
+    /,
+    *,
+    target: TimeSeriesTarget,
+    owner_index: OwnerMatchIndex,
+    context: PluginContext,
+    rule_name: str | None,
+    dataset_name: str,
+) -> Result[RuleApplicationStats, RuleExecutionError]:
+    """Validate grouped profile rows and attach declared SingleTimeSeries outputs."""
+    target_system = context.target_system
+    if target_system is None:
+        return Err(RuleExecutionError("target_system is not set", rule=rule_name, dataset=dataset_name))
+    required_columns = {
+        *owner_source_fields(target),
+        *target.metadata_columns.values(),
+        target.hour_column,
+        target.value_column,
+    }
+    if target.initial_timestamp_column is not None:
+        required_columns.add(target.initial_timestamp_column)
+    missing_columns = sorted(required_columns - set(frame.columns))
+    if missing_columns:
+        return Err(
+            RuleExecutionError(
+                f"Time-series source is missing required columns: {missing_columns}",
+                rule=rule_name,
+                dataset=dataset_name,
+            )
+        )
+    if frame.is_empty():
+        return Ok(RuleApplicationStats(converted=0, skipped=0))
+
+    group_columns = list(dict.fromkeys([*owner_source_fields(target), *target.metadata_columns.values()]))
+    groups = frame.partition_by(group_columns, maintain_order=True)
+    pending: list[tuple[Component, SingleTimeSeries, dict[str, object]]] = []
+    skipped = 0
+    for group in groups:
+        ordered = group.sort(target.hour_column, maintain_order=True)
+        hours = ordered[target.hour_column].to_list()
+        if hours != list(range(len(hours))):
+            return Err(
+                RuleExecutionError(
+                    f"Time-series hour column {target.hour_column!r} must be unique and contiguous from zero",
+                    rule=rule_name,
+                    dataset=dataset_name,
+                )
+            )
+        if target.expected_samples is not None and len(hours) != target.expected_samples:
+            return Err(
+                RuleExecutionError(
+                    f"Time-series group has {len(hours)} samples, expected {target.expected_samples}",
+                    rule=rule_name,
+                    dataset=dataset_name,
+                )
+            )
+        values = ordered[target.value_column].to_list()
+        if any(value is None for value in values):
+            return Err(
+                RuleExecutionError(
+                    f"Time-series value column {target.value_column!r} contains null samples",
+                    rule=rule_name,
+                    dataset=dataset_name,
+                )
+            )
+        try:
+            data = np.asarray(values, dtype=np.float32 if target.value_dtype == "float32" else np.float64)
+        except (TypeError, ValueError) as error:
+            return Err(
+                RuleExecutionError(
+                    f"Time-series values cannot be cast to {target.value_dtype}: {error}",
+                    rule=rule_name,
+                    dataset=dataset_name,
+                )
+            )
+
+        if target.initial_timestamp_column is None:
+            initial_timestamp = target.initial_timestamp
+        else:
+            timestamps = ordered[target.initial_timestamp_column].to_list()
+            initial_timestamp = timestamps[0]
+            if not isinstance(initial_timestamp, datetime):
+                return Err(
+                    RuleExecutionError(
+                        f"Initial timestamp column {target.initial_timestamp_column!r} must contain datetimes",
+                        rule=rule_name,
+                        dataset=dataset_name,
+                    )
+                )
+            expected_timestamps = [
+                initial_timestamp + timedelta(seconds=index * target.resolution_seconds)
+                for index in range(len(timestamps))
+            ]
+            if timestamps != expected_timestamps:
+                return Err(
+                    RuleExecutionError(
+                        f"Time-series timestamps in {target.initial_timestamp_column!r} do not match "
+                        "the configured hour order and resolution",
+                        rule=rule_name,
+                        dataset=dataset_name,
+                    )
+                )
+        if initial_timestamp is None:
+            return Err(
+                RuleExecutionError(
+                    "TimeSeriesTarget has no initial timestamp", rule=rule_name, dataset=dataset_name
+                )
+            )
+
+        owner_result = resolve_record_owner(ordered.row(0, named=True), owner_index)
+        if owner_result.is_err():
+            return Err(RuleExecutionError(str(owner_result.err()), rule=rule_name, dataset=dataset_name))
+        owner = owner_result.unwrap()
+        if owner is None:
+            skipped += 1
+            continue
+
+        features: dict[str, object] = {}
+        for feature, column in target.metadata_columns.items():
+            feature_values = ordered[column].unique().to_list()
+            if len(feature_values) != 1 or feature_values[0] is None:
+                return Err(
+                    RuleExecutionError(
+                        f"Time-series metadata column {column!r} must have one non-null value per group",
+                        rule=rule_name,
+                        dataset=dataset_name,
+                    )
+                )
+            features[feature] = feature_values[0]
+        try:
+            series = SingleTimeSeries.from_array(
+                data=data,
+                name=target.name,
+                initial_timestamp=initial_timestamp,
+                resolution=timedelta(seconds=target.resolution_seconds),
+            )
+        except (ISBaseException, PydanticValidationError, TypeError, ValueError) as error:
+            return Err(
+                RuleExecutionError(
+                    f"Could not construct time series {target.name!r}: {error}",
+                    rule=rule_name,
+                    dataset=dataset_name,
+                )
+            )
+        pending.append((owner, series, features))
+
+    for owner, _, features in pending:
+        try:
+            existing = target_system.list_time_series_keys(
+                owner,
+                name=target.name,
+                time_series_type=SingleTimeSeries,
+                **features,
+            )
+        except (ISBaseException, TypeError, ValueError) as error:
+            return Err(
+                RuleExecutionError(
+                    f"Could not inspect existing time series {target.name!r}: {error}",
+                    rule=rule_name,
+                    dataset=dataset_name,
+                )
+            )
+        if existing:
+            return Err(
+                RuleExecutionError(
+                    f"Owner {owner.name!r} already has time series {target.name!r} with features {features}",
+                    rule=rule_name,
+                    dataset=dataset_name,
+                )
+            )
+
+    converted = 0
+    for owner, series, features in pending:
+        try:
+            target_system.add_time_series(series, owner, context=None, **features)
+        except (ISBaseException, PydanticValidationError, TypeError, ValueError) as error:
+            return Err(
+                RuleExecutionError(
+                    f"Could not attach time series {target.name!r}: {error}",
+                    rule=rule_name,
+                    dataset=dataset_name,
+                    converted=converted,
+                )
+            )
+        converted += 1
+    return Ok(RuleApplicationStats(converted=converted, skipped=skipped))
 
 
 def execute_rule_records(
@@ -738,7 +1007,7 @@ def execute_mapped_records(
         key = id(resolved_mapping)
         if key in resolved_owner_indexes:
             return Ok(resolved_owner_indexes[key])
-        if not isinstance(resolved_mapping.mapping.target, OwnedSupplementalTarget):
+        if not isinstance(resolved_mapping.mapping.target, OwnerTarget):
             resolved_owner_indexes[key] = None
             return Ok(None)
         if resolved_mapping.owner_type is None:
@@ -1036,7 +1305,7 @@ def component_identities(
 
 
 def build_owner_match_index(
-    target: OwnedSupplementalTarget,
+    target: OwnerTarget,
     owner_type: type[Component],
     *,
     context: PluginContext,
@@ -1069,7 +1338,7 @@ def build_owner_match_index(
 
 
 def owner_key_for_component(
-    owner: Component, target: OwnedSupplementalTarget
+    owner: Component, target: OwnerTarget
 ) -> Result[tuple[object, ...] | None, ValueError]:
     """Read an owner's typed key in the configured field order."""
     if target.owner_field is not None:
@@ -1128,7 +1397,7 @@ def resolve_record_owner(
     return Ok(matches[0])
 
 
-def owner_source_fields(target: OwnedSupplementalTarget) -> tuple[str, ...]:
+def owner_source_fields(target: OwnerTarget) -> tuple[str, ...]:
     """Return all source fields used to identify an owner."""
     if target.owner_field is not None:
         return (target.owner_field,)

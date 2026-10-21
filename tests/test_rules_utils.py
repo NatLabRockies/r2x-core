@@ -139,8 +139,8 @@ def test_build_target_fields_applies_defaults_and_getters(context_example):
     assert fields["area"] == "north"
 
 
-def test_build_target_fields_missing_attribute_without_default(context_example):
-    """Missing attributes without defaults produce an error."""
+def test_build_target_fields_reports_source_field_typo(context_example):
+    """Unknown configured source fields produce a direct error."""
 
     class Source:
         pass
@@ -154,7 +154,27 @@ def test_build_target_fields_missing_attribute_without_default(context_example):
 
     result = build_target_fields(Source(), rule=rule, context=context_example)
     assert result.is_err()
-    assert "missing_attr" in str(result.err())
+    assert str(result.err()) == "Source Source has no attribute 'missing_attr'"
+
+
+def test_build_target_fields_missing_attribute_uses_default(context_example):
+    """Missing source attributes use configured defaults when available."""
+
+    class Source:
+        pass
+
+    rule = Rule(
+        source_type="SourceType",
+        target_type="TargetType",
+        version=1,
+        field_map={"required": "missing_attr"},
+        defaults={"required": "fallback"},
+    )
+
+    result = build_target_fields(Source(), rule=rule, context=context_example)
+
+    assert result.is_ok()
+    assert result.unwrap() == {"required": "fallback"}
 
 
 def test_build_target_fields_getter_error_without_default(context_example):
@@ -180,23 +200,32 @@ def test_build_target_fields_getter_error_without_default(context_example):
     assert "failed" in str(result.err()).lower()
 
 
-def test_build_target_fields_non_callable_getter_rejected(context_example):
-    """Non-callable getter entries raise an error."""
+def test_rule_rejects_non_callable_getter_at_construction():
+    """Getter strings are resolved from records, not direct Rule construction."""
+    with pytest.raises(TypeError, match="must be callable"):
+        Rule(
+            source_type="SourceType",
+            target_type="TargetType",
+            version=1,
+            getters={"computed": "not_callable"},
+        )
 
-    class Source:
-        value = 1
 
-    rule = Rule(
-        source_type="SourceType",
-        target_type="TargetType",
-        version=1,
-        field_map={"value": "value"},
-        getters={"computed": "not_callable"},
-    )
+def test_rule_rejects_supplemental_attribute_record_dicts():
+    with pytest.raises(TypeError, match="SupplementalAttributeRule instances"):
+        Rule(
+            source_type="SourceType",
+            target_type="TargetType",
+            version=1,
+            supplemental_attributes=[{"target_type": "LocationInfo"}],
+        )
 
-    result = build_target_fields(Source(), rule=rule, context=context_example)
-    assert result.is_err()
-    assert "not callable" in str(result.err())
+
+def test_supplemental_attribute_rule_rejects_non_callable_getters():
+    from r2x_core import SupplementalAttributeRule
+
+    with pytest.raises(TypeError, match="must be callable"):
+        SupplementalAttributeRule(target_type="LocationInfo", getters={"field": "path"})
 
 
 def test_create_target_component_instantiates_class():

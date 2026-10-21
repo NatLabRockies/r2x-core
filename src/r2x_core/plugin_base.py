@@ -8,10 +8,12 @@ in a fixed lifecycle order.
 from __future__ import annotations
 
 from abc import ABC
-from typing import TYPE_CHECKING, Any, Generic, TypeVar, get_args, get_origin
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar, get_args, get_origin
 
 from loguru import logger
-from rust_ok import Err, Ok
+from rust_ok import Err, Ok, Result
 
 from .exceptions import PluginError
 from .plugin_context import PluginContext
@@ -22,6 +24,28 @@ if TYPE_CHECKING:
     from .system import System
 
 ConfigT = TypeVar("ConfigT", bound="PluginConfig")
+
+
+@dataclass(frozen=True, slots=True)
+class HookSpec:
+    """Describe one lifecycle hook and how its result affects context."""
+
+    name: str
+    phase: str
+    log_level: Literal["debug", "info"]
+    context_attribute: Literal["system", "target_system"] | None
+
+
+HOOK_SPECS: tuple[HookSpec, ...] = (
+    HookSpec("on_validate", "validation", "debug", None),
+    HookSpec("on_prepare", "prepare", "debug", None),
+    HookSpec("on_upgrade", "upgrade", "info", "system"),
+    HookSpec("on_build", "build", "info", "system"),
+    HookSpec("on_transform", "transform", "info", "system"),
+    HookSpec("on_translate", "translate", "info", "target_system"),
+    HookSpec("on_export", "export", "info", None),
+    HookSpec("on_cleanup", "cleanup", "debug", None),
+)
 
 
 class Plugin(ABC, Generic[ConfigT]):
@@ -272,30 +296,11 @@ class Plugin(ABC, Generic[ConfigT]):
         >>> sorted(MyPlugin.get_implemented_hooks())
         ['on_build', 'on_validate']
         """
-        hooks = set()
-        hook_names = {
-            "on_validate",
-            "on_prepare",
-            "on_upgrade",
-            "on_build",
-            "on_transform",
-            "on_translate",
-            "on_export",
-            "on_cleanup",
+        return {
+            spec.name
+            for spec in HOOK_SPECS
+            if any(spec.name in vars(klass) for klass in cls.__mro__ if klass not in (Plugin, object))
         }
-
-        for hook_name in hook_names:
-            if hasattr(cls, hook_name):
-                method = getattr(cls, hook_name, None)
-                if callable(method) and hook_name in cls.__dict__:
-                    hooks.add(hook_name)
-                elif callable(method):
-                    for base in cls.__mro__[:-1]:  # Exclude object
-                        if hook_name in base.__dict__ and base is not Plugin:
-                            hooks.add(hook_name)
-                            break
-
-        return hooks
 
     def run(self, *, ctx: PluginContext[ConfigT] | None = None) -> PluginContext[ConfigT]:
         """Execute plugin lifecycle.
@@ -342,38 +347,26 @@ class Plugin(ABC, Generic[ConfigT]):
         plugin_name = type(self).__name__
         logger.info("Running plugin: {}", plugin_name)
 
-        # Hook configuration: (hook_name, phase_name, log_level, context_attr)
-        # context_attr is the attribute to update in self._ctx with result (if any)
-        hooks_config = [
-            ("on_validate", "validation", "debug", None),
-            ("on_prepare", "prepare", "debug", None),
-            ("on_upgrade", "upgrade", "info", "system"),
-            ("on_build", "build", "info", "system"),
-            ("on_transform", "transform", "info", "system"),
-            ("on_translate", "translate", "info", "target_system"),
-            ("on_export", "export", "info", None),
-            ("on_cleanup", "cleanup", "debug", None),
-        ]
-
-        for hook_name, phase_name, log_level, ctx_attr in hooks_config:
-            hook = getattr(self, hook_name, None)
+        # Lifecycle hooks are optional subclass extension points, so resolve them dynamically.
+        for hook_spec in HOOK_SPECS:
+            hook: Callable[[], Result[Any, Any]] | None = getattr(self, hook_spec.name, None)
             if not callable(hook):
                 continue
 
             # Log at appropriate level
-            if log_level == "debug":
-                logger.debug("{}: {}", plugin_name, hook_name)
+            if hook_spec.log_level == "debug":
+                logger.debug("{}: {}", plugin_name, hook_spec.name)
             else:
-                logger.info("{}: {}", plugin_name, hook_name)
+                logger.info("{}: {}", plugin_name, hook_spec.name)
 
             result = hook()
 
             if isinstance(result, Err):
-                raise PluginError(f"{plugin_name} {phase_name} failed: {result.error}")
+                raise PluginError(f"{plugin_name} {hook_spec.phase} failed: {result.error}")
 
             # Update context if this hook produces a result
-            if ctx_attr and isinstance(result, Ok):
-                setattr(self._ctx, ctx_attr, result.value)
+            if hook_spec.context_attribute and isinstance(result, Ok):
+                setattr(self._ctx, hook_spec.context_attribute, result.value)
 
         logger.info("Plugin {} completed successfully", plugin_name)
         return self._ctx

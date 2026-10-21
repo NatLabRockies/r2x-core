@@ -13,26 +13,13 @@ Notes
 
 from __future__ import annotations
 
-__all__ = [
-    "HasPerUnit",
-    "HasUnits",
-    "Unit",
-    "UnitSpec",
-    "UnitSystem",
-    "get_unit_system",
-    "set_unit_system",
-    "unit_spec",
-    "unit_system",
-    "ureg",
-]
-
 from collections.abc import Iterator
 from contextlib import contextmanager
 from enum import Enum
 
-from ._mixins import HasPerUnit, HasUnits
-from ._specs import Unit, UnitSpec, unit_spec
-from ._utils import ureg
+from .conversion import ureg
+from .mixins import HasPerUnit, HasUnits
+from .specs import Unit, UnitSpec, unit_spec
 
 
 class UnitSystem(str, Enum):
@@ -105,3 +92,17 @@ def unit_system(mode: UnitSystem) -> Iterator[None]:
         yield
     finally:
         set_unit_system(previous)
+
+
+__all__ = [
+    "HasPerUnit",
+    "HasUnits",
+    "Unit",
+    "UnitSpec",
+    "UnitSystem",
+    "get_unit_system",
+    "set_unit_system",
+    "unit_spec",
+    "unit_system",
+    "ureg",
+]

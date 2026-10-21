@@ -65,11 +65,11 @@ A rule can create a primary component and supplemental attributes from the same 
 ...     version=1,
 ...     field_map={"name": "name", "uuid": "uuid", "kv_rating": "voltage_kv"},
 ...     supplemental_attributes=[
-...         {
-...             "target_type": "BusGeographicInfo",
-...             "field_map": {"location_name": "zone"},
-...             "defaults": {"latitude": 0.0, "longitude": 0.0},
-...         },
+...         SupplementalAttributeRule(
+...             target_type="BusGeographicInfo",
+...             field_map={"location_name": "zone"},
+...             defaults={"latitude": 0.0, "longitude": 0.0},
+...         ),
 ...     ],
 ... )
 ```

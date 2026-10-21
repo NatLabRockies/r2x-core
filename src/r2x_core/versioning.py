@@ -11,15 +11,30 @@ Key abstractions:
 
 See Also
 --------
-:class:`~r2x_core.upgrader.BaseUpgrader` : Uses version strategies to order upgrades.
-:class:`~r2x_core.upgrader_utils.UpgradeStep` : Upgrade steps paired with version ranges.
+:class:`~r2x_core.utils.upgrade.UpgradeStep` : Upgrade steps paired with version ranges.
+:func:`~r2x_core.utils.upgrade.run_upgrade_step` : Executes one upgrade step.
 """
 
 from __future__ import annotations
 
 from abc import abstractmethod
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from rust_ok import Result
+
+    from .plugin_context import PluginContext
+    from .store import DataStore
+
+
+@runtime_checkable
+class UpgradeHandler(Protocol):
+    """Handle DataStore upgrades using the store and plugin context."""
+
+    def __call__(self, *, store: DataStore, ctx: PluginContext[Any]) -> Result[None, str] | None:
+        """Run configured upgrades before the store retries its operation."""
+        ...
 
 
 @runtime_checkable

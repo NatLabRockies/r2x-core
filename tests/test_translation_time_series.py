@@ -17,7 +17,7 @@ from infrasys.utils.sqlite import create_in_memory_db
 
 from r2x_core import PluginConfig, PluginContext, Rule, System, apply_rules_to_context
 from r2x_core.time_series import (
-    _main_db_path,
+    main_database_path,
     replace_single_time_series,
     transfer_time_series_metadata,
 )
@@ -275,7 +275,7 @@ def test_time_series_transfer_falls_back_without_db_path(monkeypatch, context_ex
             "SELECT COUNT(*) FROM time_series_associations"
         ).fetchone()[0]
 
-    monkeypatch.setattr("r2x_core.time_series._main_db_path", lambda _conn: None)
+    monkeypatch.setattr("r2x_core.time_series.main_database_path", lambda _conn: None)
     stats = transfer_time_series_metadata(context_example)
 
     with target_system.open_time_series_store(mode="r") as store:
@@ -298,7 +298,7 @@ def test_time_series_transfer_uses_attach_path(tmp_path, monkeypatch, context_ex
             conn.backup(dst_con)
         return str(dst)
 
-    monkeypatch.setattr("r2x_core.time_series._main_db_path", _copy_src_to_temp)
+    monkeypatch.setattr("r2x_core.time_series.main_database_path", _copy_src_to_temp)
     stats = transfer_time_series_metadata(context_example)
 
     assert stats.transferred >= 0
@@ -322,7 +322,7 @@ def test_time_series_transfer_logs_post_remap_cleanup(monkeypatch, context_examp
         # First call (pre-insert) does nothing, second call (post-update) reports removals.
         return 0 if call_counts["count"] == 1 else 1
 
-    monkeypatch.setattr("r2x_core.time_series._deduplicate_ts_associations", _fake_dedup)
+    monkeypatch.setattr("r2x_core.time_series.deduplicate_time_series_associations", _fake_dedup)
 
     caplog.set_level("WARNING")
     stats = transfer_time_series_metadata(context_example)
@@ -332,26 +332,26 @@ def test_time_series_transfer_logs_post_remap_cleanup(monkeypatch, context_examp
     assert any("after remapping" in record.message for record in caplog.records)
 
 
-def test_main_db_path_propagates_closed_connection_error() -> None:
+def test_main_database_path_propagates_closed_connection_error() -> None:
     conn = sqlite3.connect(":memory:")
     conn.close()
     with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
-        _main_db_path(conn)
+        main_database_path(conn)
 
 
-def test_main_db_path_returns_none_for_memory_database() -> None:
+def test_main_database_path_returns_none_for_memory_database() -> None:
     conn = sqlite3.connect(":memory:")
     try:
-        assert _main_db_path(conn) is None
+        assert main_database_path(conn) is None
     finally:
         conn.close()
 
 
-def test_main_db_path_returns_path(tmp_path: Path) -> None:
+def test_main_database_path_returns_path(tmp_path: Path) -> None:
     path = tmp_path / "metadata.db"
     conn = sqlite3.connect(path)
     try:
-        assert _main_db_path(conn) == str(path)
+        assert main_database_path(conn) == str(path)
     finally:
         conn.close()
 

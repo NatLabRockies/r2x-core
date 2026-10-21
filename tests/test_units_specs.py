@@ -1,4 +1,4 @@
-"""Tests for units._specs UnitSpec class."""
+"""Tests for the UnitSpec class."""
 
 from typing import Annotated
 
@@ -9,7 +9,7 @@ from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import core_schema
 
 from r2x_core.units import HasUnits, Unit
-from r2x_core.units._specs import UnitSpec
+from r2x_core.units.specs import UnitSpec
 
 
 def test_unitspec_dict_input_no_base():
@@ -35,6 +35,15 @@ def test_unitspec_dict_input_with_conversion():
 
     gen = Generator(name="Gen1", base_power=100.0, rating={"value": 80.0, "unit": "MVA"})  # type: ignore[arg-type]
     assert gen.rating == 0.8
+
+
+def test_unitspec_base_unit_binding_rejects_conflicts():
+    spec = UnitSpec(unit="pu", base="base_power")
+    spec.bind_base_unit("MVA")
+    spec.bind_base_unit("MVA")
+
+    with pytest.raises(ValueError, match="already bound as 'MVA'"):
+        spec.bind_base_unit("kVA")
 
 
 def test_unitspec_invalid_input_type():

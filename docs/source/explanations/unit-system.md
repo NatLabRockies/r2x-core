@@ -112,9 +112,9 @@ Components can inherit from either `HasUnits` or `HasPerUnit` depending on
 whether they need system-base tracking. The `HasUnits` mixin provides unit field
 support without any dependency on system base values, making it suitable for
 components with fixed units or quantities that do not participate in system-wide
-normalization. The `HasPerUnit` class extends `HasUnits` to add system-base
-tracking through a private `_system_base` attribute. This hierarchical design
-allows components to opt into exactly the features they need.
+normalization. The `HasPerUnit` class extends `HasUnits` with system-base
+display support. This hierarchy lets components opt into exactly the features
+they need.
 
 ```python
 from typing import Annotated
@@ -143,7 +143,7 @@ class Generator(HasPerUnit, BaseModel):
 
 # Generators can use system-base display when added to a System
 gen = Generator(name="Gen1", base_power=100.0, p_max=0.8)
-# gen._system_base is set when added to a System
+# gen.system_base is set when added to a System
 ```
 
 ```{tip}
@@ -211,35 +211,27 @@ that required base values are available.
 ### Unit-Aware Mixins (HasUnits and HasPerUnit)
 
 The mixin classes provide the foundation for components to declare and manage
-unit-aware fields. The `HasUnits` mixin implements the `__init_subclass__` hook
-to enforce that any class using units must also inherit from Pydantic's
-`BaseModel`. This ensures that the validation machinery is available. The mixin
-also provides the `_get_unit_specs_map` method which introspects a class's field
-annotations to build a mapping from field names to their `UnitSpec` metadata.
+unit-aware fields. Pydantic calls `HasUnits.__pydantic_init_subclass__` after
+building each model's fields. The hook collects `UnitSpec` metadata into the
+class-level `unit_specs` mapping and binds each per-unit specification to the
+unit of its declared base field. A missing or unannotated base field is rejected
+when the model class is created.
 
-The `HasPerUnit` class extends this foundation with system-base tracking. It
-adds a private `_system_base` attribute that stores the system base power when a
-component is added to a system. The `_get_system_base` method provides access to
-this value for conversion calculations. When display mode is set to system-base,
-the formatting system uses this stored value to convert device-base per-unit to
-system-base per-unit.
+The `HasPerUnit` class extends this foundation with system-base display support.
+It stores system base power internally and exposes it through the `system_base`
+property. `System.add_components` binds that value through
+`bind_system_base`; display formatting uses it to convert device-base per-unit
+to system-base per-unit.
 
 ### Utility Functions and Conversions
 
-The utility module provides pure functions for unit conversion and formatting.
-The `_convert_to_internal` function takes an input value (either float or dict
+The `r2x_core.units.conversion` module provides unit conversion and formatting
+functions. `convert_to_internal` takes an input value (a float or a mapping
 with value and unit), a unit specification, and base values, then returns the
-per-unit representation. This function handles the mathematical conversion
-including dimensional analysis through the Pint library when unit strings differ
-from base units.
-
-The `_format_for_display` function performs the inverse operation. Given an
-internal per-unit value, it consults the current display mode and converts to
-the appropriate representation. In device-base mode, it returns the per-unit
-value unchanged. In natural units mode, it multiplies by the base value and
-appends the base unit string. In system-base mode, it converts from device base
-to system base and appends the system-base indicator. This separation of
-conversion logic from component code maintains clean abstractions.
+per-unit representation. It uses Pint for dimensional conversion when the
+input and base units differ. `format_for_display` applies the configured display
+mode, rendering per-unit values as device-base, natural-unit, or system-base
+values as appropriate.
 
 ### Global Display State
 
@@ -269,18 +261,10 @@ called "system_base" with that magnitude. This allows components to perform
 conversions using the Pint library's dimension analysis.
 
 When components are added to a system through `add_components`, the system
-checks if they inherit from `HasPerUnit`. For components that do, it sets their
-`_system_base` attribute to the system's base power value. The system also
-validates that components are not added to multiple systems with different base
-values, raising an error if such a conflict is detected. This validation
-prevents inconsistent state where a component's per-unit values would be
-ambiguous.
-
-During deserialization from JSON, the system must restore this relationship. The
-`from_json` class method reconstructs the system and its components, then
-iterates over all `HasPerUnit` components to set their `_system_base`
-attributes. This ensures that system-base display mode works correctly after
-reloading a saved system.
+checks if they inherit from `HasPerUnit` and binds the system's base power with
+`bind_system_base`. It rejects a component already bound to a different system
+base. Deserialization restores the same relationship for each `HasPerUnit`
+component so system-base display works after reloading.
 
 ## Pint Integration for Unit Conversion
 

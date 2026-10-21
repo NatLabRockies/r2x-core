@@ -8,7 +8,7 @@ from fixtures.source_system import BusComponent, BusGeographicInfo
 from fixtures.target_system import CircuitComponent, NodeComponent
 
 from r2x_core import PluginConfig, PluginContext
-from r2x_core.rules import Rule
+from r2x_core.rules import Rule, SupplementalAttributeRule
 from r2x_core.rules_executor import apply_rules_to_context
 from r2x_core.system import System
 
@@ -291,14 +291,14 @@ def test_duplicate_supplemental_outputs_fail_before_attachment():
         version=1,
         field_map={"name": "name", "uuid": "uuid"},
         supplemental_attributes=[
-            {
-                "target_type": "BusGeographicInfo",
-                "field_map": {"uuid": "uuid", "location_name": "zone"},
-            },
-            {
-                "target_type": "BusGeographicInfo",
-                "field_map": {"uuid": "uuid", "location_name": "zone"},
-            },
+            SupplementalAttributeRule(
+                target_type="BusGeographicInfo",
+                field_map={"uuid": "uuid", "location_name": "zone"},
+            ),
+            SupplementalAttributeRule(
+                target_type="BusGeographicInfo",
+                field_map={"uuid": "uuid", "location_name": "zone"},
+            ),
         ],
     )
 
@@ -329,10 +329,10 @@ def test_empty_supplemental_output_is_not_attached():
         version=1,
         field_map={"name": "name", "uuid": "uuid"},
         supplemental_attributes=[
-            {
-                "target_type": "BusGeographicInfo",
-                "field_map": {"location_name": "missing_zone"},
-            }
+            SupplementalAttributeRule(
+                target_type="BusGeographicInfo",
+                field_map={"location_name": "missing_zone"},
+            )
         ],
     )
 
@@ -362,11 +362,11 @@ def test_required_supplemental_output_reports_missing_value():
         version=1,
         field_map={"name": "name", "uuid": "uuid"},
         supplemental_attributes=[
-            {
-                "target_type": "BusGeographicInfo",
-                "field_map": {"location_name": "missing_zone"},
-                "optional": False,
-            }
+            SupplementalAttributeRule(
+                target_type="BusGeographicInfo",
+                field_map={"location_name": "missing_zone"},
+                optional=False,
+            )
         ],
     )
 
@@ -397,10 +397,10 @@ def test_invalid_supplemental_data_reports_rule_source_and_output():
         version=1,
         field_map={"name": "name", "uuid": "uuid"},
         supplemental_attributes=[
-            {
-                "target_type": "BusGeographicInfo",
-                "field_map": {"latitude": "zone"},
-            }
+            SupplementalAttributeRule(
+                target_type="BusGeographicInfo",
+                field_map={"latitude": "zone"},
+            )
         ],
     )
 
@@ -434,10 +434,10 @@ def test_multi_target_supplemental_failure_leaves_target_unchanged():
         version=1,
         field_map={"name": "name", "uuid": "uuid"},
         supplemental_attributes=[
-            {
-                "target_type": "BusGeographicInfo",
-                "field_map": {"uuid": "uuid", "location_name": "zone"},
-            }
+            SupplementalAttributeRule(
+                target_type="BusGeographicInfo",
+                field_map={"uuid": "uuid", "location_name": "zone"},
+            )
         ],
     )
 
@@ -471,10 +471,10 @@ def test_missing_supplemental_target_type_reports_output():
         version=1,
         field_map={"name": "name", "uuid": "uuid"},
         supplemental_attributes=[
-            {
-                "target_type": "MissingSupplementalAttribute",
-                "field_map": {"location_name": "zone"},
-            }
+            SupplementalAttributeRule(
+                target_type="MissingSupplementalAttribute",
+                field_map={"location_name": "zone"},
+            )
         ],
     )
 

@@ -24,6 +24,8 @@ if TYPE_CHECKING:
     import loguru
     from rich.console import Console
 
+__all__ = ["setup_logging"]
+
 LEVEL_NAMES = {
     "TRACE": "TRACE",
     "DEBUG": "DEBUG",
@@ -65,7 +67,7 @@ _verbosity: int = 0
 
 
 @lru_cache(maxsize=1)
-def _get_console() -> Console | None:
+def console() -> Console | None:
     """Return a cached Rich Console for stderr, or None if Rich is missing."""
     try:
         from rich.console import Console
@@ -74,14 +76,14 @@ def _get_console() -> Console | None:
     return Console(stderr=True, force_terminal=True)
 
 
-def _format_timestamp(record: dict[str, Any]) -> str:
+def format_timestamp(record: dict[str, Any]) -> str:
     """Format a log record's timestamp using LOG_TIME_FORMAT env var or default."""
     time_format = os.environ.get("LOG_TIME_FORMAT", DEFAULT_TIME_FORMAT)
     ms = f"{record['time'].microsecond // 1000:03d}"
     return record["time"].strftime(time_format.replace("{ms}", ms))
 
 
-def _render_exception(record: dict[str, Any], console: Console | None) -> None:
+def render_exception(record: dict[str, Any], console: Console | None) -> None:
     """Render exception traceback to stderr. Prefers Rich when available."""
     exc = record["exception"]
     if not exc or not exc.type or not exc.value or not exc.traceback:
@@ -100,7 +102,7 @@ def _render_exception(record: dict[str, Any], console: Console | None) -> None:
     print("".join(lines), file=sys.stderr)
 
 
-def _extract_extras(record: dict[str, Any]) -> dict[str, Any]:
+def extract_extras(record: dict[str, Any]) -> dict[str, Any]:
     """Pull user-supplied extras from a record, excluding the internal 'name' key."""
     return {k: v for k, v in record["extra"].items() if k != "name"}
 
@@ -109,28 +111,28 @@ def format_tty(record: dict[str, Any]) -> None:
     """Format log record for terminal output."""
     level = record["level"].name
     level_name = LEVEL_NAMES.get(level, f"{level:>5}")
-    extras = _extract_extras(record)
-    console = _get_console()
+    extras = extract_extras(record)
+    console_instance = console()
 
     show_timestamp = _verbosity >= VERBOSITY_TRACE
     extras_str = "  ".join(f"{k}={v}" for k, v in extras.items()) if extras else ""
 
     rich_printed = False
-    if console is not None:
+    if console_instance is not None:
         try:
             from rich.text import Text
 
             color = LEVEL_COLORS.get(level, "white")
             text = Text()
             if show_timestamp:
-                text.append(_format_timestamp(record), style="dim")
+                text.append(format_timestamp(record), style="dim")
                 text.append(" ")
             text.append(level_name, style=f"{color} bold")
             text.append(" ")
             text.append(record["message"])
             if extras_str:
                 text.append(f"  {extras_str}", style="dim")
-            console.print(text)
+            console_instance.print(text)
             rich_printed = True
         except ImportError:
             pass
@@ -138,14 +140,14 @@ def format_tty(record: dict[str, Any]) -> None:
     if not rich_printed:
         parts: list[str] = []
         if show_timestamp:
-            parts.append(_format_timestamp(record))
+            parts.append(format_timestamp(record))
         parts.append(level_name)
         parts.append(record["message"])
         if extras_str:
             parts.append(extras_str)
         print(" ".join(parts), file=sys.stderr)
 
-    _render_exception(record, console if rich_printed else None)
+    render_exception(record, console_instance if rich_printed else None)
 
 
 def format_json(record: dict[str, Any]) -> str:
@@ -165,7 +167,7 @@ def format_json(record: dict[str, Any]) -> str:
         obj["file"] = record["file"].path
         obj["line"] = record["line"]
 
-    extras = _extract_extras(record)
+    extras = extract_extras(record)
     if extras:
         obj.update(extras)
 

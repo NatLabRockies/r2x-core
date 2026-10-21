@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING, Any, cast
 from infrasys import SingleTimeSeries
 from loguru import logger
 
+__all__ = ["replace_single_time_series", "transfer_time_series_metadata"]
+
 if TYPE_CHECKING:
     from infrasys import Component
 
@@ -37,7 +39,7 @@ UNIQUE_TS_COLUMNS: tuple[str, ...] = (
 )
 
 
-def _main_db_path(conn: Connection) -> str | None:
+def main_database_path(conn: Connection) -> str | None:
     """Return filesystem path for the main SQLite database, if present."""
     for _, name, path in conn.execute("PRAGMA database_list").fetchall():
         if name == "main" and path:
@@ -45,13 +47,13 @@ def _main_db_path(conn: Connection) -> str | None:
     return None
 
 
-def _ts_columns(conn: Connection) -> list[str]:
+def time_series_columns(conn: Connection) -> list[str]:
     """Return ordered column names excluding the autoincrement primary key."""
     rows = conn.execute("PRAGMA table_info(time_series_associations)").fetchall()
     return [row[1] for row in rows if row[1] != "id"]
 
 
-def _deduplicate_ts_associations(conn: Connection, unique_cols: tuple[str, ...]) -> int:
+def deduplicate_time_series_associations(conn: Connection, unique_cols: tuple[str, ...]) -> int:
     """Remove duplicate association rows using the unique key columns."""
     group_by = ",".join(unique_cols)
     before = conn.total_changes
@@ -68,13 +70,13 @@ def _deduplicate_ts_associations(conn: Connection, unique_cols: tuple[str, ...])
     return conn.total_changes - before
 
 
-def _count_ts_associations(conn: Connection) -> int:
+def count_time_series_associations(conn: Connection) -> int:
     """Return total rows in time series associations."""
     count = conn.execute("SELECT COUNT(*) FROM time_series_associations").fetchone()[0]
     return int(count)
 
 
-def _setup_target_and_child_tables(
+def create_target_and_child_tables(
     tgt_metadata: Connection,
     *,
     source_system: System,
@@ -107,7 +109,7 @@ def _setup_target_and_child_tables(
     return len(child_remapping)
 
 
-def _transfer_associations(
+def transfer_associations(
     src_metadata: Connection,
     tgt_metadata: Connection,
     target_uuids: set[str],
@@ -116,7 +118,7 @@ def _transfer_associations(
     """Transfer time series associations from source to target."""
     column_csv = ",".join(columns)
     placeholders = ",".join(["?"] * len(columns))
-    src_db_path = _main_db_path(src_metadata)
+    src_db_path = main_database_path(src_metadata)
 
     if src_db_path:
         tgt_metadata.execute("ATTACH DATABASE ? AS src_ts", (src_db_path,))
@@ -161,7 +163,7 @@ def _transfer_associations(
             )
 
 
-def _remove_duplicate_rows_before_remap(tgt_metadata: Connection) -> None:
+def remove_duplicate_rows_before_remap(tgt_metadata: Connection) -> None:
     """Remove rows that would become duplicates after remapping."""
     tgt_metadata.execute("""
         WITH owner_resolution AS (
@@ -194,7 +196,7 @@ def _remove_duplicate_rows_before_remap(tgt_metadata: Connection) -> None:
     """)
 
 
-def _remap_child_associations(tgt_metadata: Connection) -> int:
+def remap_child_associations(tgt_metadata: Connection) -> int:
     """Remap child associations with new owner UUIDs and types.
 
     Returns
@@ -221,7 +223,7 @@ def _remap_child_associations(tgt_metadata: Connection) -> int:
     return max(result.rowcount if result.rowcount is not None else 0, 0)
 
 
-def _finalize_transfer(tgt_metadata: Connection) -> None:
+def finalize_transfer(tgt_metadata: Connection) -> None:
     """Create unique index and prepare for metadata reload."""
     tgt_metadata.execute(
         """
@@ -319,38 +321,38 @@ def transfer_time_series_metadata(context: PluginContext) -> TimeSeriesTransferR
     ):
         src_metadata = src_store.metadata_conn
         tgt_metadata = tgt_store.metadata_conn
-        children_remapped = _setup_target_and_child_tables(
+        children_remapped = create_target_and_child_tables(
             tgt_metadata, source_system=source_system, target_system=target_system
         )
 
         # Deduplicate before transfer
-        removed_duplicates = _deduplicate_ts_associations(tgt_metadata, UNIQUE_TS_COLUMNS)
+        removed_duplicates = deduplicate_time_series_associations(tgt_metadata, UNIQUE_TS_COLUMNS)
         if removed_duplicates:
             logger.warning("Removed {} duplicate time series association rows", removed_duplicates)
 
-        initial_count = _count_ts_associations(tgt_metadata)
+        initial_count = count_time_series_associations(tgt_metadata)
 
         # Transfer associations
-        columns = _ts_columns(tgt_metadata)
-        _transfer_associations(src_metadata, tgt_metadata, target_uuids, columns)
+        columns = time_series_columns(tgt_metadata)
+        transfer_associations(src_metadata, tgt_metadata, target_uuids, columns)
 
         # Remove potential duplicates before remapping
-        _remove_duplicate_rows_before_remap(tgt_metadata)
+        remove_duplicate_rows_before_remap(tgt_metadata)
 
         # Remap child associations
-        updated = _remap_child_associations(tgt_metadata)
+        updated = remap_child_associations(tgt_metadata)
 
         # Deduplicate after remapping
-        removed_after_update = _deduplicate_ts_associations(tgt_metadata, UNIQUE_TS_COLUMNS)
+        removed_after_update = deduplicate_time_series_associations(tgt_metadata, UNIQUE_TS_COLUMNS)
         if removed_after_update:
             logger.warning(
                 "Removed {} duplicate time series association rows after remapping", removed_after_update
             )
 
         # Create index
-        _finalize_transfer(tgt_metadata)
+        finalize_transfer(tgt_metadata)
 
-        final_count = _count_ts_associations(tgt_metadata)
+        final_count = count_time_series_associations(tgt_metadata)
         transferred = max(0, final_count - initial_count)
 
     # Reload metadata into memory

@@ -6,9 +6,9 @@ loading data, caching.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import orjson
 from loguru import logger
@@ -17,8 +17,11 @@ from pydantic import ValidationError
 from .datafile import DataFile, FileProcessing
 from .plugin_config import PluginConfig
 from .reader import DataReader
-from .utils import filter_kwargs_for
 from .utils.upgrade import UpgradeCoordinator
+from .utils.validation import filter_kwargs_for
+
+if TYPE_CHECKING:
+    from .versioning import UpgradeHandler
 
 
 class DataStore:
@@ -37,8 +40,6 @@ class DataStore:
     reader : DataReader | None, optional
         Custom :class:`DataReader` instance. If None, a default reader
         is created. Default is None.
-    upgrade_handler : Callable[..., Any] | None, optional
-        Optional upgrade handler to run when missing files require migration.
 
     Attributes
     ----------
@@ -84,7 +85,6 @@ class DataStore:
         path: str | Path | None = None,
         *,
         reader: DataReader | None = None,
-        upgrade_handler: Callable[..., Any] | None = None,
     ) -> None:
         """Initialize the DataStore."""
         if path is None:
@@ -106,11 +106,11 @@ class DataStore:
         self._reader = reader or DataReader()
         self._folder = folder_path.resolve()
         self._cache: dict[str, DataFile] = {}
-        self._upgrade = UpgradeCoordinator(handler=upgrade_handler)
+        self._upgrade = UpgradeCoordinator()
         logger.debug("Initialized DataStore with folder: {}", self.folder)
 
         if mapping_path is not None:
-            self._load_file_mapping(mapping_path)
+            self.load_file_mapping(mapping_path)
 
     @property
     def folder(self) -> Path:
@@ -123,8 +123,23 @@ class DataStore:
         return self._reader
 
     def __getitem__(self, key: str) -> DataFile:
-        """Access data file by name. Equivalent to :meth:`_get_data_file_by_name`."""
-        return self._get_data_file_by_name(name=key)
+        """Return a data file by name.
+
+        Returns
+        -------
+        DataFile
+            The requested data file.
+
+        Raises
+        ------
+        KeyError
+            If the data file name is not in the store.
+        """
+        if key not in self._cache:
+            available_files = list(self._cache.keys())
+            raise KeyError(f"'{key}' not present in store. Available files: {available_files}")
+
+        return self._cache[key]
 
     def __contains__(self, name: str) -> bool:
         """Check if a :class:`DataFile` exists in the store."""
@@ -136,7 +151,6 @@ class DataStore:
         data_files: list[DataFile],
         *,
         path: Path | str | None = None,
-        upgrade_handler: Callable[..., Any] | None = None,
     ) -> DataStore:
         """Create a :class:`DataStore` from a list of :class:`DataFile` instances.
 
@@ -146,15 +160,13 @@ class DataStore:
             List of DataFile instances to add to the store.
         path : Path | str | None, optional
             Path to the folder containing data files. Default is None.
-        upgrade_handler : Callable[..., Any] | None, optional
-            Optional upgrade handler for missing files during reads.
 
         Returns
         -------
         DataStore
             New DataStore instance with provided data files.
         """
-        store = cls(path=path, upgrade_handler=upgrade_handler)
+        store = cls(path=path)
         store.add_data(data_files)
         return store
 
@@ -164,7 +176,6 @@ class DataStore:
         json_fpath: Path | str,
         *,
         path: Path | str | None = None,
-        upgrade_handler: Callable[..., Any] | None = None,
     ) -> DataStore:
         """Create a :class:`DataStore` from a JSON configuration file.
 
@@ -174,8 +185,6 @@ class DataStore:
             Path to the JSON file containing data file configurations.
         path : Path | str | None
             Path to the folder containing data files. Defaults to the JSON's parent folder.
-        upgrade_handler : Callable[..., Any] | None, optional
-            Optional upgrade handler for missing files during reads.
 
         Returns
         -------
@@ -200,8 +209,8 @@ class DataStore:
         if not folder_path.exists():
             raise FileNotFoundError(f"Data folder not found: {folder_path}")
 
-        store = cls(path=folder_path, upgrade_handler=upgrade_handler)
-        store._load_file_mapping(json_fpath)
+        store = cls(path=folder_path)
+        store.load_file_mapping(json_fpath)
         return store
 
     @classmethod
@@ -210,7 +219,7 @@ class DataStore:
         plugin_config: PluginConfig,
         *,
         path: Path | str,
-        upgrade_handler: Callable[..., Any] | None = None,
+        upgrade_handler: UpgradeHandler | None = None,
     ) -> DataStore:
         """Create a :class:`DataStore` from a :class:`PluginConfig` instance.
 
@@ -220,9 +229,9 @@ class DataStore:
             Plugin configuration containing file mappings.
         path : Path | str
             Path to the folder containing data files.
-        upgrade_handler : Callable[..., Any] | None, optional
-            Optional upgrade handler to run if file mappings fail to validate.
-            If None, the store attempts to resolve a handler from the plugin package.
+        upgrade_handler : UpgradeHandler | None, optional
+            Optional handler for missing files or invalid mappings. If omitted,
+            the handler declared on ``plugin_config`` is used.
 
         Returns
         -------
@@ -242,11 +251,11 @@ class DataStore:
             )
             return store
         try:
-            store._load_file_mapping(json_fpath)
+            store.load_file_mapping(json_fpath)
         except ValidationError as exc:
             if store._upgrade.should_attempt(exc):
                 store._upgrade.run(store=store, reason="file mapping validation failed")
-                store._load_file_mapping(json_fpath)
+                store.load_file_mapping(json_fpath)
             else:
                 raise
         return store
@@ -320,7 +329,17 @@ class DataStore:
         KeyError
             If a data file with the same name exists and overwrite is False.
         """
-        return self._add_data_file(data_files, overwrite=overwrite)
+        if any(not isinstance(data_file, DataFile) for data_file in data_files):
+            raise TypeError
+
+        if any(data_file.name in self._cache for data_file in data_files) and not overwrite:
+            msg = "Some data files already exists with the same name. "
+            msg += "Pass overwrite=True to replace it."
+            raise KeyError(msg)
+
+        for data_file in data_files:
+            self._cache[data_file.name] = data_file
+            logger.debug("Added data file '{}' to store", data_file.name)
 
     def list_data(self) -> list[str]:
         """List all data file names in the store.
@@ -352,15 +371,34 @@ class DataStore:
         KeyError
             If the data file name is not in the store.
         """
-        return self._read_data_file_by_name(name=name, placeholders=placeholders)
+        if name not in self._cache:
+            raise KeyError(f"'{name}' not present in store.")
+
+        data_file = self._cache[name]
+        try:
+            return self.reader.read_data_file(
+                data_file,
+                folder_path=self.folder,
+                placeholders=placeholders,
+            )
+        except FileNotFoundError as exc:
+            if not self._upgrade.can_run:
+                raise
+            logger.warning("Missing data file; attempting upgrade before retrying: {}", exc)
+            self._upgrade.run(store=self, reason="missing data file during read")
+            return self.reader.read_data_file(
+                data_file,
+                folder_path=self.folder,
+                placeholders=placeholders,
+            )
 
     def configure_upgrades(
         self,
         *,
-        plugin_config: PluginConfig | None = None,
-        upgrade_handler: Callable[..., Any] | None = None,
+        plugin_config: PluginConfig,
+        upgrade_handler: UpgradeHandler | None = None,
     ) -> None:
-        """Configure upgrade handling for this store."""
+        """Configure upgrade handling using plugin config and an optional handler override."""
         self._upgrade = UpgradeCoordinator(
             plugin_config=plugin_config,
             handler=upgrade_handler,
@@ -417,101 +455,25 @@ class DataStore:
 
         logger.info("Created JSON file at {}", fpath)
 
-    def _add_data_file(
-        self,
-        data_files: Sequence[DataFile],
-        *,
-        overwrite: bool = False,
-    ) -> None:
-        """Add :class:`DataFile` instances to the store (internal).
+    def load_file_mapping(self, mapping_path: Path) -> None:
+        """Load additional DataFile definitions from a mapping JSON into this store.
 
         Parameters
         ----------
-        data_files : Sequence[DataFile]
-            DataFile instances to add.
-        overwrite : bool, optional
-            If True, overwrite existing data files. Default is False.
-        """
-        if any(not isinstance(data_file, DataFile) for data_file in data_files):
-            raise TypeError
-
-        if any(data_file.name in self._cache for data_file in data_files) and not overwrite:
-            msg = "Some data files already exists with the same name. "
-            msg += "Pass overwrite=True to replace it."
-            raise KeyError(msg)
-
-        for data_file in data_files:
-            self._cache[data_file.name] = data_file
-            logger.debug("Added data file '{}' to store", data_file.name)
-        return
-
-    def _get_data_file_by_name(self, name: str) -> DataFile:
-        """Retrieve a :class:`DataFile` configuration by name (internal).
-
-        Parameters
-        ----------
-        name : str
-            Name of the data file.
-
-        Returns
-        -------
-        DataFile
-            The requested data file.
+        mapping_path : Path
+            Mapping JSON file containing an array of DataFile records.
 
         Raises
         ------
+        FileNotFoundError
+            If the mapping file does not exist.
+        TypeError
+            If the mapping file does not contain a JSON array.
+        ValidationError
+            If a record does not define a valid DataFile.
         KeyError
-            If the data file name is not in the store.
+            If a record duplicates a file name already in the store.
         """
-        if name not in self._cache:
-            available_files = list(self._cache.keys())
-            raise KeyError(f"'{name}' not present in store. Available files: {available_files}")
-
-        return self._cache[name]
-
-    def _read_data_file_by_name(self, /, *, name: str, placeholders: dict[str, Any] | None = None) -> Any:
-        """Load data from a file by name (internal).
-
-        Parameters
-        ----------
-        name : str
-            Name of the data file.
-        placeholders : dict[str, Any] | None, optional
-            Placeholder values for substitution. Default is None.
-
-        Returns
-        -------
-        Any
-            Loaded data.
-
-        Raises
-        ------
-        KeyError
-            If the data file name is not in the store.
-        """
-        if name not in self:
-            raise KeyError(f"'{name}' not present in store.")
-
-        data_file = self._cache[name]
-        try:
-            return self.reader.read_data_file(
-                data_file,
-                folder_path=self.folder,
-                placeholders=placeholders,
-            )
-        except FileNotFoundError as exc:
-            if not self._upgrade.can_run:
-                raise
-            logger.warning("Missing data file; attempting upgrade before retrying: {}", exc)
-            self._upgrade.run(store=self, reason="missing data file during read")
-            return self.reader.read_data_file(
-                data_file,
-                folder_path=self.folder,
-                placeholders=placeholders,
-            )
-
-    def _load_file_mapping(self, mapping_path: Path) -> None:
-        """Load DataFile definitions from a file-mapping JSON."""
         logger.info("Loading file mapping from {}", mapping_path)
         with open(mapping_path, "rb") as f:
             data_files_json = orjson.loads(f.read())

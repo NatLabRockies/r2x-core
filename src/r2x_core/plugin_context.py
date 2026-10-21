@@ -85,7 +85,6 @@ class PluginContext(Generic[ConfigT]):
     """
 
     __slots__ = (
-        "_cache",
         "auto_add_composed_components",
         "config",
         "current_version",
@@ -168,7 +167,6 @@ class PluginContext(Generic[ConfigT]):
         self.target_version = target_version
         self.version_strategy = version_strategy
         self.preserve_source = preserve_source
-        self._cache: dict[str, Any] = {}
 
     def evolve(self, **kwargs: Any) -> PluginContext[ConfigT]:
         """Create a new context with updated fields.
@@ -255,8 +253,7 @@ class PluginContext(Generic[ConfigT]):
         target_type : str
             Target component type name.
         version : int | None
-            Rule version. If None, uses active_versions from config if available,
-            otherwise defaults to version 1.
+            Rule version. If None, uses active_versions from config, otherwise defaults to version 1.
 
         Returns
         -------
@@ -269,8 +266,7 @@ class PluginContext(Generic[ConfigT]):
             If no rule matches the specified source/target types and version.
         """
         if version is None:
-            active_versions = getattr(self.config, "active_versions", {})
-            version = active_versions.get(source_type, 1)
+            version = self.config.active_versions.get(source_type, 1)
 
         for rule in self.rules:
             if (

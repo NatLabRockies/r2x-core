@@ -3,25 +3,22 @@
 from __future__ import annotations
 
 from typing import Any, cast
-from uuid import uuid4
 
 from infrasys import Component, SupplementalAttribute
 from infrasys.exceptions import ISNotStored
 from loguru import logger
-from rust_ok import Err, Ok, Result
+from rust_ok import Err, Ok, Result, is_err
 
 from .plugin_context import PluginContext
 from .provenance import ProvenanceBuilder
 from .result import RuleApplicationStats, RuleResult, TranslationResult
 from .rules import Rule
 from .time_series import transfer_time_series_metadata
-from .utils import (
+from .utils.iteration import iter_components
+from .utils.rules import (
     RuleOutputs,
-    build_target_fields,
     create_rule_outputs,
-    create_target_component,
     evaluate_rule_filter,
-    iter_components,
     resolve_component_type,
     sort_rules_by_dependencies,
 )
@@ -50,7 +47,14 @@ def apply_rules_to_context(context: PluginContext) -> TranslationResult:
 
     sorted_rules = sort_rules_by_dependencies(context.list_rules()).unwrap_or_raise(exc_type=ValueError)
 
-    builder = _build_provenance_builder(context)
+    builder: ProvenanceBuilder | None = None
+    if context.preserve_source:
+        if context.source_system is None:
+            logger.warning(
+                "preserve_source=True but context has no source_system; skipping provenance capture"
+            )
+        else:
+            builder = ProvenanceBuilder(context.source_system)
 
     rule_results: list[RuleResult] = []
     total_converted = 0
@@ -133,7 +137,7 @@ def apply_single_rule(
     """
     converted = 0
     target_types = rule.get_target_types()
-    supplemental_rules = getattr(rule, "supplemental_attributes", ())
+    supplemental_rules = rule.supplemental_attributes
     if len(target_types) > 1 and supplemental_rules:
         return Err(ValueError("Rules with supplemental outputs must have exactly one primary target"))
     should_regenerate_uuid = len(target_types) > 1
@@ -142,35 +146,31 @@ def apply_single_rule(
     if read_system is None:
         return Err(ValueError(f"System '{rule.system}' is not set in context"))
 
-    source_class_result = _resolve_source_class(rule, context=context)
-    if source_class_result.is_err():
-        return source_class_result.map(lambda _: RuleApplicationStats(converted=0, skipped=0))
-    source_class = cast(type[Component], source_class_result.ok())
+    source_class_result = resolve_source_class(rule, context=context)
+    if is_err(source_class_result):
+        return Err(source_class_result.err())
+    source_class = source_class_result.unwrap()
 
     resolved_targets: list[type[Component | SupplementalAttribute]] = []
     for target_type in target_types:
-        target_class_result = _resolve_component_class(
+        target_class_result = resolve_component_class(
             target_type, context=context, label="target", allow_supplemental=True
         )
-        if target_class_result.is_err():
-            return target_class_result.map(lambda _: RuleApplicationStats(converted=0, skipped=0))
-        resolved_class = target_class_result.ok()
-        assert resolved_class is not None
-        resolved_targets.append(resolved_class)
+        if is_err(target_class_result):
+            return Err(target_class_result.err())
+        resolved_targets.append(target_class_result.unwrap())
 
     supplemental_classes: list[type[SupplementalAttribute]] = []
     for supplemental_rule in supplemental_rules:
         supplemental_class_result = resolve_supplemental_class(supplemental_rule.target_type, context=context)
-        if supplemental_class_result.is_err():
+        if is_err(supplemental_class_result):
             return Err(
                 ValueError(
                     f"Rule '{rule.name or rule}', supplemental target "
                     f"'{supplemental_rule.target_type}': {supplemental_class_result.err()}"
                 )
             )
-        supplemental_class = supplemental_class_result.ok()
-        assert supplemental_class is not None
-        supplemental_classes.append(supplemental_class)
+        supplemental_classes.append(supplemental_class_result.unwrap())
 
     if supplemental_rules:
         for target_class in resolved_targets:
@@ -202,17 +202,17 @@ def apply_single_rule(
                     f"Rule '{rule.name or rule}', source '{source_label}': {error}"
                 )
             )
-            if outputs_result.is_err():
-                return outputs_result.map(lambda _: RuleApplicationStats(converted=0, skipped=0))
+            if is_err(outputs_result):
+                return Err(outputs_result.err())
 
             outputs = outputs_result.unwrap()
             attach_result = attach_rule_outputs(outputs, src_component, context)
-            if attach_result.is_err():
-                return attach_result.map_err(
-                    lambda error, source_label=src_component.label: ValueError(
-                        f"Rule '{rule.name or rule}', source '{source_label}': {error}"
+            if is_err(attach_result):
+                return Err(
+                    ValueError(
+                        f"Rule '{rule.name or rule}', source '{src_component.label}': {attach_result.err()}"
                     )
-                ).map(lambda _: RuleApplicationStats(converted=0, skipped=0))
+                )
 
             if builder is not None and rule.system == "source" and context.target_system is not None:
                 builder.record_translation(src_component, outputs.primary, context.target_system)
@@ -226,83 +226,7 @@ def apply_single_rule(
     return Ok(RuleApplicationStats(converted=converted, skipped=0))
 
 
-def _build_provenance_builder(context: PluginContext) -> ProvenanceBuilder | None:
-    """Return a provenance builder when the context opts into source preservation.
-
-    Returns None when ``preserve_source`` is False or when the context is
-    missing the source system that the builder needs to inspect.
-    """
-    if not context.preserve_source:
-        return None
-    if context.source_system is None:
-        logger.warning("preserve_source=True but context has no source_system; skipping provenance capture")
-        return None
-    return ProvenanceBuilder(context.source_system)
-
-
-def _convert_component_with_class(
-    rule: Rule,
-    source_component: Component,
-    target_class: type[Component] | type[SupplementalAttribute],
-    context: PluginContext,
-    regenerate_uuid: bool,
-) -> Result[Component | SupplementalAttribute, ValueError]:
-    """Convert a single source component to a pre-resolved target class.
-
-    Separated from type resolution so callers can resolve once and reuse.
-    """
-    fields_result = build_target_fields(source_component, rule=rule, context=context).map_err(
-        lambda e: ValueError(f"Failed to build fields for {source_component.label}: {e}")
-    )
-
-    def create_component(kwargs: dict[str, Any]) -> Result[Component | SupplementalAttribute, ValueError]:
-        """
-        Create a target component instance with the given keyword arguments.
-
-        If `regenerate_uuid` is True and 'uuid' is present in kwargs, a new UUID is generated.
-        Returns an Ok result with the created component, or an Err if creation fails.
-
-        Parameters
-        ----------
-        kwargs : dict[str, Any]
-            The keyword arguments to use for constructing the component.
-
-        Returns
-        -------
-        Result[Any, ValueError]
-            Ok(component) if successful, Err(ValueError) if creation fails.
-        """
-        if regenerate_uuid and "uuid" in kwargs:
-            kwargs = dict(kwargs)
-            kwargs["uuid"] = str(uuid4())
-        return Ok(create_target_component(target_class, kwargs=kwargs))
-
-    return fields_result.and_then(create_component)
-
-
-def _convert_component(
-    rule: Rule,
-    source_component: Component,
-    target_type: str,
-    context: PluginContext,
-    regenerate_uuid: bool,
-) -> Result[Any, ValueError]:
-    """Convert a single source component to a target type.
-
-    Resolves the target class on every call. Prefer _convert_component_with_class
-    when converting many components with the same rule to avoid repeated resolution.
-    """
-    target_class_result = _resolve_component_class(
-        target_type, context=context, label="target", allow_supplemental=True
-    )
-    return target_class_result.and_then(
-        lambda target_class: _convert_component_with_class(
-            rule, source_component, target_class, context, regenerate_uuid
-        )
-    )
-
-
-def _resolve_component_class(
+def resolve_component_class(
     type_name: str,
     *,
     context: PluginContext,
@@ -313,25 +237,19 @@ def _resolve_component_class(
     class_result = resolve_component_type(type_name, context=context).map_err(
         lambda e: ValueError(f"Failed to resolve {label} type '{type_name}': {e}")
     )
-    if class_result.is_err():
-        return class_result.map(lambda _: Component)
+    if is_err(class_result):
+        return Err(class_result.err())
 
-    resolved_class = class_result.ok()
-    is_component = isinstance(resolved_class, type) and issubclass(resolved_class, Component)
-    is_supplemental = (
-        allow_supplemental
-        and isinstance(resolved_class, type)
-        and issubclass(resolved_class, SupplementalAttribute)
-    )
-    if not (is_component or is_supplemental):
+    resolved_class = class_result.unwrap()
+    allowed: tuple[type, ...] = (Component, SupplementalAttribute) if allow_supplemental else (Component,)
+    if not isinstance(resolved_class, type) or not issubclass(resolved_class, allowed):
         expected = "Component or SupplementalAttribute" if allow_supplemental else "Component"
         return Err(ValueError(f"Resolved {label} type '{type_name}' is not a {expected} subclass"))
 
-    assert resolved_class is not None
-    return Ok(cast(type[Component] | type[SupplementalAttribute], resolved_class))
+    return Ok(resolved_class)
 
 
-def _resolve_source_class(rule: Rule, *, context: PluginContext) -> Result[type[Component], ValueError]:
+def resolve_source_class(rule: Rule, *, context: PluginContext) -> Result[type[Component], ValueError]:
     """Resolve all source types for a rule into a single component class.
 
     Rules with multiple source types are not supported here; the caller
@@ -346,7 +264,7 @@ def _resolve_source_class(rule: Rule, *, context: PluginContext) -> Result[type[
     if len(source_types) > 1:
         logger.warning("Rule '{}' defines multiple source types; only '{}' will be used", rule, source_type)
 
-    return _resolve_component_class(source_type, context=context, label="source").map(
+    return resolve_component_class(source_type, context=context, label="source").map(
         lambda resolved_class: cast(type[Component], resolved_class)
     )
 
@@ -355,13 +273,12 @@ def resolve_supplemental_class(
     type_name: str, *, context: PluginContext
 ) -> Result[type[SupplementalAttribute], ValueError]:
     """Resolve and validate a supplemental-attribute output type."""
-    class_result = _resolve_component_class(
+    class_result = resolve_component_class(
         type_name, context=context, label="supplemental target", allow_supplemental=True
     )
-    if class_result.is_err():
-        return class_result.map(lambda _: SupplementalAttribute)
-    resolved_class = class_result.ok()
-    assert resolved_class is not None
+    if is_err(class_result):
+        return Err(class_result.err())
+    resolved_class = class_result.unwrap()
     if not issubclass(resolved_class, SupplementalAttribute):
         return Err(
             ValueError(
@@ -369,22 +286,6 @@ def resolve_supplemental_class(
             )
         )
     return Ok(resolved_class)
-
-
-def _is_supplemental_attribute(component: Component) -> bool:
-    """Check if a component is a supplemental attribute.
-
-    Parameters
-    ----------
-    component : Any
-        The component to check
-
-    Returns
-    -------
-    bool
-        True if the component is a supplemental attribute, False otherwise
-    """
-    return isinstance(component, SupplementalAttribute)
 
 
 def attach_rule_outputs(
@@ -429,19 +330,19 @@ def attach_rule_outputs(
 
     def fail_with_rollback(error: ValueError) -> Result[None, ValueError]:
         """Return the attachment error after attempting to remove partial outputs."""
-        rollback_result = _rollback_rule_outputs(outputs, attached_supplemental, primary_attached, context)
+        rollback_result = rollback_rule_outputs(outputs, attached_supplemental, primary_attached, context)
         if rollback_result.is_err():
             return Err(ValueError(f"{error}; {rollback_result.err()}"))
         return Err(error)
 
     try:
-        attach_result = _attach_component(outputs.primary, source_component, context)
+        attach_result = attach_component(outputs.primary, source_component, context)
         if attach_result.is_err():
             return fail_with_rollback(attach_result.err())
         primary_attached = isinstance(outputs.primary, Component)
 
         for supplemental_attribute in outputs.supplemental_attributes:
-            attach_result = _attach_component(supplemental_attribute, outputs.primary, context)
+            attach_result = attach_component(supplemental_attribute, outputs.primary, context)
             if attach_result.is_err():
                 return fail_with_rollback(attach_result.err())
             attached_supplemental.append(supplemental_attribute)
@@ -456,7 +357,7 @@ def attach_rule_outputs(
     return Ok(None)
 
 
-def _rollback_rule_outputs(
+def rollback_rule_outputs(
     outputs: RuleOutputs,
     supplemental_attributes: list[SupplementalAttribute],
     primary_attached: bool,
@@ -485,7 +386,7 @@ def _rollback_rule_outputs(
     return Ok(None)
 
 
-def _attach_component(
+def attach_component(
     component: Any,
     source_component: Any,
     context: PluginContext,
@@ -512,7 +413,7 @@ def _attach_component(
     """
     if context.target_system is None:
         return Err(ValueError("target_system must be set in context"))
-    if not _is_supplemental_attribute(component):
+    if not isinstance(component, SupplementalAttribute):
         context.target_system.add_component(component)
         return Ok(None)
 

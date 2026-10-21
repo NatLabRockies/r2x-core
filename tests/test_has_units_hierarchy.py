@@ -120,26 +120,14 @@ def test_class_hierarchy_isinstance_generator():
     assert isinstance(gen, HasPerUnit)
 
 
-def test_has_units_no_system_base_attribute():
-    """Test that HasUnits does not have _system_base attribute."""
+def test_has_units_system_base_is_none():
+    """HasUnits models without system-base support return None."""
     sensor = Sensor(name="TempSensor1", temperature=25.0, pressure=101325.0)
-    assert not hasattr(sensor, "_system_base")
-
-
-def test_has_per_units_has_system_base_attribute():
-    """Test that HasPerUnit has _system_base attribute."""
-    gen = Generator(
-        name="Gen1",
-        base_power=100.0,
-        rated_voltage=13.8,
-        rating=0.8,
-        voltage=1.0,
-    )
-    assert hasattr(gen, "_system_base")
+    assert sensor.system_base is None
 
 
 def test_has_per_units_system_base_can_be_set():
-    """Test that _system_base can be set on HasPerUnit."""
+    """Set the system base through the public binding method."""
     gen = Generator(
         name="Gen1",
         base_power=100.0,
@@ -147,8 +135,8 @@ def test_has_per_units_system_base_can_be_set():
         rating=0.8,
         voltage=1.0,
     )
-    gen._system_base = 150.0
-    assert gen._system_base == 150.0
+    gen.bind_system_base(150.0)
+    assert gen.system_base == 150.0
 
 
 def test_has_per_units_system_base_repr():
@@ -161,7 +149,7 @@ def test_has_per_units_system_base_repr():
         rating=0.8,
         voltage=1.0,
     )
-    gen._system_base = 150.0
+    gen.bind_system_base(150.0)
     repr_str = repr(gen)
     assert "pu (system)" in repr_str
     set_unit_system(UnitSystem.DEVICE_BASE)
@@ -180,23 +168,44 @@ def test_mixed_units_conversion():
     assert gen.voltage == 1.05
 
 
-def test_has_units_caching():
-    """Test that unit specs are cached correctly for HasUnits."""
-    sensor1 = Sensor(name="S1", temperature=25.0, pressure=101325.0)
-    sensor2 = Sensor(name="S2", temperature=30.0, pressure=101000.0)
-
-    specs1 = type(sensor1)._get_unit_specs_map()
-    specs2 = type(sensor2)._get_unit_specs_map()
-
-    assert specs1 is specs2
+def test_unit_specs_contains_exactly_annotated_fields():
+    """The class-level registry contains only fields with Unit metadata."""
+    assert set(Sensor.unit_specs) == {"temperature", "pressure"}
+    assert set(Generator.unit_specs) == {"base_power", "rated_voltage", "rating", "voltage"}
+    assert Generator.unit_specs["rating"].base_unit == "MVA"
 
 
-def test_has_per_units_caching():
-    """Test that unit specs are cached correctly for HasPerUnit."""
-    gen1 = Generator(name="G1", base_power=100.0, rated_voltage=13.8, rating=0.8, voltage=1.0)
-    gen2 = Generator(name="G2", base_power=200.0, rated_voltage=20.0, rating=0.9, voltage=1.05)
+def test_same_named_classes_resolve_their_own_base_units():
+    """Class-name collisions do not affect per-unit conversion."""
 
-    specs1 = type(gen1)._get_unit_specs_map()
-    specs2 = type(gen2)._get_unit_specs_map()
+    def make_generator(base_unit: str) -> type[Component]:
+        class Generator(HasUnits, Component):
+            base_power: Annotated[float, Unit(base_unit)]
+            rating: Annotated[float, Unit("pu", base="base_power")]
 
-    assert specs1 is specs2
+        return Generator
+
+    mva_generator = make_generator("MVA")
+    kva_generator = make_generator("kVA")
+
+    mva_instance = mva_generator(
+        name="MVA generator",
+        base_power=100.0,
+        rating={"value": 80.0, "unit": "MVA"},  # type: ignore[arg-type]
+    )
+    kva_instance = kva_generator(
+        name="kVA generator",
+        base_power=100.0,
+        rating={"value": 80.0, "unit": "kVA"},  # type: ignore[arg-type]
+    )
+
+    assert mva_instance.rating == pytest.approx(0.8)
+    assert kva_instance.rating == pytest.approx(0.8)
+
+
+def test_missing_base_unit_field_raises_at_class_creation():
+    """Reject a base reference that does not name a unit-annotated field."""
+    with pytest.raises(TypeError, match="missing_base"):
+
+        class InvalidComponent(HasUnits, Component):
+            rating: Annotated[float, Unit("pu", base="missing_base")]

@@ -21,8 +21,8 @@ class ReaderError(R2XCoreError):
     """Exception raised for data reading related errors."""
 
 
-class HDF5GroupNotFoundError(KeyError):
-    """Exception raised when a configured HDF5 group is missing."""
+class ConfiguredGroupNotFoundError(KeyError):
+    """Exception raised when a reader's configured group is missing."""
 
 
 class MultipleFileError(ValueError):
@@ -35,11 +35,3 @@ class CLIError(R2XCoreError):
 
 class PluginError(R2XCoreError):
     """Exception raised during plugin execution."""
-
-
-class UnwrapError(Exception):
-    """Exception raised when unwrapping an Err result."""
-
-
-class IsNotError(Exception):
-    """Exception raised when accessing .err if Ok()."""

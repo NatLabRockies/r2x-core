@@ -8,13 +8,15 @@ and methods to load and override configuration assets.
 import inspect
 from enum import Enum
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Annotated, Any, ClassVar
 
 import orjson
 from loguru import logger
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic.json_schema import SkipJsonSchema
 
 from .utils.overrides import merge_with_overrides
+from .versioning import UpgradeHandler
 
 
 class PluginConfigAsset(str, Enum):
@@ -45,6 +47,10 @@ class PluginConfig(BaseModel):
     config_path_override : Path | None
         Optional override for the configuration path. When provided, this path
         is used instead of the default package configuration directory.
+    active_versions : dict[str, int]
+        Rule version to use per source component type when a lookup omits one.
+    upgrade_handler : UpgradeHandler | None
+        Optional DataStore handler for missing-file and validation upgrades.
 
     Examples
     --------
@@ -59,6 +65,8 @@ class PluginConfig(BaseModel):
 
     CONFIG_DIR: ClassVar[str] = "config"
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     models: tuple[str, ...] = Field(
         default_factory=tuple,
         description=(
@@ -72,9 +80,26 @@ class PluginConfig(BaseModel):
         description="Override for the configuration path. This is used if you want to point to a different place than the `CONFIG_DIR`",
     )
 
+    active_versions: Annotated[
+        dict[str, int],
+        Field(
+            default_factory=dict,
+            description="Rule version to use per source component type when a lookup does not specify one",
+        ),
+    ]
+
+    upgrade_handler: Annotated[
+        SkipJsonSchema[UpgradeHandler | None],
+        Field(
+            default=None,
+            exclude=True,
+            description="Callable invoked by DataStore when input files are missing or fail validation",
+        ),
+    ]
+
     @field_validator("models", mode="before")
     @classmethod
-    def _coerce_models(cls, value: Any | None) -> tuple[str, ...]:
+    def coerce_models(cls, value: Any | None) -> tuple[str, ...]:
         """Coerce models input into a normalized tuple.
 
         Accepts string, iterable, or None inputs and normalizes them to a tuple.
@@ -119,7 +144,7 @@ class PluginConfig(BaseModel):
         -----
         A warning is logged if the returned path does not exist on the filesystem.
         """
-        config_path = self.config_path_override or self._package_config_path()
+        config_path = self.config_path_override or self.package_config_path()
 
         if not config_path.exists():
             msg = "Config path={} doe not exist on the Package."
@@ -212,7 +237,7 @@ class PluginConfig(BaseModel):
         FileNotFoundError
             If any expected configuration asset file is not found in config_path.
         """
-        resolved_config_path = Path(config_path) if config_path is not None else cls._package_config_path()
+        resolved_config_path = Path(config_path) if config_path is not None else cls.package_config_path()
         asset_data: dict[str, Any] = {}
         for asset in PluginConfigAsset:
             asset_path = resolved_config_path / asset.value
@@ -229,7 +254,7 @@ class PluginConfig(BaseModel):
         return merge_with_overrides(base=asset_data, overrides=overrides)
 
     @classmethod
-    def _package_config_path(cls) -> Path:
+    def package_config_path(cls) -> Path:
         """Compute the config directory path relative to the defining package.
 
         Locates the module file for the class and returns the path to the

@@ -44,7 +44,7 @@ Ensure code quality and consistency:
 uv run prek run --all-files
 
 # Run type checking
-uv run mypy --config-file=pyproject.toml src/
+uv run ty check src/
 
 # Run linting and formatting
 uv run ruff check src/
@@ -248,10 +248,10 @@ This will run linting and formatting before each commit.
 
 ### Type Checking
 
-Use mypy for static type checking:
+Use ty for static type checking:
 
 ```bash
-uv run mypy src/
+uv run ty check src/
 ```
 
 ### Testing Standards
@@ -274,7 +274,6 @@ We follow the [Diataxis](https://diataxis.fr/) framework:
 ### Useful Python References
 
 - [Python Enhancement Proposals (PEPs)](https://peps.python.org/)
-- [Type Hints Cheat Sheet](https://mypy.readthedocs.io/en/stable/cheat_sheet_py3.html)
 - [Testing Best Practices](https://docs.python-guide.org/writing/tests/)
 
 ## Code Standards

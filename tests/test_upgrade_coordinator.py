@@ -1,8 +1,7 @@
-"""Tests for upgrade coordination helpers."""
+"""Tests for upgrade coordination contracts."""
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -11,16 +10,12 @@ from pydantic import ValidationError
 from pydantic_core import ErrorDetails, InitErrorDetails
 from rust_ok import Err
 
-from r2x_core import DataStore, PluginConfig
+from r2x_core import DataStore, PluginConfig, PluginContext
 from r2x_core.exceptions import UpgradeError
-from r2x_core.utils.upgrade import (
-    UpgradeCoordinator,
-    _is_missing_file_error,
-    _resolve_upgrade_handler,
-)
+from r2x_core.utils.upgrade import UpgradeCoordinator, is_missing_file_error
 
 
-def test_is_missing_file_error_detects_exc_type() -> None:
+def test_is_missing_file_error_detects_exception_type() -> None:
     error: ErrorDetails = {
         "type": "value_error",
         "msg": "test error",
@@ -28,10 +23,10 @@ def test_is_missing_file_error_detects_exc_type() -> None:
         "loc": ("fpath",),
         "ctx": {"exc_type": "FileNotFoundError"},
     }
-    assert _is_missing_file_error(error)
+    assert is_missing_file_error(error)
 
 
-def test_is_missing_file_error_matches_message() -> None:
+def test_is_missing_file_error_requires_exception_type() -> None:
     error: ErrorDetails = {
         "type": "value_error",
         "msg": "Missing required file: /tmp/foo",
@@ -39,7 +34,7 @@ def test_is_missing_file_error_matches_message() -> None:
         "loc": ("fpath",),
         "ctx": {"error": "Missing required file: /tmp/foo"},
     }
-    assert _is_missing_file_error(error)
+    assert not is_missing_file_error(error)
 
 
 def test_is_missing_file_error_false_for_other_errors() -> None:
@@ -48,85 +43,54 @@ def test_is_missing_file_error_false_for_other_errors() -> None:
         "msg": "bad input",
         "input": "bad input",
         "loc": ("fpath",),
-        "ctx": {"error": "bad input"},
+        "ctx": {"error": "bad input", "exc_type": "ValueError"},
     }
-    assert not _is_missing_file_error(error)
+    assert not is_missing_file_error(error)
 
 
-def test_resolve_upgrade_handler_from_property() -> None:
-    def handler(*, store: DataStore) -> None:
+def test_upgrade_coordinator_resolves_handler_from_plugin_config() -> None:
+    def handler(*, store: DataStore, ctx: PluginContext[Any]) -> None:
         return None
 
-    class PropertyConfig(PluginConfig):
-        @property
-        def upgrade_handler(self) -> Any:
-            return handler
+    config = PluginConfig(upgrade_handler=handler)
+    coordinator = UpgradeCoordinator(plugin_config=config)
+    coordinator.resolve()
 
-    config = PropertyConfig()
-    assert _resolve_upgrade_handler(config) is handler
+    assert coordinator.handler is handler
 
 
-def test_resolve_upgrade_handler_from_getter() -> None:
-    def handler(*, store: DataStore) -> None:
+def test_upgrade_coordinator_rejects_handler_without_plugin_config() -> None:
+    def handler(*, store: DataStore, ctx: PluginContext[Any]) -> None:
         return None
 
-    class GetterConfig(PluginConfig):
-        def get_upgrade_handler(self) -> Any:
-            return handler
-
-    config = GetterConfig()
-    assert _resolve_upgrade_handler(config) is handler
-
-
-def test_resolve_upgrade_handler_from_module(tmp_path: Path) -> None:
-    package_dir = tmp_path / "r2x_dummy"
-    package_dir.mkdir()
-    (package_dir / "__init__.py").write_text("", encoding="utf-8")
-    (package_dir / "upgrader.py").write_text(
-        "def run_dummy_upgrades(*, store=None):\n    return None\n",
-        encoding="utf-8",
-    )
-    (package_dir / "config.py").write_text(
-        "from r2x_core import PluginConfig\n\nclass DummyConfig(PluginConfig):\n    pass\n",
-        encoding="utf-8",
-    )
-
-    sys.path.insert(0, str(tmp_path))
-    try:
-        from r2x_dummy.config import DummyConfig  # type: ignore[import-not-found]
-
-        config = DummyConfig()
-        handler = _resolve_upgrade_handler(config)
-        assert handler is not None
-        assert handler.__name__ == "run_dummy_upgrades"  # type: ignore[union-attr]
-    finally:
-        sys.path.remove(str(tmp_path))
-        for module_name in list(sys.modules):
-            if module_name.startswith("r2x_dummy"):
-                del sys.modules[module_name]
+    with pytest.raises(ValueError, match="plugin_config is required"):
+        UpgradeCoordinator(handler=handler)
 
 
 def test_upgrade_coordinator_runs_and_marks(tmp_path: Path) -> None:
-    calls = {"count": 0}
+    calls: list[tuple[DataStore, PluginContext[Any]]] = []
 
-    def handler(*, store: DataStore) -> None:
-        calls["count"] += 1
-        return None
+    def handler(*, store: DataStore, ctx: PluginContext[Any]) -> None:
+        calls.append((store, ctx))
 
-    coordinator = UpgradeCoordinator(handler=handler)
+    config = PluginConfig(upgrade_handler=handler)
+    coordinator = UpgradeCoordinator(plugin_config=config)
     store = DataStore(path=tmp_path)
 
     coordinator.run(store=store, reason="test")
 
-    assert calls["count"] == 1
+    assert len(calls) == 1
+    assert calls[0][0] is store
+    assert calls[0][1].config is config
+    assert calls[0][1].store is store
     assert coordinator.ran is True
 
 
-def test_upgrade_coordinator_raises_on_err(tmp_path: Path) -> None:
-    def handler(*, store: DataStore) -> Err[None, str]:
+def test_upgrade_coordinator_raises_on_result_error(tmp_path: Path) -> None:
+    def handler(*, store: DataStore, ctx: PluginContext[Any]) -> Err[None, str]:
         return Err("boom")
 
-    coordinator = UpgradeCoordinator(handler=handler)
+    coordinator = UpgradeCoordinator(plugin_config=PluginConfig(upgrade_handler=handler))
     store = DataStore(path=tmp_path)
 
     with pytest.raises(UpgradeError, match="boom"):
@@ -138,44 +102,40 @@ def test_upgrade_coordinator_should_attempt() -> None:
         "type": "value_error",
         "input": "ignored",
         "loc": ("fpath",),
-        "ctx": {"error": "Missing required file: /tmp/foo", "exc_type": "FileNotFoundError"},
+        "ctx": {"error": "missing input", "exc_type": "FileNotFoundError"},
     }
-    exc = ValidationError.from_exception_data(title="missing", line_errors=[error])
+    validation_error = ValidationError.from_exception_data(title="missing", line_errors=[error])
 
-    def handler(*, store: DataStore) -> None:
+    def handler(*, store: DataStore, ctx: PluginContext[Any]) -> None:
         return None
 
-    coordinator = UpgradeCoordinator(handler=handler)
-    assert coordinator.should_attempt(exc)
+    coordinator = UpgradeCoordinator(plugin_config=PluginConfig(upgrade_handler=handler))
+    assert coordinator.should_attempt(validation_error)
 
 
-@pytest.mark.parametrize("as_result", [False, True])
-def test_upgrade_coordinator_preserves_exception_cause(tmp_path: Path, as_result: bool) -> None:
+def test_upgrade_coordinator_preserves_raised_exception_cause(tmp_path: Path) -> None:
     cause = FileNotFoundError("missing input")
 
-    def handler(*, store: DataStore) -> Err[None, FileNotFoundError]:
-        if as_result:
-            return Err(cause)
+    def handler(*, store: DataStore, ctx: PluginContext[Any]) -> None:
         raise cause
 
-    coordinator = UpgradeCoordinator(handler=handler)
-    with pytest.raises((UpgradeError, FileNotFoundError)) as exc_info:
+    coordinator = UpgradeCoordinator(plugin_config=PluginConfig(upgrade_handler=handler))
+    with pytest.raises(UpgradeError) as exc_info:
         coordinator.run(store=DataStore(path=tmp_path), reason="test")
-    if as_result:
-        assert exc_info.value is cause
-    else:
-        assert exc_info.value.__cause__ is cause
+
+    assert exc_info.value.__cause__ is cause
     assert coordinator.ran is False
 
 
 def test_upgrade_coordinator_propagates_programming_errors(tmp_path: Path) -> None:
     cause = TypeError("invalid handler")
 
-    def handler(*, store: DataStore) -> None:
+    def handler(*, store: DataStore, ctx: PluginContext[Any]) -> None:
         raise cause
 
-    coordinator = UpgradeCoordinator(handler=handler)
+    coordinator = UpgradeCoordinator(plugin_config=PluginConfig(upgrade_handler=handler))
     with pytest.raises(TypeError) as exc_info:
         coordinator.run(store=DataStore(path=tmp_path), reason="test")
+
     assert exc_info.value is cause
     assert coordinator.ran is False

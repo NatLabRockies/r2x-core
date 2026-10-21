@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Annotated, TypedDict
+from typing import Annotated, Any, TypedDict
 
 from polars import LazyFrame
 from pydantic import Field
 
-from r2x_core import DataStore, PluginConfig
+from r2x_core import DataStore, PluginConfig, PluginContext
 
 
 class FileMappingRecord(TypedDict):
@@ -42,15 +42,14 @@ def test_store_runs_upgrade_handler_when_mapping_missing(tmp_path: Path) -> None
     ]
     (config_dir / "file_mapping.json").write_text(json.dumps(mapping), encoding="utf-8")
 
-    config = UpgradeConfig(config_path_override=config_dir)
-
     calls = {"count": 0}
 
-    def upgrade_handler(*, store: DataStore) -> None:
+    def upgrade_handler(*, store: DataStore, ctx: PluginContext[Any]) -> None:
         calls["count"] += 1
         (store.folder / "old.csv").rename(store.folder / "new.csv")
 
-    store = DataStore.from_plugin_config(config, path=run_dir, upgrade_handler=upgrade_handler)
+    config = UpgradeConfig(config_path_override=config_dir, upgrade_handler=upgrade_handler)
+    store = DataStore.from_plugin_config(config, path=run_dir)
 
     assert calls["count"] == 1
 

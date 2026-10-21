@@ -1,7 +1,5 @@
 """Tests for PluginContext rule lookup methods."""
 
-from typing import ClassVar
-
 import pytest
 
 from r2x_core import Rule
@@ -59,10 +57,10 @@ def test_get_rule_default_version(sample_rules):
     """Test getting a rule with default version from config."""
 
     class ConfigWithVersions(PluginConfig):
-        active_versions: ClassVar[dict[str, int]] = {"BusComponent": 2}
+        pass
 
     ctx = PluginContext(
-        config=ConfigWithVersions(),
+        config=ConfigWithVersions(active_versions={"BusComponent": 2}),
         source_system=System(name="source"),
         target_system=System(name="target"),
         rules=sample_rules,

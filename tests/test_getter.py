@@ -199,25 +199,25 @@ def test_getter_callable_with_result_type():
     assert result.unwrap() == 42
 
 
-def test_preprocess_rule_getters_passes_through_callables():
+def test_resolve_rule_getters_passes_through_callables():
     """Callables in getter dict remain unchanged."""
-    from r2x_core.getters import _preprocess_rule_getters
+    from r2x_core.getters import resolve_rule_getters
 
     def compute(comp, *, context):
         _ = context
         return "value"
 
-    result = _preprocess_rule_getters({"field": compute})
+    result = resolve_rule_getters({"field": compute})
     assert result.is_ok()
     resolved = result.unwrap()
     assert resolved["field"] is compute
 
 
-def test_preprocess_rule_getters_resolves_registry_names():
+def test_resolve_rule_getters_resolves_registry_names():
     """String referencing registered getter resolves to callable."""
     from rust_ok import Ok
 
-    from r2x_core.getters import GETTER_REGISTRY, _preprocess_rule_getters, getter
+    from r2x_core.getters import GETTER_REGISTRY, getter, resolve_rule_getters
 
     unique_name = "registry_lookup_getter"
 
@@ -228,26 +228,26 @@ def test_preprocess_rule_getters_resolves_registry_names():
             _ = context
             return Ok("from_registry")
 
-    result = _preprocess_rule_getters({"field": unique_name})
+    result = resolve_rule_getters({"field": unique_name})
     assert result.is_ok()
     resolved = result.unwrap()
     assert resolved["field"] is GETTER_REGISTRY[unique_name]
 
 
-def test_preprocess_rule_getters_logs_missing_registry_name(caplog):
+def test_resolve_rule_getters_logs_missing_registry_name(caplog):
     """Unregistered getter name emits a warning when falling back to attr lookup."""
-    from r2x_core.getters import _preprocess_rule_getters
+    from r2x_core.getters import resolve_rule_getters
 
     caplog.set_level("WARNING")
-    result = _preprocess_rule_getters({"field": "missing_registry_getter"})
+    result = resolve_rule_getters({"field": "missing_registry_getter"})
 
     assert result.is_ok()
     assert any("missing_registry_getter" in record.message for record in caplog.records)
 
 
-def test_preprocess_rule_getters_builds_attr_getter():
+def test_resolve_rule_getters_builds_attr_getter():
     """String path not in registry becomes attribute getter."""
-    from r2x_core.getters import _preprocess_rule_getters
+    from r2x_core.getters import resolve_rule_getters
 
     class Child:
         value = 123
@@ -255,7 +255,7 @@ def test_preprocess_rule_getters_builds_attr_getter():
     class Parent:
         child = Child()
 
-    result = _preprocess_rule_getters({"field": "child.value"})
+    result = resolve_rule_getters({"field": "child.value"})
     assert result.is_ok()
     getter_fn = result.unwrap()["field"]
     out = getter_fn(Parent(), context=None)
@@ -263,11 +263,11 @@ def test_preprocess_rule_getters_builds_attr_getter():
     assert out.unwrap() == 123
 
 
-def test_preprocess_rule_getters_rejects_invalid_types():
+def test_resolve_rule_getters_rejects_invalid_types():
     """Invalid getter types raise a TypeError result."""
-    from r2x_core.getters import _preprocess_rule_getters
+    from r2x_core.getters import resolve_rule_getters
 
-    result = _preprocess_rule_getters({"field": 123})
+    result = resolve_rule_getters({"field": 123})
     assert result.is_err()
     assert isinstance(result.err(), TypeError)
 

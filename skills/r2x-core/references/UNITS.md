@@ -6,8 +6,8 @@ conversion, per-unit values, display modes, or unit-aware model validation.
 ## Contracts (source-verified)
 
 - `Unit(unit: str, *, base: str | None = None) -> UnitSpec`
-- `HasUnits` seeds Pydantic validation context and formats annotated fields in
-  `repr`.
+- `HasUnits` collects annotated field metadata and binds base units when a
+  Pydantic model class is created, then formats those fields in `repr`.
 - `HasPerUnit` extends `HasUnits` with optional system-base display support.
 - `set_unit_system(unit_system: UnitSystem) -> None`
 - `get_unit_system() -> UnitSystem`
@@ -172,9 +172,9 @@ class Generator(HasPerUnit, BaseModel):
 
 ## Source modules to verify on drift
 
-- `r2x_core.units._specs`: `UnitSpec`, `Unit`, conversion validator.
-- `r2x_core.units._mixins`: `HasUnits`, `HasPerUnit`, repr formatting.
-- `r2x_core.units._utils`: conversion and display helpers.
+- `r2x_core.units.specs`: `UnitSpec`, `Unit`, and the conversion validator.
+- `r2x_core.units.mixins`: `HasUnits`, `HasPerUnit`, and repr formatting.
+- `r2x_core.units.conversion`: conversion and display functions.
 - `r2x_core.units.__init__`: `UnitSystem`, `set_unit_system`, `unit_system`.
 - `src/r2x_core/__init__.py`: root-package re-exports.
 

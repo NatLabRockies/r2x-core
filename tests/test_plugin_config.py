@@ -2,9 +2,11 @@
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+from r2x_core import DataStore, PluginContext
 from r2x_core.plugin_config import PluginConfig
 from r2x_core.utils import merge_with_overrides
 
@@ -30,6 +32,27 @@ def _write_assets(tmp_path: Path, payloads: dict[str, object]) -> None:
 def test_models_defaults_to_empty_tuple():
     config = SampleConfig(param1="test")
     assert config.models == ()
+
+
+def test_active_versions_is_instance_data():
+    first = PluginConfig()
+    second = PluginConfig()
+
+    first.active_versions["BusComponent"] = 2
+
+    assert second.active_versions == {}
+
+
+def test_upgrade_handler_is_excluded_from_json_serialization():
+    def handler(*, store: DataStore, ctx: PluginContext[Any]) -> None:
+        return None
+
+    config = PluginConfig(upgrade_handler=handler)
+
+    assert config.upgrade_handler is handler
+    assert "upgrade_handler" not in config.model_dump()
+    assert "upgrade_handler" not in config.model_dump_json()
+    assert "upgrade_handler" not in config.model_json_schema()["properties"]
 
 
 def test_models_accept_string():

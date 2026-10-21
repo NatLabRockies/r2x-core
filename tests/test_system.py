@@ -31,10 +31,10 @@ def test_to_json_raises_on_existing_file_without_overwrite(tmp_path):
     """Test that to_json raises error when file exists and overwrite=False."""
     system = System(name="TestSystem")
     output_file = tmp_path / "system.json"
-    system.to_json(fname=output_file)
+    system.to_json(filename=output_file)
 
     with pytest.raises(ISFileExists):
-        system.to_json(fname=output_file, overwrite=False)
+        system.to_json(filename=output_file, overwrite=False)
 
 
 def test_system_accessors(example_system):
@@ -66,13 +66,13 @@ def test_add_components_with_conflicting_system_base_raises():
     """Ensure adding a HasPerUnit component with a different base raises."""
     system = System(100.0, name="Conflicting")
     component = PerUnitComponentFixture(name="HasPU")
-    component._system_base = 200.0
+    component.bind_system_base(200.0)
 
-    with pytest.raises(ValueError, match="already has _system_base"):
+    with pytest.raises(ValueError, match="already has system_base"):
         system.add_components(component)
 
     assert not system.has_component(component)
-    assert component._get_system_base() == 200.0
+    assert component.system_base == 200.0
 
 
 @pytest.mark.parametrize("invalid_first", [False, True])
@@ -82,15 +82,15 @@ def test_add_components_rejects_invalid_base_without_mutating_batch(invalid_firs
     system.add_components(existing)
     valid = PerUnitComponentFixture(name="valid")
     invalid = PerUnitComponentFixture(name="invalid")
-    invalid._system_base = 200.0
+    invalid.bind_system_base(200.0)
     batch = [invalid, valid] if invalid_first else [valid, invalid]
 
-    with pytest.raises(ValueError, match="already has _system_base"):
+    with pytest.raises(ValueError, match="already has system_base"):
         system.add_components(*batch)
 
     assert list(system.get_components(Component)) == [existing]
-    assert valid._get_system_base() is None
-    assert invalid._get_system_base() == 200.0
+    assert valid.system_base is None
+    assert invalid.system_base == 200.0
 
 
 @pytest.mark.parametrize(
@@ -103,18 +103,19 @@ def test_to_json_with_fname(fname, tmp_path, example_system):
 
     system = example_system
     out_path = tmp_path / fname
-    system.to_json(fname=out_path, overwrite=True, indent=2)
+    result = system.to_json(filename=out_path, overwrite=True, indent=2)
+    assert result is None
     assert out_path.exists()
     content = json.loads(out_path.read_text())
     assert "name" in content.get("system", content)
 
 
-def test_to_json_with_no_args(example_system):
+def test_to_json_bytes_with_no_args(example_system):
     import orjson
 
     system = example_system
 
-    json_str = system.to_json()
+    json_str = system.to_json_bytes()
     assert isinstance(json_str, bytes)
     json_deserialized = orjson.loads(json_str)
     assert "name" in json_deserialized
@@ -127,7 +128,7 @@ def test_to_json_adds_system_block_when_data_overrides(example_system):
 
     system = example_system
     payload = {"metadata": "value"}
-    output = system.to_json(data=payload)
+    output = system.to_json_bytes(data=payload)
 
     assert isinstance(output, bytes)
     json_data = orjson.loads(output)
@@ -142,7 +143,7 @@ def test_roundtrip_serialization(tmp_path):
 
     original.add_components(Component(name="dummy"))
     file_path = tmp_path / "roundtrip.json"
-    original.to_json(fname=file_path)
+    original.to_json(filename=file_path)
     loaded = System.from_json(file_path)
 
     assert loaded.name == original.name
@@ -158,10 +159,10 @@ def test_to_json_with_overwrite(tmp_path):
     system2.add_components(Component(name="dummy2"))
     output_file = tmp_path / "system.json"
 
-    system1.to_json(fname=output_file)
+    system1.to_json(filename=output_file)
     assert output_file.exists()
 
-    system2.to_json(fname=output_file, overwrite=True)
+    system2.to_json(filename=output_file, overwrite=True)
 
     loaded = System.from_json(output_file)
     assert loaded.name == "System2"
@@ -172,10 +173,10 @@ def test_to_json_no_overwrite_raises(tmp_path):
     system = System(name="TestSystem")
     output_file = tmp_path / "system.json"
 
-    system.to_json(fname=output_file)
+    system.to_json(filename=output_file)
 
     with pytest.raises(ISFileExists):
-        system.to_json(fname=output_file, overwrite=False)
+        system.to_json(filename=output_file, overwrite=False)
 
 
 def test_to_json_bytes_with_time_series(caplog):
@@ -196,7 +197,7 @@ def test_to_json_bytes_with_time_series(caplog):
     )
     original_system.add_time_series(ts_data, component)
 
-    json_bytes = original_system.to_json()
+    json_bytes = original_system.to_json_bytes()
     assert json_bytes is not None
 
     deserialized_system = System.from_json(json_bytes)
@@ -233,9 +234,9 @@ def test_from_json_sets_system_base_on_has_per_unit_component():
     component = PerUnitComponentFixture(name="HasPU")
     system.add_components(component)
 
-    json_bytes = system.to_json()
+    json_bytes = system.to_json_bytes()
     assert json_bytes is not None
 
     loaded = System.from_json(json_bytes)
     loaded_component = loaded.get_component(PerUnitComponentFixture, name="HasPU")
-    assert loaded_component._get_system_base() == loaded.base_power
+    assert loaded_component.system_base == loaded.base_power

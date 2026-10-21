@@ -13,12 +13,12 @@ from r2x_core.logger import (
     VERBOSITY_DEBUG,
     VERBOSITY_INFO,
     VERBOSITY_TRACE,
-    _format_timestamp,
-    _get_console,
-    _render_exception,
+    console,
     format_json,
+    format_timestamp,
     format_tty,
     get_logger,
+    render_exception,
     setup_logging,
     structured_sink,
 )
@@ -29,7 +29,7 @@ def test_format_timestamp_default_format():
     record = {
         "time": datetime(2026, 1, 18, 10, 30, 45, 123456),
     }
-    result = _format_timestamp(record)
+    result = format_timestamp(record)
     assert "2026-01-18T10:30:45.123" in result
 
 
@@ -39,7 +39,7 @@ def test_format_timestamp_custom_format(monkeypatch):
     record = {
         "time": datetime(2026, 1, 18, 10, 30, 45, 123456),
     }
-    result = _format_timestamp(record)
+    result = format_timestamp(record)
     assert "2026-01-18 10:30:45.123" in result
 
 
@@ -48,26 +48,26 @@ def test_format_timestamp_with_milliseconds():
     record = {
         "time": datetime(2026, 1, 18, 10, 30, 45, 500000),  # 500ms
     }
-    result = _format_timestamp(record)
+    result = format_timestamp(record)
     assert "500" in result
 
 
 def test_render_exception_with_no_exception():
-    """Test _render_exception with no exception."""
+    """Test render_exception with no exception."""
     record = {"exception": None}
-    _render_exception(record, None)
+    render_exception(record, None)
 
 
 def test_render_exception_with_incomplete_exception():
-    """Test _render_exception with incomplete exception info."""
+    """Test render_exception with incomplete exception info."""
     exc = mock.Mock()
     exc.type = None
     record = {"exception": exc}
-    _render_exception(record, None)
+    render_exception(record, None)
 
 
 def test_render_exception_with_traceback_no_rich(capsys):
-    """Test _render_exception with traceback when Rich unavailable."""
+    """Test render_exception with traceback when Rich unavailable."""
     try:
         raise ValueError("Test error")
     except ValueError:
@@ -79,7 +79,7 @@ def test_render_exception_with_traceback_no_rich(capsys):
                 traceback=exc_info[2],
             )
         }
-        _render_exception(record, None)
+        render_exception(record, None)
 
         output = capsys.readouterr().err
         assert "ValueError" in output or "Test error" in output
@@ -328,19 +328,19 @@ def test_default_constants():
     assert DEFAULT_TIME_FORMAT == "%Y-%m-%dT%H:%M:%S.{ms}"
 
 
-def test_get_console_returns_console_or_none():
-    """Test _get_console returns a Console (if Rich installed) or None."""
-    _get_console.cache_clear()
-    result = _get_console()
+def test_console_returns_console_or_none():
+    """Test console returns a Console (if Rich installed) or None."""
+    console.cache_clear()
+    result = console()
     if result is not None:
         assert hasattr(result, "print")
 
 
-def test_get_console_is_cached():
-    """Test _get_console returns the same instance on repeated calls."""
-    _get_console.cache_clear()
-    first = _get_console()
-    second = _get_console()
+def test_console_is_cached():
+    """Test console returns the same instance on repeated calls."""
+    console.cache_clear()
+    first = console()
+    second = console()
     assert first is second
 
 
@@ -349,7 +349,7 @@ def test_format_tty_with_rich_text_output(capsys):
     import r2x_core.logger as logger_module
 
     logger_module._verbosity = 0
-    _get_console.cache_clear()
+    console.cache_clear()
 
     level_mock = mock.Mock()
     level_mock.name = "ERROR"
@@ -372,8 +372,8 @@ def test_format_tty_fallback_no_rich(monkeypatch, capsys):
     import r2x_core.logger as logger_module
 
     logger_module._verbosity = 0
-    _get_console.cache_clear()
-    monkeypatch.setattr("r2x_core.logger._get_console", lambda: None)
+    console.cache_clear()
+    monkeypatch.setattr("r2x_core.logger.console", lambda: None)
 
     level_mock = mock.Mock()
     level_mock.name = "DEBUG"
@@ -393,8 +393,8 @@ def test_format_tty_fallback_no_rich(monkeypatch, capsys):
 
 def test_render_exception_with_traceback_and_rich(capsys):
     """Test exception rendering with Rich traceback."""
-    _get_console.cache_clear()
-    console = _get_console()
+    console.cache_clear()
+    console_instance = console()
 
     try:
         raise ValueError("Test exception")
@@ -407,7 +407,7 @@ def test_render_exception_with_traceback_and_rich(capsys):
                 traceback=exc_info[2],
             ),
         }
-        _render_exception(record, console)
+        render_exception(record, console_instance)
 
 
 def test_structured_sink_tty_mode(monkeypatch, capsys):
@@ -416,8 +416,8 @@ def test_structured_sink_tty_mode(monkeypatch, capsys):
 
     monkeypatch.setattr(sys.stderr, "isatty", lambda: True)
     logger_module._verbosity = 0
-    _get_console.cache_clear()
-    monkeypatch.setattr("r2x_core.logger._get_console", lambda: None)
+    console.cache_clear()
+    monkeypatch.setattr("r2x_core.logger.console", lambda: None)
 
     level_mock = mock.Mock()
     level_mock.name = "INFO"
@@ -468,8 +468,8 @@ def test_format_tty_fallback_with_timestamp_and_extras(monkeypatch, capsys):
     import r2x_core.logger as logger_module
 
     logger_module._verbosity = VERBOSITY_TRACE
-    _get_console.cache_clear()
-    monkeypatch.setattr("r2x_core.logger._get_console", lambda: None)
+    console.cache_clear()
+    monkeypatch.setattr("r2x_core.logger.console", lambda: None)
 
     level_mock = mock.Mock()
     level_mock.name = "INFO"
@@ -495,8 +495,8 @@ def test_format_tty_fallback_only_extras(monkeypatch, capsys):
     import r2x_core.logger as logger_module
 
     logger_module._verbosity = 0
-    _get_console.cache_clear()
-    monkeypatch.setattr("r2x_core.logger._get_console", lambda: None)
+    console.cache_clear()
+    monkeypatch.setattr("r2x_core.logger.console", lambda: None)
 
     level_mock = mock.Mock()
     level_mock.name = "WARNING"
@@ -537,14 +537,14 @@ def test_format_json_with_no_file():
 
 
 def test_render_exception_no_traceback():
-    """Test _render_exception with exception but no traceback does nothing."""
+    """Test render_exception with exception but no traceback does nothing."""
     exc = mock.Mock()
     exc.type = ValueError
     exc.value = ValueError("test")
     exc.traceback = None
 
     record = {"exception": exc}
-    _render_exception(record, None)
+    render_exception(record, None)
 
 
 def test_format_json_with_exception_no_traceback():
@@ -625,8 +625,8 @@ def test_setup_logging_log_to_console_false_no_stderr(tmp_path, capsys):
 
 def test_setup_logging_log_to_console_true_has_stderr(monkeypatch, capsys):
     """Test setup_logging with log_to_console=True writes to stderr."""
-    _get_console.cache_clear()
-    monkeypatch.setattr("r2x_core.logger._get_console", lambda: None)
+    console.cache_clear()
+    monkeypatch.setattr("r2x_core.logger.console", lambda: None)
 
     from loguru import logger as loguru_logger
 
@@ -641,8 +641,8 @@ def test_setup_logging_log_to_console_true_has_stderr(monkeypatch, capsys):
 
 def test_setup_logging_file_and_console(tmp_path, monkeypatch, capsys):
     """Test setup_logging with both file and console sinks active."""
-    _get_console.cache_clear()
-    monkeypatch.setattr("r2x_core.logger._get_console", lambda: None)
+    console.cache_clear()
+    monkeypatch.setattr("r2x_core.logger.console", lambda: None)
 
     from loguru import logger as loguru_logger
 

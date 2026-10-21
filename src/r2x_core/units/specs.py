@@ -2,41 +2,68 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, cast, get_args, get_origin
+import types
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Union, cast, get_args, get_origin
 
 from pydantic import BaseModel, GetCoreSchemaHandler
 from pydantic_core import core_schema
 
-from ._utils import _convert_to_internal, _get_base_unit_from_context, _get_base_unit_from_subclass
+from .conversion import convert_to_internal
 
 if TYPE_CHECKING:
     from pydantic import GetJsonSchemaHandler
     from pydantic.json_schema import JsonSchemaValue
 
+__all__ = ["Unit", "UnitSpec", "unit_spec"]
 
-@dataclass(frozen=True)
+
+@dataclass(slots=True, eq=False)
 class UnitSpec:
     """Metadata descriptor for unit-aware fields.
+
+    ``base_unit`` is resolved from the owning model's declared fields when its
+    class is created. A specification with ``base`` cannot be used for natural-
+    unit conversion until that binding has been made.
 
     Attributes
     ----------
     unit : str
-        Unit string (e.g., "MVA", "pu", "kV")
-    base : str, optional
-        Field name for device base lookup (for pu units)
+        Unit string, such as ``"MVA"``, ``"pu"``, or ``"kV"``.
+    base : str or None
+        Field name for device-base lookup.
+    base_unit : str or None
+        Resolved unit of the referenced base field.
     """
 
     unit: str
     base: str | None = None
+    base_unit: str | None = field(default=None, init=False)
 
-    def _validate_value(self, value: Any, info: core_schema.ValidationInfo) -> float | BaseModel | None:
-        """Customize validation for Unit."""
+    def bind_base_unit(self, base_unit: str) -> None:
+        """Bind the declared base field's unit once.
+
+        Parameters
+        ----------
+        base_unit : str
+            Unit declared by the referenced base field.
+
+        Raises
+        ------
+        ValueError
+            If this specification was already bound to a different unit.
+        """
+        if self.base_unit is not None and self.base_unit != base_unit:
+            raise ValueError(f"Base unit is already bound as {self.base_unit!r}, not {base_unit!r}")
+        self.base_unit = base_unit
+
+    def validate_value(self, value: Any, info: core_schema.ValidationInfo) -> float | BaseModel | None:
+        """Validate and convert one value carrying this unit specification."""
         if value is None:
             return None
 
         if isinstance(value, BaseModel):
-            return self._convert_structured_type(value, info)
+            return self.convert_structured_value(value, info)
 
         if isinstance(value, int | float):
             return float(value)
@@ -48,54 +75,61 @@ class UnitSpec:
                 if self.base is None:
                     return input_value
 
-                base_value = info.data.get(self.base) if info.data else None
+                base_value = info.data.get(self.base) if info.data is not None else None
                 if base_value is None:
                     return input_value
 
-                ctx_raw = getattr(info, "context", None)
-                base_unit = _get_base_unit_from_context(ctx_raw, self.base)
-
-                if base_unit is None:
-                    cfg = info.config
-                    owner = cfg.get("title") if cfg else None
-                    base_unit = _get_base_unit_from_subclass(owner, self.base)
-
-                return _convert_to_internal(value, self, base_value, base_unit)
+                return convert_to_internal(value, self, base_value, self.base_unit)
 
             raise ValueError("Dict must contain 'value' and 'unit' keys for unit conversion")
 
         raise ValueError("Expected float, dict with 'value' and 'unit', or BaseModel instance")
 
-    def _convert_structured_type(self, value: BaseModel, info: core_schema.ValidationInfo) -> BaseModel:
-        """Handle custom base models from applications."""
+    def convert_structured_value(
+        self,
+        value: BaseModel,
+        info: core_schema.ValidationInfo,
+    ) -> BaseModel:
+        """Convert numeric fields of a structured value to per-unit form."""
         if self.base is None:
             return value
 
-        base_value = info.data.get(self.base) if info.data else None
+        base_value = info.data.get(self.base) if info.data is not None else None
         if base_value is None:
             return value
 
-        ctx_raw = getattr(info, "context", None)
-        base_unit = _get_base_unit_from_context(ctx_raw, self.base)
-
-        if base_unit is None:
-            cfg = info.config
-            owner = cfg.get("title") if cfg else None
-            base_unit = _get_base_unit_from_subclass(owner, self.base)
+        from .mixins import HasUnits
 
         model_fields = type(value).model_fields
-        converted_fields = {}
+        structured_values = value.model_dump()
+        converted_fields: dict[str, Any] = {}
 
-        for field_name, field_value in value.model_dump().items():
+        if isinstance(value, HasUnits):
+            convertible_fields = {
+                field_name
+                for field_name, field_spec in type(value).unit_specs.items()
+                if field_spec.base is None
+            }
+            for field_name, field_value in structured_values.items():
+                if (
+                    field_name in convertible_fields
+                    and isinstance(field_value, int | float)
+                    and not isinstance(field_value, bool)
+                ):
+                    converted_fields[field_name] = field_value / base_value
+                else:
+                    converted_fields[field_name] = field_value
+            return type(value)(**converted_fields)
+
+        for field_name, field_value in structured_values.items():
             field_info = model_fields.get(field_name)
-            if not field_info:
+            if field_info is None:
                 converted_fields[field_name] = field_value
                 continue
 
             field_type = field_info.annotation
             origin = get_origin(field_type)
-
-            if origin is type(None) or (hasattr(origin, "__name__") and "Union" in str(origin)):
+            if origin in (Union, types.UnionType):
                 args = get_args(field_type)
                 non_none_types = [arg for arg in args if arg is not type(None)]
                 if non_none_types:
@@ -119,33 +153,28 @@ class UnitSpec:
         source_type: Any,
         handler: GetCoreSchemaHandler,
     ) -> core_schema.CoreSchema:
-        """Set pydantic serialization."""
+        """Build validation and serialization behavior for an annotated field."""
         actual_type = source_type
         origin = get_origin(source_type)
-        if origin is type(None) or (hasattr(origin, "__name__") and "Union" in str(origin)):
+        if origin in (Union, types.UnionType):
             args = get_args(source_type)
             non_none_types = [arg for arg in args if arg is not type(None)]
             if non_none_types:
                 actual_type = non_none_types[0]
 
-        is_structured_type = False
-        try:
-            if isinstance(actual_type, type) and issubclass(actual_type, BaseModel):
-                is_structured_type = True
-        except TypeError:
-            pass
+        is_structured_type = isinstance(actual_type, type) and issubclass(actual_type, BaseModel)
 
         if is_structured_type:
             python_schema = core_schema.with_info_after_validator_function(
-                self._validate_value,
+                self.validate_value,
                 core_schema.union_schema([handler(actual_type), core_schema.none_schema()]),
             )
 
-            def serialize_structured(x: Any) -> Any:
-                """Serialize base model."""
-                if isinstance(x, BaseModel):
-                    return x.model_dump()
-                return x
+            def serialize_structured(value: Any) -> Any:
+                """Serialize a structured unit value as a mapping."""
+                if isinstance(value, BaseModel):
+                    return value.model_dump()
+                return value
 
             return core_schema.json_or_python_schema(
                 json_schema=handler(actual_type),
@@ -158,7 +187,7 @@ class UnitSpec:
             )
 
         python_schema = core_schema.with_info_after_validator_function(
-            self._validate_value,
+            self.validate_value,
             core_schema.union_schema(
                 [core_schema.float_schema(), core_schema.dict_schema(), core_schema.none_schema()]
             ),
@@ -168,7 +197,7 @@ class UnitSpec:
             json_schema=core_schema.float_schema(),
             python_schema=python_schema,
             serialization=core_schema.plain_serializer_function_ser_schema(
-                lambda x: float(x) if isinstance(x, int | float) else x,
+                lambda value: float(value) if isinstance(value, int | float) else value,
                 return_schema=core_schema.float_schema(),
             ),
         )
@@ -179,7 +208,7 @@ class UnitSpec:
         _core_schema: core_schema.CoreSchema,
         handler: GetJsonSchemaHandler,
     ) -> JsonSchemaValue:
-        """Set pydantic json serialization."""
+        """Generate a numeric JSON Schema for unit-annotated fields."""
         return handler(core_schema.float_schema())
 
 
@@ -188,19 +217,19 @@ def unit_spec(
     *,
     base: str | None = None,
 ) -> UnitSpec:
-    """Create a UnitSpec for field annotation.
+    """Create a unit specification for an annotated model field.
 
     Parameters
     ----------
     unit : str
-        Unit string (e.g., "MVA", "kV", "pu")
-    base : str, optional
-        Field name for device base lookup
+        Unit string, such as ``"MVA"``, ``"kV"``, or ``"pu"``.
+    base : str or None, optional
+        Name of the field that provides the device base.
 
     Returns
     -------
     UnitSpec
-        Unit specification instance
+        Unit metadata for use with ``typing.Annotated``.
     """
     return UnitSpec(unit=unit, base=base)
 

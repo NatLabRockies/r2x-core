@@ -50,6 +50,25 @@ def test_structured_type_with_unit_conversion():
     assert gen.ramp_limits.down == 0.08
 
 
+def test_nested_unit_aware_model_uses_its_unit_specs():
+    class UnitAwareLimits(HasUnits, BaseModel):
+        power: Annotated[float, Unit("MW")]
+        fraction: Annotated[float, Unit("pu", base="power")]
+
+    class Device(HasUnits, Component):
+        base_power: Annotated[float, Unit("MVA")]
+        limits: Annotated[UnitAwareLimits, Unit("MW", base="base_power")]
+
+    device = Device(
+        name="Dev1",
+        base_power=100.0,
+        limits=UnitAwareLimits(power=20.0, fraction=0.5),
+    )
+
+    assert device.limits.power == 0.2
+    assert device.limits.fraction == 0.5
+
+
 def test_structured_type_without_base():
     class Bus(HasUnits, Component):
         voltage_limits: Annotated[MinMax, Unit("kV")]

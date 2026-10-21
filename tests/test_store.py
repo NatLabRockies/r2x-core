@@ -495,7 +495,7 @@ def test_load_file_mapping_validation_error(tmp_path):
     bad_mapping.write_text(json.dumps([{"name": 123, "fpath": "file.csv"}]))
 
     with pytest.raises(ValidationError):
-        store._load_file_mapping(bad_mapping)
+        store.load_file_mapping(bad_mapping)
 
 
 def test_store_load_file_csv_with_processing(tmp_path):

@@ -14,9 +14,6 @@ from infrasys import Component, SupplementalAttribute
 from pydantic import ValidationError as PydanticValidationError
 from rust_ok import Err, Ok, Result
 
-from ..plugin_context import PluginContext
-from ..rules import RuleGetter
-
 
 @dataclass(frozen=True, slots=True)
 class RuleOutputs:
@@ -27,7 +24,8 @@ class RuleOutputs:
 
 
 if TYPE_CHECKING:
-    from ..rules import Rule, RuleFilter, RuleLike
+    from ..plugin_context import PluginContext
+    from ..rules import Rule, RuleFilter, RuleGetter, RuleLike
 
 
 _COMPONENT_TYPE_CACHE: dict[tuple[tuple[str, ...], str], type] = {}
@@ -48,8 +46,8 @@ def resolve_component_type(type_name: str, *, context: PluginContext) -> Result[
     for module_name in modules_to_search:
         try:
             module = importlib.import_module(module_name)
-            if hasattr(module, type_name):
-                component_type = getattr(module, type_name)
+            component_type = getattr(module, type_name, None)
+            if component_type is not None:
                 _COMPONENT_TYPE_CACHE[cache_key] = component_type
                 return Ok(component_type)
         except ImportError:
@@ -68,7 +66,7 @@ def create_target_component(
 def build_attr_getter(chain: list[str]) -> RuleGetter:
     """Create a getter that walks nested attributes and returns a Result."""
 
-    def _getter(src: Any, *, context: PluginContext) -> Result[Any, ValueError]:
+    def attribute_chain_getter(src: Any, *, context: PluginContext) -> Result[Any, ValueError]:
         """Walk the attribute chain returning the leaf value or None."""
         _ = context
         val = src
@@ -78,7 +76,7 @@ def build_attr_getter(chain: list[str]) -> RuleGetter:
                 break
         return Ok(val)
 
-    return _getter
+    return attribute_chain_getter
 
 
 def build_target_fields(
@@ -124,29 +122,32 @@ def build_component_kwargs(
         This is used for optional supplemental outputs.
     """
     source_obj = to_attr_source(source_component)
-    field_map = getattr(rule, "field_map", {})
-    getters = getattr(rule, "getters", {})
-    defaults = getattr(rule, "defaults", {})
+    field_map = rule.field_map
+    getters = rule.getters
+    defaults = rule.defaults
     kwargs: dict[str, Any] = {}
 
     for target_field, source_field in field_map.items():
         if isinstance(source_field, list):
             continue
-        value = getattr(source_obj, source_field, None)
-        if value is not None:
-            kwargs[target_field] = value
+        if hasattr(source_obj, source_field):
+            value = getattr(source_obj, source_field)
+            if value is not None:
+                kwargs[target_field] = value
+            elif target_field in defaults:
+                kwargs[target_field] = defaults[target_field]
+            elif not allow_missing:
+                return Err(
+                    ValueError(
+                        f"Source attribute {source_field!r} is None and no default exists for {target_field!r}"
+                    )
+                )
         elif target_field in defaults:
             kwargs[target_field] = defaults[target_field]
         elif not allow_missing:
-            return Err(
-                ValueError(
-                    f"No attribute '{source_field}' on source component and no default for '{target_field}'"
-                )
-            )
+            return Err(ValueError(f"Source {type(source_obj).__name__} has no attribute {source_field!r}"))
 
     for target_field, getter_func in getters.items():
-        if not callable(getter_func):
-            return Err(ValueError(f"Getter for '{target_field}' is not callable: {getter_func}"))
         result = getter_func(source_obj, context=context)
         match result:
             case Ok(value):
@@ -177,7 +178,7 @@ def create_rule_outputs(
     regenerate_uuid: bool = False,
 ) -> Result[RuleOutputs, ValueError]:
     """Construct a primary target and all supplemental outputs for a rule."""
-    supplemental_rules = getattr(rule, "supplemental_attributes", ())
+    supplemental_rules = rule.supplemental_attributes
     if len(supplemental_rules) != len(supplemental_classes):
         return Err(
             ValueError(
@@ -254,10 +255,7 @@ def evaluate_rule_filter(
     if rule_filter.getter is not None:
         if context is None:
             raise ValueError("RuleFilter getter-backed filters require PluginContext")
-        getter_func = rule_filter.getter
-        if not callable(getter_func):
-            raise ValueError("RuleFilter getter must resolve to a callable")
-        result = getter_func(component, context=context)
+        result = rule_filter.getter(component, context=context)
         match result:
             case Ok(value):
                 candidate = value
@@ -277,7 +275,6 @@ def evaluate_rule_filter(
         str(candidate).casefold() if rule_filter.casefold and isinstance(candidate, str) else candidate
     )
     values = rule_filter._normalized_values
-    assert values is not None, "_normalized_values must be set during RuleFilter construction"
 
     if rule_filter.op == "eq":
         return candidate == values[0]

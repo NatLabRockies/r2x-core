@@ -4,34 +4,37 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeAlias
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Protocol, TypeAlias
 
-from pydantic import BaseModel, PrivateAttr, field_validator, model_validator
+from pydantic import BaseModel, Field, PrivateAttr, field_validator, model_validator
 from rust_ok import Result
 
-from .plugin_context import PluginContext
+from .types import FilterOperator
 
 if TYPE_CHECKING:
-    pass
+    from .plugin_context import PluginContext
 
 
 class RuleFilter(BaseModel):
     """Declarative predicate for selecting source components."""
 
     field: str | None = None
-    getter: RuleGetter | str | None = None
-    op: Literal["eq", "neq", "in", "not_in", "geq", "startswith", "not_startswith", "endswith"] | None = None
+    getter: RuleGetter | None = None
+    op: FilterOperator | None = None
     values: list[Any] | None = None
     prefixes: list[str] | None = None
     any_of: list[RuleFilter] | None = None
     all_of: list[RuleFilter] | None = None
     casefold: bool = True
-    on_missing: Literal["include", "exclude"] = "exclude"
-    _normalized_values: list[Any] | None = PrivateAttr(None)
+    on_missing: Annotated[
+        Literal["include", "exclude"],
+        Field(description="Action when a field is missing or has a None value."),
+    ] = "exclude"
+    _normalized_values: list[Any] = PrivateAttr(default_factory=list)
 
     @field_validator("getter", mode="before")
     @classmethod
-    def _validate_getter(cls, value: Any) -> Any:
+    def validate_getter(cls, value: Any) -> Any:
         """Resolve string getter references into callables."""
         if value is None or callable(value):
             return value
@@ -44,7 +47,7 @@ class RuleFilter(BaseModel):
         return getter
 
     @model_validator(mode="after")
-    def _validate_structure(self) -> RuleFilter:
+    def validate_structure(self) -> RuleFilter:
         """Ensure the filter is either a leaf or a composition."""
         is_leaf = (
             self.field is not None
@@ -69,19 +72,22 @@ class RuleFilter(BaseModel):
                 raise ValueError("RuleFilter.field is required for leaf filters")
             if self.op is None:
                 raise ValueError("RuleFilter.op is required for leaf filters")
-            if not (self.values or self.prefixes):
-                raise ValueError("RuleFilter.values must contain at least one value")
-            if self.op == "geq" and len(self.values or []) != 1:
-                raise ValueError("RuleFilter.geq expects exactly one comparison value")
             if self.op in {"startswith", "not_startswith"}:
                 prefix_values = self.prefixes if self.prefixes is not None else self.values
-                if prefix_values is None:
-                    raise ValueError(
-                        "RuleFilter.prefixes must provide at least one entry for prefix operations"
-                    )
+                if not prefix_values:
+                    raise ValueError("RuleFilter prefix operations require at least one prefix")
                 if any(not isinstance(prefix, str) for prefix in prefix_values):
-                    raise ValueError("RuleFilter.prefixes entries must be strings")
+                    raise ValueError("RuleFilter prefix values must be strings")
                 object.__setattr__(self, "values", prefix_values)
+            else:
+                if self.prefixes is not None:
+                    raise ValueError("RuleFilter.prefixes is only supported for prefix operations")
+                if not self.values:
+                    raise ValueError("RuleFilter.values must contain at least one value")
+                if self.op == "geq" and len(self.values) != 1:
+                    raise ValueError("RuleFilter.geq expects exactly one comparison value")
+                if self.op == "endswith" and any(not isinstance(value, str) for value in self.values):
+                    raise ValueError("RuleFilter endswith values must be strings")
 
             # Precompute casefolded values once so evaluate_rule_filter does not
             # recompute them per component.
@@ -95,7 +101,7 @@ class RuleFilter(BaseModel):
 
     def matches(self, component: Any, *, context: PluginContext | None = None) -> bool:
         """Evaluate this filter against a component instance."""
-        from .utils import evaluate_rule_filter
+        from .utils.rules import evaluate_rule_filter
 
         return evaluate_rule_filter(component, rule_filter=self, context=context)
 
@@ -114,16 +120,19 @@ class SupplementalAttributeRule:
 
     target_type: str
     field_map: dict[str, str | list[str]] = field(default_factory=dict)
-    getters: dict[str, RuleGetter | str] = field(default_factory=dict)
+    getters: dict[str, RuleGetter] = field(default_factory=dict)
     defaults: dict[str, Any] = field(default_factory=dict)
     optional: bool = True
 
     def __post_init__(self) -> None:
-        """Validate multi-field mappings and the target type."""
+        """Validate getter functions, multi-field mappings, and the target type."""
         if not isinstance(self.target_type, str) or not self.target_type:
             raise ValueError("SupplementalAttributeRule.target_type must be a non-empty string")
         if self.optional is not True and self.optional is not False:
             raise TypeError("SupplementalAttributeRule.optional must be a bool")
+        for target_field, getter in self.getters.items():
+            if not callable(getter):
+                raise TypeError(f"Getter for {target_field!r} must be callable")
         for target_field, source_fields in self.field_map.items():
             if isinstance(source_fields, list) and target_field not in self.getters:
                 msg = f"Multi-field mapping for '{target_field}' requires a getter function"
@@ -139,7 +148,7 @@ class RuleLike(Protocol):
         ...
 
     @property
-    def getters(self) -> Mapping[str, RuleGetter | str]:
+    def getters(self) -> Mapping[str, RuleGetter]:
         """Mapping of target field names to getter callables."""
         ...
 
@@ -157,13 +166,13 @@ class Rule:
     target_type: str | list[str]
     version: int
     field_map: dict[str, str | list[str]] = field(default_factory=dict)
-    getters: dict[str, RuleGetter | str] = field(default_factory=dict)
+    getters: dict[str, RuleGetter] = field(default_factory=dict)
     defaults: dict[str, Any] = field(default_factory=dict)
     filter: RuleFilter | None = field(default=None)
     system: Literal["source", "target"] = "source"
     name: str | None = None
     depends_on: list[str] | None = None
-    supplemental_attributes: list[SupplementalAttributeRule | dict[str, Any]] = field(default_factory=list)
+    supplemental_attributes: list[SupplementalAttributeRule] = field(default_factory=list)
 
     def __str__(self) -> str:
         """Represent string."""
@@ -177,15 +186,15 @@ class Rule:
                 f"source_type={self.source_type}, target_type={self.target_type}"
             )
 
+        for target_field, getter in self.getters.items():
+            if not callable(getter):
+                raise TypeError(f"Getter for {target_field!r} must be callable")
+        if any(not isinstance(output, SupplementalAttributeRule) for output in self.supplemental_attributes):
+            raise TypeError("Rule.supplemental_attributes must contain SupplementalAttributeRule instances")
         for target_field, source_fields in self.field_map.items():
             if isinstance(source_fields, list) and target_field not in self.getters:
                 msg = f"Multi-field mapping for '{target_field}' requires a getter function"
                 raise ValueError(msg)
-        supplemental_attributes = [
-            output if isinstance(output, SupplementalAttributeRule) else SupplementalAttributeRule(**output)
-            for output in self.supplemental_attributes
-        ]
-        object.__setattr__(self, "supplemental_attributes", supplemental_attributes)
         if self.filter is not None and not isinstance(self.filter, RuleFilter):
             raise TypeError(f"Rule.filter must be a RuleFilter, not {type(self.filter).__name__}")
 
@@ -224,23 +233,23 @@ class Rule:
     @classmethod
     def from_records(cls, records: list[dict[str, Any]]) -> list[Rule]:
         """Create rules from json objects."""
-        from .getters import _preprocess_rule_getters
+        from .getters import resolve_rule_getters
 
-        rules_list = []
+        rules_list: list[Rule] = []
         for record in records:
             rule = dict(record)
             if getters := rule.get("getters"):
-                rule["getters"] = _preprocess_rule_getters(getters).unwrap_or_raise()
+                rule["getters"] = resolve_rule_getters(getters).unwrap_or_raise()
             if "filter" in rule:
                 rule["filter"] = (
                     RuleFilter.model_validate(rule["filter"]) if rule["filter"] is not None else None
                 )
-            outputs = []
+            outputs: list[SupplementalAttributeRule] = []
             for output_record in rule.get("supplemental_attributes", []):
                 output = dict(output_record)
                 if getters := output.get("getters"):
-                    output["getters"] = _preprocess_rule_getters(getters).unwrap_or_raise()
-                outputs.append(output)
+                    output["getters"] = resolve_rule_getters(getters).unwrap_or_raise()
+                outputs.append(SupplementalAttributeRule(**output))
             rule["supplemental_attributes"] = outputs
             rules_list.append(cls(**rule))
         return rules_list

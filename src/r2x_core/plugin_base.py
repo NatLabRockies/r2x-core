@@ -296,11 +296,7 @@ class Plugin(ABC, Generic[ConfigT]):
         >>> sorted(MyPlugin.get_implemented_hooks())
         ['on_build', 'on_validate']
         """
-        return {
-            spec.name
-            for spec in HOOK_SPECS
-            if any(spec.name in vars(klass) for klass in cls.__mro__ if klass not in (Plugin, object))
-        }
+        return {spec.name for spec in HOOK_SPECS if callable(getattr(cls, spec.name, None))}
 
     def run(self, *, ctx: PluginContext[ConfigT] | None = None) -> PluginContext[ConfigT]:
         """Execute plugin lifecycle.

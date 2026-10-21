@@ -14,9 +14,12 @@ new transform requires a placement decision in both orderings.
 
 An ordered list of `MappingStep` from `r2x_core.models` will be executed by
 `tabular_backend.apply_mapping_steps`, which delegates each operation to
-`TabularBackend.apply_mapping_operation`. The executor exists today and is
+`MappingStepBackend.apply_mapping_operation`. The executor exists today and is
 exercised by `tests/test_polars_adapter.py`. The step-list form is not yet a
 supported `DataFile.proc_spec`.
+
+`PolarsTabularBackend` implements both contracts. A backend that only processes
+`DataFile` inputs needs just `TabularBackend.supports_data` and `process`.
 
 ## Parity checklist
 

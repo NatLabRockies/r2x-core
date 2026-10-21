@@ -401,6 +401,17 @@ def test_get_implemented_hooks_inherited():
     assert "on_validate" in hooks
 
 
+@pytest.mark.parametrize("disabled_hook", [None, False])
+def test_non_callable_hooks_are_neither_discovered_nor_executed(disabled_hook: object) -> None:
+    class DisabledBuild(BuildPlugin):
+        on_build = disabled_hook
+
+    context = PluginContext(config=SimpleConfig(name="disabled"))
+
+    assert "on_build" not in DisabledBuild.get_implemented_hooks()
+    assert DisabledBuild.from_context(context).run().system is None
+
+
 # Tests for run() method
 
 

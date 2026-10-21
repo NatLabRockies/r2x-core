@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import types
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Union, cast, get_args, get_origin
 
 from pydantic import BaseModel, GetCoreSchemaHandler
@@ -18,13 +18,19 @@ if TYPE_CHECKING:
 __all__ = ["Unit", "UnitSpec", "unit_spec"]
 
 
-@dataclass(slots=True, eq=False)
-class UnitSpec:
-    """Metadata descriptor for unit-aware fields.
+def unit_value_type(annotation: Any) -> Any:
+    """Return the non-None value type of a unit field annotation."""
+    if get_origin(annotation) in (Union, types.UnionType):
+        return next((argument for argument in get_args(annotation) if argument is not type(None)), annotation)
+    return annotation
 
-    ``base_unit`` is resolved from the owning model's declared fields when its
-    class is created. A specification with ``base`` cannot be used for natural-
-    unit conversion until that binding has been made.
+
+@dataclass(frozen=True, slots=True)
+class UnitSpec:
+    """Immutable metadata descriptor for unit-aware fields.
+
+    The owning model resolves base units from its own fields. Annotations can
+    therefore be shared across models without retaining owner-specific state.
 
     Attributes
     ----------
@@ -32,32 +38,18 @@ class UnitSpec:
         Unit string, such as ``"MVA"``, ``"pu"``, or ``"kV"``.
     base : str or None
         Field name for device-base lookup.
-    base_unit : str or None
-        Resolved unit of the referenced base field.
     """
 
     unit: str
     base: str | None = None
-    base_unit: str | None = field(default=None, init=False)
 
-    def bind_base_unit(self, base_unit: str) -> None:
-        """Bind the declared base field's unit once.
-
-        Parameters
-        ----------
-        base_unit : str
-            Unit declared by the referenced base field.
-
-        Raises
-        ------
-        ValueError
-            If this specification was already bound to a different unit.
-        """
-        if self.base_unit is not None and self.base_unit != base_unit:
-            raise ValueError(f"Base unit is already bound as {self.base_unit!r}, not {base_unit!r}")
-        self.base_unit = base_unit
-
-    def validate_value(self, value: Any, info: core_schema.ValidationInfo) -> float | BaseModel | None:
+    def validate_value(
+        self,
+        value: Any,
+        info: core_schema.ValidationInfo,
+        *,
+        base_unit: str | None = None,
+    ) -> float | BaseModel | None:
         """Validate and convert one value carrying this unit specification."""
         if value is None:
             return None
@@ -79,7 +71,7 @@ class UnitSpec:
                 if base_value is None:
                     return input_value
 
-                return convert_to_internal(value, self, base_value, self.base_unit)
+                return convert_to_internal(value, self, base_value, base_unit)
 
             raise ValueError("Dict must contain 'value' and 'unit' keys for unit conversion")
 
@@ -127,13 +119,7 @@ class UnitSpec:
                 converted_fields[field_name] = field_value
                 continue
 
-            field_type = field_info.annotation
-            origin = get_origin(field_type)
-            if origin in (Union, types.UnionType):
-                args = get_args(field_type)
-                non_none_types = [arg for arg in args if arg is not type(None)]
-                if non_none_types:
-                    field_type = non_none_types[0]
+            field_type = unit_value_type(field_info.annotation)
 
             is_numeric = field_type in (int, float) or (
                 isinstance(field_type, type)
@@ -154,13 +140,7 @@ class UnitSpec:
         handler: GetCoreSchemaHandler,
     ) -> core_schema.CoreSchema:
         """Build validation and serialization behavior for an annotated field."""
-        actual_type = source_type
-        origin = get_origin(source_type)
-        if origin in (Union, types.UnionType):
-            args = get_args(source_type)
-            non_none_types = [arg for arg in args if arg is not type(None)]
-            if non_none_types:
-                actual_type = non_none_types[0]
+        actual_type = unit_value_type(source_type)
 
         is_structured_type = isinstance(actual_type, type) and issubclass(actual_type, BaseModel)
 

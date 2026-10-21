@@ -126,26 +126,26 @@ def build_component_kwargs(
     getters = rule.getters
     defaults = rule.defaults
     kwargs: dict[str, Any] = {}
+    missing = object()
 
     for target_field, source_field in field_map.items():
         if isinstance(source_field, list):
             continue
-        if hasattr(source_obj, source_field):
-            value = getattr(source_obj, source_field)
-            if value is not None:
-                kwargs[target_field] = value
-            elif target_field in defaults:
-                kwargs[target_field] = defaults[target_field]
-            elif not allow_missing:
-                return Err(
-                    ValueError(
-                        f"Source attribute {source_field!r} is None and no default exists for {target_field!r}"
-                    )
-                )
+        value = getattr(source_obj, source_field, missing)
+        if value is not missing and value is not None:
+            kwargs[target_field] = value
         elif target_field in defaults:
             kwargs[target_field] = defaults[target_field]
         elif not allow_missing:
-            return Err(ValueError(f"Source {type(source_obj).__name__} has no attribute {source_field!r}"))
+            if value is missing:
+                return Err(
+                    ValueError(f"Source {type(source_obj).__name__} has no attribute {source_field!r}")
+                )
+            return Err(
+                ValueError(
+                    f"Source attribute {source_field!r} is None and no default exists for {target_field!r}"
+                )
+            )
 
     for target_field, getter_func in getters.items():
         result = getter_func(source_obj, context=context)

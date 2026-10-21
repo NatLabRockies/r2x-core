@@ -12,14 +12,12 @@ precedence over the built-in CSV reader, and the configured backend handles
 ```python doctest
 >>> import csv
 >>> import tempfile
->>> from collections.abc import Mapping
 >>> from pathlib import Path
 >>> from typing import TypeGuard
 >>>
 >>> from rust_ok import Ok, Result
 >>> from r2x_core import DataFile, DataReader, FileReader, TabularBackend, TabularProcessing
 >>> from r2x_core import FileFormat, H5PyFileReader, H5Reader, ReaderConfig
->>> from r2x_core.models import MappingStep
 >>> from r2x_core.types import TableFormat
 >>>
 >>> CsvRows = list[dict[str, str]]
@@ -59,15 +57,6 @@ precedence over the built-in CSV reader, and the configured backend handles
 ...         proc_spec: TabularProcessing,
 ...     ) -> Result[CsvRows, ValueError]:
 ...         return Ok(frame)
-...
-...     def apply_mapping_operation(
-...         self,
-...         step: MappingStep,
-...         frame: CsvRows,
-...         *,
-...         source_frames: Mapping[str, CsvRows],
-...     ) -> Result[CsvRows, ValueError]:
-...         return Ok(frame)
 >>>
 >>> issubclass(H5PyFileReader, H5Reader)
 True
@@ -96,3 +85,7 @@ True
 The backend can implement transformations over its own frame type. This stub
 returns frames unchanged to keep the adapter contract visible. Use the same
 interfaces to supply an application-specific reader or processing engine.
+
+Ordered mapping steps use the separate `MappingStepBackend` protocol in
+`r2x_core.tabular_backend`. Implement `apply_mapping_operation` only if your
+backend needs to support `apply_mapping_steps`.

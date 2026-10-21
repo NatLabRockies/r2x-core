@@ -39,16 +39,14 @@ def test_read_parquet_data_file(reader_example, tmp_path):
 
 def test_reader_uses_injected_file_reader_and_non_polars_backend(tmp_path):
     import csv
-    from collections.abc import Mapping
     from dataclasses import dataclass
     from pathlib import Path
     from typing import TypeGuard
 
-    from rust_ok import Err, Ok, Result
+    from rust_ok import Ok, Result
 
     from r2x_core.datafile import DataFile, ReaderConfig, TabularProcessing
     from r2x_core.file_reader import FileReader
-    from r2x_core.models import MappingStep
     from r2x_core.reader import DataReader
     from r2x_core.tabular_backend import TabularBackend
     from r2x_core.types import FileFormat, TableFormat
@@ -95,15 +93,6 @@ def test_reader_uses_injected_file_reader_and_non_polars_backend(tmp_path):
                     ]
                 )
             )
-
-        def apply_mapping_operation(
-            self,
-            step: MappingStep,
-            frame: CsvRows,
-            *,
-            source_frames: Mapping[str, CsvRows],
-        ) -> Result[CsvRows, ValueError]:
-            return Err(ValueError("This backend does not implement mapping steps"))
 
     csv_path = tmp_path / "backend.csv"
     csv_path.write_text("old_name,value\na,1\n", encoding="utf-8")

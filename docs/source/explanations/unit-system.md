@@ -73,38 +73,30 @@ automatically convert input values to the correct internal representation.
 Invalid inputs are caught during construction rather than producing silent
 errors during calculation.
 
-```python
-from typing import Annotated
-from r2x_core import HasUnits, Unit
-from pydantic import BaseModel
-
-class Generator(HasUnits, BaseModel):
-    name: str
-    base_power: float  # In MW
-    # Power output as per-unit (normalized to base_power)
-    p_max: Annotated[float, Unit("pu", base="base_power")]
-    # Voltage rating in absolute units
-    voltage_kv: Annotated[float, Unit("kV")]
-
-# Type-safe inputs - automatic conversion
-gen1 = Generator(
-    name="Gen1",
-    base_power=100.0,
-    p_max=0.8,  # 0.8 pu
-    voltage_kv=13.8
-)
-
-# Natural unit input - automatic conversion
-gen2 = Generator(
-    name="Gen2",
-    base_power=50.0,
-    p_max={"value": 40.0, "unit": "MW"},  # Converts to 0.8 pu (40/50)
-    voltage_kv=13.8
-)
-
-# Both generators have same internal representation
-assert gen1.p_max == gen2.p_max == 0.8  # True
+```python doctest
+>>> from typing import Annotated
+>>> from pydantic import BaseModel
+>>> from r2x_core import HasUnits, Unit
+>>>
+>>> class Generator(HasUnits, BaseModel):
+...     name: str
+...     base_power: Annotated[float, Unit("MW")]
+...     p_max: Annotated[float, Unit("pu", base="base_power")]
+...     voltage_kv: Annotated[float, Unit("kV")]
+>>>
+>>> gen1 = Generator(name="Gen1", base_power=100.0, p_max=0.8, voltage_kv=13.8)
+>>> gen2 = Generator.model_validate({
+...     "name": "Gen2",
+...     "base_power": 50.0,
+...     "p_max": {"value": 40.0, "unit": "MW"},
+...     "voltage_kv": 13.8,
+... })
+>>> gen1.p_max == gen2.p_max == 0.8
+True
 ```
+
+The base field must also carry a `Unit` annotation. Numeric per-unit input is
+stored directly, while the mapping input is converted using that base.
 
 ### Composability and Inheritance
 
@@ -116,34 +108,30 @@ normalization. The `HasPerUnit` class extends `HasUnits` with system-base
 display support. This hierarchy lets components opt into exactly the features
 they need.
 
-```python
-from typing import Annotated
-from r2x_core import HasUnits, HasPerUnit, Unit
-from pydantic import BaseModel
-
-# Standalone component without system integration
-class Transformer(HasUnits, BaseModel):
-    name: str
-    impedance: Annotated[float, Unit("ohm")]  # Fixed unit, no per-unit
-    x_r_ratio: float  # Dimensionless quantity
-
-# Transformers don't need system base
-transformer = Transformer(
-    name="TX1",
-    impedance=0.05,
-    x_r_ratio=2.0
-)
-
-# System-integrated component
-class Generator(HasPerUnit, BaseModel):
-    name: str
-    base_power: float
-    p_max: Annotated[float, Unit("pu", base="base_power")]
-    # Can access system base when added to a system
-
-# Generators can use system-base display when added to a System
-gen = Generator(name="Gen1", base_power=100.0, p_max=0.8)
-# gen.system_base is set when added to a System
+```python doctest
+>>> from typing import Annotated
+>>> from infrasys import Component
+>>> from pydantic import BaseModel
+>>> from r2x_core import HasUnits, HasPerUnit, System, Unit
+>>>
+>>> class Transformer(HasUnits, BaseModel):
+...     name: str
+...     impedance: Annotated[float, Unit("ohm")]
+...     x_r_ratio: float
+>>>
+>>> transformer = Transformer(name="TX1", impedance=0.05, x_r_ratio=2.0)
+>>> transformer.system_base is None
+True
+>>>
+>>> class Generator(HasPerUnit, Component):
+...     base_power: Annotated[float, Unit("MVA")]
+...     p_max: Annotated[float, Unit("pu", base="base_power")]
+>>>
+>>> gen = Generator(name="Gen1", base_power=100.0, p_max=0.8)
+>>> system = System(system_base=100.0)
+>>> system.add_components(gen)
+>>> gen.system_base
+100.0
 ```
 
 ```{tip}
@@ -164,40 +152,26 @@ per-unit calculations. When a field has no base reference, it stores absolute
 quantities in the specified unit. When a base reference is provided, the field
 stores per-unit values calculated relative to that base.
 
-```python
-from typing import Annotated
-from r2x_core import Unit
-
-# Specification without base - stores absolute quantity
-voltage: Annotated[float, Unit("kV")]
-
-# Specification with base - stores per-unit value
-# Stored as: input_value / base_mva
-power_mva: Annotated[float, Unit("MVA", base="base_mva")]
-
-# Usage in a component
-from r2x_core import HasUnits
-from pydantic import BaseModel
-
-class Bus(HasUnits, BaseModel):
-    name: str
-    base_mva: float = 100.0
-
-    # Absolute voltage
-    voltage_kv: Annotated[float, Unit("kV")]
-
-    # Per-unit power
-    p_mva: Annotated[float, Unit("MVA", base="base_mva")]
-
-# Natural unit input auto-conversion
-bus = Bus(
-    name="Bus1",
-    voltage_kv=138.0,
-    p_mva={"value": 50.0, "unit": "MVA"}  # 50/100 = 0.5 pu internally
-)
-
-print(bus.p_mva)  # Output: 0.5 (stored as per-unit)
-print(bus.voltage_kv)  # Output: 138.0 (stored as absolute)
+```python doctest
+>>> from typing import Annotated
+>>> from pydantic import BaseModel
+>>> from r2x_core import HasUnits, Unit
+>>>
+>>> class Bus(HasUnits, BaseModel):
+...     name: str
+...     base_mva: Annotated[float, Unit("MVA")] = 100.0
+...     voltage_kv: Annotated[float, Unit("kV")]
+...     p_mva: Annotated[float, Unit("MVA", base="base_mva")]
+>>>
+>>> bus = Bus.model_validate({
+...     "name": "Bus1",
+...     "voltage_kv": 138.0,
+...     "p_mva": {"value": 50.0, "unit": "MVA"},
+... })
+>>> bus.p_mva
+0.5
+>>> bus.voltage_kv
+138.0
 ```
 
 The specification integrates with Pydantic's validation system through the
@@ -205,17 +179,20 @@ The specification integrates with Pydantic's validation system through the
 inputs in dictionary form to be automatically converted during model
 construction. A user can provide `{"value": 150.0, "unit": "MVA"}` and the
 validator converts this to per-unit by dividing by the appropriate base value.
-The validator also handles type coercion from integers to floats and validates
-that required base values are available.
+The validator also coerces integers to floats. Define base fields before their
+dependent fields so their values are available during field validation.
 
 ### Unit-Aware Mixins (HasUnits and HasPerUnit)
 
 The mixin classes provide the foundation for components to declare and manage
-unit-aware fields. Pydantic calls `HasUnits.__pydantic_init_subclass__` after
-building each model's fields. The hook collects `UnitSpec` metadata into the
-class-level `unit_specs` mapping and binds each per-unit specification to the
-unit of its declared base field. A missing or unannotated base field is rejected
-when the model class is created.
+unit-aware fields. `HasUnits.__get_pydantic_core_schema__` collects `UnitSpec`
+metadata into the class-level `unit_specs` mapping after field annotations
+resolve, including during `model_rebuild()`. A missing or unannotated base field
+is rejected when the schema is built.
+
+Specifications are immutable and can be reused across models. A field validator
+resolves each scalar input's base unit from the owning model, so subclasses can
+override base units without affecting their parents.
 
 The `HasPerUnit` class extends this foundation with system-base display support.
 It stores system base power internally and exposes it through the `system_base`

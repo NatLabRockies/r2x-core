@@ -7,7 +7,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any, Generic, Protocol, TypeGuard, TypeVar
 
 from pydantic import BaseModel
-from rust_ok import Err, Ok, Result, is_ok
+from rust_ok import Ok, Result, is_ok
 
 from .datafile import DataFile, TabularProcessing
 from .models import MappingStep
@@ -20,11 +20,6 @@ _HandlerOutputT = TypeVar("_HandlerOutputT")
 
 class MappingStepHandler(Protocol[_HandlerOptionsT, _HandlerInputT, _HandlerOutputT]):
     """App-scoped handler contract for a custom mapping operation."""
-
-    @property
-    def handler(self) -> str:
-        """Return the handler identifier stored in configuration."""
-        ...
 
     @property
     def options_model(self) -> type[_HandlerOptionsT]:
@@ -65,7 +60,10 @@ class TabularBackend(ABC, Generic[FrameT]):
         """Apply tabular processing settings to a frame."""
         ...
 
-    @abstractmethod
+
+class MappingStepBackend(Protocol[FrameT]):
+    """Execute ordered mapping steps independently of DataFile processing."""
+
     def apply_mapping_operation(
         self,
         step: MappingStep,
@@ -95,18 +93,16 @@ def apply_mapping_steps(
     frame: FrameT,
     steps: Sequence[MappingStep],
     *,
-    backend: TabularBackend[FrameT],
+    backend: MappingStepBackend[FrameT],
     source_frames: Mapping[str, FrameT] | None = None,
 ) -> Result[FrameT, ValueError]:
     """Run ordered mapping steps through the selected tabular backend."""
-    available_sources: Mapping[str, FrameT] = {} if source_frames is None else source_frames
-    current_frame: FrameT = frame
+    if source_frames is None:
+        source_frames = {}
     for step in steps:
-        result: Result[FrameT, ValueError] = backend.apply_mapping_operation(
-            step, current_frame, source_frames=available_sources
-        )
+        result = backend.apply_mapping_operation(step, frame, source_frames=source_frames)
         if is_ok(result):
-            current_frame = result.value
+            frame = result.value
         else:
-            return Err(result.err())
-    return Ok(current_frame)
+            return result
+    return Ok(frame)

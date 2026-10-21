@@ -191,6 +191,25 @@ def test_mapping_expressions_compile_to_polars_results(
     assert actual == expected
 
 
+def test_mapping_steps_preserve_exact_column_names() -> None:
+    frame = pl.LazyFrame({"value": [1], " value ": [2]})
+    steps = TypeAdapter(list[MappingStep]).validate_python(
+        [
+            {
+                "op": "select",
+                "columns": {
+                    "result": {"column": "value"},
+                    " result ": {"column": " value "},
+                },
+            }
+        ]
+    )
+
+    result = apply_mapping_steps(frame, steps, backend=PolarsTabularBackend())
+
+    assert result.unwrap().collect().to_dicts() == [{"result": 1, " result ": 2}]
+
+
 def test_polars_backend_executes_mapping_steps_and_joins() -> None:
     """The generic step runner delegates table operations to its selected backend."""
     frame = pl.LazyFrame({"id": [1, 2], "left": [2, 5], "right": [3, 7]})
@@ -268,6 +287,32 @@ def test_polars_backend_executes_assert_group_sort_unique_and_unpivot_steps() ->
     ]
 
 
+@pytest.mark.parametrize(
+    ("sort_first", "expected"),
+    [
+        (False, [("b", 3, "b-first"), ("a", 4, "a-first")]),
+        (True, [("b", 1, "b-priority"), ("a", 2, "a-priority")]),
+    ],
+)
+def test_unique_steps_keep_the_first_row_for_each_key(
+    sort_first: bool, expected: list[tuple[str, int, str]]
+) -> None:
+    frame = pl.LazyFrame(
+        {
+            "key": ["b", "a", "b", "a"],
+            "priority": [3, 4, 1, 2],
+            "payload": ["b-first", "a-first", "b-priority", "a-priority"],
+        }
+    )
+    steps = TypeAdapter(list[MappingStep]).validate_python(
+        ([{"op": "sort", "by": ["priority"]}] if sort_first else []) + [{"op": "unique", "subset": ["key"]}]
+    )
+
+    result = apply_mapping_steps(frame, steps, backend=PolarsTabularBackend())
+
+    assert result.unwrap().collect().rows() == expected
+
+
 def test_polars_backend_delegates_custom_steps_to_app_handlers() -> None:
     """Applications can add table behavior without extending core schemas."""
 
@@ -275,21 +320,9 @@ def test_polars_backend_delegates_custom_steps_to_app_handlers() -> None:
         increment: int
 
     class AddValueHandler:
-        @property
-        def handler(self) -> str:
-            return "add_value"
-
-        @property
-        def options_model(self) -> type[AddValueOptions]:
-            return AddValueOptions
-
-        @property
-        def input_type(self) -> type[pl.LazyFrame]:
-            return pl.LazyFrame
-
-        @property
-        def output_type(self) -> type[pl.LazyFrame]:
-            return pl.LazyFrame
+        options_model: type[AddValueOptions] = AddValueOptions
+        input_type: type[pl.LazyFrame] = pl.LazyFrame
+        output_type: type[pl.LazyFrame] = pl.LazyFrame
 
         def apply(self, value: pl.LazyFrame, *, options: AddValueOptions) -> pl.LazyFrame:
             return value.with_columns((pl.col("value") + options.increment).alias("value"))
@@ -307,23 +340,72 @@ def test_polars_backend_delegates_custom_steps_to_app_handlers() -> None:
     assert result.value.collect().to_dicts() == [{"value": 5}, {"value": 6}]
 
 
-def test_mapping_step_runner_returns_backend_validation_errors() -> None:
-    """A failed assertion stops the generic step runner with an error Result."""
-    frame = pl.LazyFrame({"value": [1, -1]})
+@pytest.mark.parametrize(
+    ("step", "message"),
+    [
+        (
+            {"op": "assert", "predicate": {"op": "gt", "args": [{"column": "value"}, {"literal": 0}]}},
+            "assert step failed",
+        ),
+        (
+            {"op": "assert", "predicate": {"literal": None}},
+            "assert step failed",
+        ),
+        (
+            {"op": "assert", "predicate": {"literal": False}},
+            "assert step failed",
+        ),
+        (
+            {"op": "unpivot", "index": ["missing"], "variable_name": "field", "value_name": "amount"},
+            "unpivot index columns not found",
+        ),
+        (
+            {"op": "unpivot", "index": ["id", "value"], "variable_name": "field", "value_name": "amount"},
+            "unpivot requires at least one value column",
+        ),
+        (
+            {"op": "unpivot", "index": ["id"], "variable_name": "field", "value_name": "field"},
+            "unpivot output names must be distinct",
+        ),
+        (
+            {"op": "unpivot", "index": ["id"], "variable_name": "id", "value_name": "amount"},
+            "unpivot output names must be distinct",
+        ),
+        (
+            {"op": "join", "source": "missing", "how": "left", "on": ["id"]},
+            "join source 'missing' was not provided",
+        ),
+        (
+            {"op": "custom", "handler": "missing"},
+            "No custom mapping handler registered for 'missing'",
+        ),
+    ],
+)
+def test_mapping_steps_stop_at_the_first_error(step: dict[str, object], message: str) -> None:
+    frame = pl.LazyFrame({"id": [1, 2], "value": [1, -1]})
     steps = TypeAdapter(list[MappingStep]).validate_python(
-        [
-            {
-                "op": "assert",
-                "predicate": {"op": "gt", "args": [{"column": "value"}, {"literal": 0}]},
-            }
-        ]
+        [step, {"op": "custom", "handler": "must_not_run"}]
     )
 
     result = apply_mapping_steps(frame, steps, backend=PolarsTabularBackend())
 
     assert isinstance(result, Err)
     assert isinstance(result.err(), ValueError)
-    assert "assert step failed" in str(result.err())
+    assert message in str(result.err())
+
+
+def test_mapping_steps_support_cross_joins_without_join_keys() -> None:
+    frame = pl.LazyFrame({"id": [1, 2]})
+    labels = pl.LazyFrame({"label": ["a", "b"]})
+    steps = TypeAdapter(list[MappingStep]).validate_python(
+        [{"op": "join", "source": "labels", "how": "cross"}]
+    )
+
+    result = apply_mapping_steps(
+        frame, steps, backend=PolarsTabularBackend(), source_frames={"labels": labels}
+    )
+
+    assert result.unwrap().sort("id", "label").collect().rows() == [(1, "a"), (1, "b"), (2, "a"), (2, "b")]
 
 
 def test_polars_backend_processes_existing_tabular_configuration(tmp_path: Path) -> None:

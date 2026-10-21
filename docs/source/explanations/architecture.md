@@ -21,7 +21,7 @@ flowchart TB
     subgraph seams["Seams (abstract, two adapters or more each)"]
         direction LR
         file_reader["file_reader<br/>FileReader[OutputT]"]
-        tabular_backend["tabular_backend<br/>TabularBackend[FrameT]<br/>apply_mapping_steps"]
+        tabular_backend["tabular_backend<br/>TabularBackend[FrameT]<br/>MappingStepBackend[FrameT]<br/>apply_mapping_steps"]
         json_processor["json_adapter<br/>JSONProcessor protocol"]
     end
 
@@ -179,22 +179,24 @@ The eight hooks and which context attribute each one writes are defined once in
 not define are skipped. A hook returning `Err` raises `PluginError` and stops the
 run.
 
-## Unit binding
+## Unit resolution
 
 ```{mermaid}
 flowchart LR
     decl["class Gen(HasPerUnit, Component):<br/>base_power: Annotated[float, Unit('MVA')]<br/>rating: Annotated[float, Unit('pu', base='base_power')]"]
-    hook["HasUnits.__pydantic_init_subclass__"]
-    specs["Gen.unit_specs<br/>{base_power: Unit(MVA), rating: Unit(pu, base_unit=MVA)}"]
-    validate["UnitSpec.validate_value<br/>{'value': 80, 'unit': 'MVA'} → 0.8"]
-    decl -->|class creation| hook --> specs
+    hook["HasUnits.__get_pydantic_core_schema__"]
+    specs["Gen.unit_specs<br/>{base_power: Unit(MVA), rating: Unit(pu, base=base_power)}"]
+    validate["HasUnits.convert_natural_unit_input<br/>base_power=100<br/>{'value': 80, 'unit': 'MVA'} → 0.8"]
+    decl -->|schema construction| hook --> specs
     specs -->|instance validation| validate
 ```
 
-Base units are resolved once when the class is created, from the class's own
-`model_fields`. A `base=` that names a field without a `Unit` fails at import
-time with a `TypeError`. There is no validation context and no subclass walk, so
-two classes with the same name in different modules cannot collide.
+Unit metadata is collected from the model's resolved fields whenever Pydantic
+builds its schema. A `base=` that names a field without a `Unit` raises
+`TypeError` at that point. Immutable annotations can be shared by models and
+subclasses. Validation resolves base units from the owning model, without a
+validation context or subclass walk. Deferred annotations work after a schema
+rebuild.
 
 ## Module inventory
 
@@ -206,7 +208,7 @@ two classes with the same name in different modules cannot collide.
 | `rules` | Translation rule declarations | `Rule`, `RuleFilter`, `SupplementalAttributeRule` |
 | `plugin_config` | Typed plugin configuration and asset paths | `PluginConfig` |
 | `file_reader` | File-format seam and default tabular reader resolver | `FileReader` |
-| `tabular_backend` | Frame-engine seam, step runner, default backend resolver | `TabularBackend` |
+| `tabular_backend` | Frame-engine seam, optional mapping-step protocol and runner, default backend resolver | `TabularBackend` |
 | `json_adapter` | JSON reader, `JSONProcessor` protocol, default processor | none at root |
 | `h5_adapter` | Configuration-driven HDF5 reader producing neutral columns | `H5Reader`, `H5PyFileReader` |
 | `polars_adapter` | Polars reader, backend, expressions, processing (extra) | none at root |
@@ -221,7 +223,7 @@ two classes with the same name in different modules cannot collide.
 | `plugin_base` | Lifecycle hooks and `HOOK_SPECS` | `Plugin` |
 | `plugin_expose` | Marker decorator for function plugins | `expose_plugin` |
 | `system` | `infrasys.System` subclass with units and provenance | `System` |
-| `units` | Unit-aware fields, class-creation binding, display modes | `HasUnits`, `HasPerUnit`, `Unit`, `UnitSystem`, `get_unit_system`, `set_unit_system` |
+| `units` | Unit-aware fields, model-scoped conversion, display modes | `HasUnits`, `HasPerUnit`, `Unit`, `UnitSystem`, `get_unit_system`, `set_unit_system` |
 | `versioning` | Version strategies, `VersionReader`, `UpgradeHandler` | `VersionStrategy`, `SemanticVersioningStrategy`, `GitVersioningStrategy`, `VersionReader` |
 | `utils` | Lazy barrel over `files`, `rules`, `upgrade`, `validation`, `version`, `export`, `parser`, `iteration`, `overrides` | `UpgradeStep`, `UpgradeType`, `run_upgrade_step`, `create_component`, `components_to_records`, `export_components_to_csv` |
 | `getters` | Named getter registry for rule JSON | `getter`, `resolve_getter` |

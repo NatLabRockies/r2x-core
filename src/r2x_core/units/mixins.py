@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
-from pydantic import PrivateAttr
+from pydantic import BaseModel, GetCoreSchemaHandler, PrivateAttr, ValidationInfo, field_validator
+from pydantic_core import core_schema
 
-from .specs import UnitSpec
+from .specs import UnitSpec, unit_value_type
 
 if TYPE_CHECKING:
     from pydantic.fields import FieldInfo
@@ -17,9 +18,8 @@ __all__ = ["HasPerUnit", "HasUnits"]
 class HasUnits:
     """Add unit metadata and display formatting to a Pydantic model.
 
-    Unit specifications are collected from Pydantic field metadata when each
-    model class is created. Specifications that reference a base field are
-    bound to that field's unit at the same time.
+    Unit specifications are collected whenever Pydantic builds a model schema.
+    Base units are resolved from the owning model without mutating annotations.
     """
 
     unit_specs: ClassVar[dict[str, UnitSpec]] = {}
@@ -28,9 +28,11 @@ class HasUnits:
         model_fields: ClassVar[dict[str, FieldInfo]]
 
     @classmethod
-    def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:
-        """Collect unit metadata and bind each declared base unit."""
-        cast(Any, super()).__pydantic_init_subclass__(**kwargs)
+    def __get_pydantic_core_schema__(
+        cls, source_type: Any, handler: GetCoreSchemaHandler
+    ) -> core_schema.CoreSchema:
+        """Collect and validate unit metadata after field annotations resolve."""
+        schema = handler(source_type)
 
         specs: dict[str, UnitSpec] = {}
         for field_name, field_info in cls.model_fields.items():
@@ -41,15 +43,28 @@ class HasUnits:
         for field_name, spec in specs.items():
             if spec.base is None:
                 continue
-            base_spec = specs.get(spec.base)
-            if base_spec is None:
+            if spec.base not in specs:
                 msg = (
                     f"{cls.__name__}.{field_name} references base field {spec.base!r}, which has no UnitSpec"
                 )
                 raise TypeError(msg)
-            spec.bind_base_unit(base_spec.unit)
 
         cls.unit_specs = specs
+        return schema
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def convert_natural_unit_input(cls, value: Any, info: ValidationInfo) -> Any:
+        """Convert scalar unit mappings using the owning model's base field."""
+        field_name = cast(str, info.field_name)
+        spec = cls.unit_specs.get(field_name)
+        if spec is None or spec.base is None or not isinstance(value, dict):
+            return value
+
+        value_type = unit_value_type(cls.model_fields[field_name].annotation)
+        if isinstance(value_type, type) and issubclass(value_type, BaseModel):
+            return value
+        return spec.validate_value(value, info, base_unit=cls.unit_specs[spec.base].unit)
 
     @property
     def system_base(self) -> float | None:
@@ -81,12 +96,13 @@ class HasUnits:
                 continue
 
             base_value = getattr(self, spec.base) if spec.base is not None else None
+            base_unit = type(self).unit_specs[spec.base].unit if spec.base is not None else None
             formatted = format_for_display(
                 value,
                 spec,
                 unit_system,
                 base_value,
-                spec.base_unit,
+                base_unit,
                 self.system_base,
             )
             repr_args.append((field_name, formatted))

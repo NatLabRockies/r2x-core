@@ -11,6 +11,7 @@ from uuid import uuid4
 import pytest
 from fixtures.source_system import BusComponent
 from fixtures.target_system import NodeComponent
+from infrasys import Component
 from rust_ok import Err, Ok, Result
 
 from r2x_core import PluginConfig, PluginContext, Rule
@@ -137,6 +138,27 @@ def test_build_target_fields_applies_defaults_and_getters(context_example):
     assert fields["name"] == "comp_a"
     assert fields["demand_mw"] == 0.0
     assert fields["area"] == "north"
+
+
+def test_field_mapping_reads_a_source_property_once(context_example: PluginContext) -> None:
+    readings = iter([10, 20])
+
+    class Source(Component):
+        @property
+        def reading(self) -> int:
+            return next(readings)
+
+    rule = Rule(
+        source_type="Source",
+        target_type="Target",
+        version=1,
+        field_map={"measurement": "reading"},
+    )
+
+    result = build_target_fields(Source(name="source"), rule=rule, context=context_example)
+
+    assert result.unwrap() == {"measurement": 10}
+    assert next(readings) == 20
 
 
 def test_build_target_fields_reports_source_field_typo(context_example):

@@ -11,7 +11,7 @@ PLACEHOLDER_PATTERN: re.Pattern[str] = re.compile(r"\{([^{}]+)\}")
 
 JSONScalar: TypeAlias = str | int | float | bool | None
 JSONValue: TypeAlias = JsonValue
-NonEmptyString = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+NonEmptyString = Annotated[str, StringConstraints(min_length=1)]
 PositiveInteger = Annotated[int, Field(gt=0)]
 ColumnNames = Annotated[list[NonEmptyString], Field(min_length=1)]
 FieldSource: TypeAlias = NonEmptyString | Annotated[list[NonEmptyString], Field(min_length=1)]

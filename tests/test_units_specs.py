@@ -1,5 +1,6 @@
 """Tests for the UnitSpec class."""
 
+from dataclasses import FrozenInstanceError
 from typing import Annotated
 
 import pytest
@@ -37,13 +38,11 @@ def test_unitspec_dict_input_with_conversion():
     assert gen.rating == 0.8
 
 
-def test_unitspec_base_unit_binding_rejects_conflicts():
+def test_unit_annotations_are_immutable() -> None:
     spec = UnitSpec(unit="pu", base="base_power")
-    spec.bind_base_unit("MVA")
-    spec.bind_base_unit("MVA")
 
-    with pytest.raises(ValueError, match="already bound as 'MVA'"):
-        spec.bind_base_unit("kVA")
+    with pytest.raises(FrozenInstanceError):
+        spec.base = "other_base"
 
 
 def test_unitspec_invalid_input_type():

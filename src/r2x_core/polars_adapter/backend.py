@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from functools import singledispatch
 from typing import Any, TypeGuard
 
 import polars as pl
@@ -25,188 +24,6 @@ from ..models import (
 )
 from ..tabular_backend import MappingStepHandler, TabularBackend
 from .expressions import compile_polars_expression
-
-
-@singledispatch
-def dispatch_polars_mapping_operation(
-    step: MappingStep,
-    *,
-    frame: pl.LazyFrame,
-    source_frames: Mapping[str, pl.LazyFrame],
-    step_handlers: Mapping[str, MappingStepHandler[Any, Any, Any]],
-) -> pl.LazyFrame:
-    """Dispatch one mapping step to its Polars implementation."""
-    raise ValueError(f"Unsupported mapping operation: {type(step).__name__}")
-
-
-@dispatch_polars_mapping_operation.register
-def apply_polars_assert_step(
-    step: AssertStep,
-    *,
-    frame: pl.LazyFrame,
-    source_frames: Mapping[str, pl.LazyFrame],
-    step_handlers: Mapping[str, MappingStepHandler[Any, Any, Any]],
-) -> pl.LazyFrame:
-    """Validate that every row satisfies the configured predicate."""
-    predicate = compile_polars_expression(step.predicate).fill_null(False)
-    violations = frame.filter(~predicate).limit(1).collect()
-    if violations.height:
-        raise ValueError("assert step failed for at least one row")
-    return frame
-
-
-@dispatch_polars_mapping_operation.register
-def apply_polars_filter_step(
-    step: FilterStep,
-    *,
-    frame: pl.LazyFrame,
-    source_frames: Mapping[str, pl.LazyFrame],
-    step_handlers: Mapping[str, MappingStepHandler[Any, Any, Any]],
-) -> pl.LazyFrame:
-    """Filter rows using the configured predicate."""
-    return frame.filter(compile_polars_expression(step.predicate))
-
-
-@dispatch_polars_mapping_operation.register
-def apply_polars_select_step(
-    step: SelectStep,
-    *,
-    frame: pl.LazyFrame,
-    source_frames: Mapping[str, pl.LazyFrame],
-    step_handlers: Mapping[str, MappingStepHandler[Any, Any, Any]],
-) -> pl.LazyFrame:
-    """Select and rename columns using the configured expressions."""
-    return frame.select(
-        [compile_polars_expression(expression).alias(name) for name, expression in step.columns.items()]
-    )
-
-
-@dispatch_polars_mapping_operation.register
-def apply_polars_with_columns_step(
-    step: WithColumnsStep,
-    *,
-    frame: pl.LazyFrame,
-    source_frames: Mapping[str, pl.LazyFrame],
-    step_handlers: Mapping[str, MappingStepHandler[Any, Any, Any]],
-) -> pl.LazyFrame:
-    """Add or replace columns using the configured expressions."""
-    return frame.with_columns(
-        [compile_polars_expression(expression).alias(name) for name, expression in step.columns.items()]
-    )
-
-
-@dispatch_polars_mapping_operation.register
-def apply_polars_unpivot_step(
-    step: UnpivotStep,
-    *,
-    frame: pl.LazyFrame,
-    source_frames: Mapping[str, pl.LazyFrame],
-    step_handlers: Mapping[str, MappingStepHandler[Any, Any, Any]],
-) -> pl.LazyFrame:
-    """Unpivot all non-index columns into variable and value columns."""
-    column_names = frame.collect_schema().names()
-    missing = set(step.index).difference(column_names)
-    if missing:
-        raise ValueError(f"unpivot index columns not found: {sorted(missing)}")
-    value_columns = [name for name in column_names if name not in step.index]
-    if not value_columns:
-        raise ValueError("unpivot requires at least one value column")
-    if step.variable_name == step.value_name or {step.variable_name, step.value_name}.intersection(
-        step.index
-    ):
-        raise ValueError("unpivot output names must be distinct from each other and the index")
-    return frame.unpivot(
-        on=value_columns,
-        index=list(step.index),
-        variable_name=step.variable_name,
-        value_name=step.value_name,
-    )
-
-
-@dispatch_polars_mapping_operation.register
-def apply_polars_group_by_step(
-    step: GroupByStep,
-    *,
-    frame: pl.LazyFrame,
-    source_frames: Mapping[str, pl.LazyFrame],
-    step_handlers: Mapping[str, MappingStepHandler[Any, Any, Any]],
-) -> pl.LazyFrame:
-    """Group rows and evaluate each configured aggregate expression."""
-    return frame.group_by(list(step.by), maintain_order=True).agg(
-        [compile_polars_expression(expression).alias(name) for name, expression in step.agg.items()]
-    )
-
-
-@dispatch_polars_mapping_operation.register
-def apply_polars_join_step(
-    step: JoinStep,
-    *,
-    frame: pl.LazyFrame,
-    source_frames: Mapping[str, pl.LazyFrame],
-    step_handlers: Mapping[str, MappingStepHandler[Any, Any, Any]],
-) -> pl.LazyFrame:
-    """Join the current frame with a named source frame."""
-    if step.source not in source_frames:
-        raise ValueError(f"join source {step.source!r} was not provided")
-    join_options: dict[str, Any] = {"how": step.how}
-    if step.on is not None:
-        join_options["on"] = list(step.on)
-    if step.join_validation is not None:
-        join_options["validate"] = step.join_validation
-    return frame.join(source_frames[step.source], **join_options)
-
-
-@dispatch_polars_mapping_operation.register
-def apply_polars_sort_step(
-    step: SortStep,
-    *,
-    frame: pl.LazyFrame,
-    source_frames: Mapping[str, pl.LazyFrame],
-    step_handlers: Mapping[str, MappingStepHandler[Any, Any, Any]],
-) -> pl.LazyFrame:
-    """Sort rows by the configured columns."""
-    return frame.sort(list(step.by))
-
-
-@dispatch_polars_mapping_operation.register
-def apply_polars_unique_step(
-    step: UniqueStep,
-    *,
-    frame: pl.LazyFrame,
-    source_frames: Mapping[str, pl.LazyFrame],
-    step_handlers: Mapping[str, MappingStepHandler[Any, Any, Any]],
-) -> pl.LazyFrame:
-    """Keep the first row for each configured unique subset."""
-    return frame.unique(subset=list(step.subset), maintain_order=True)
-
-
-@dispatch_polars_mapping_operation.register
-def apply_polars_custom_step(
-    step: CustomStep,
-    *,
-    frame: pl.LazyFrame,
-    source_frames: Mapping[str, pl.LazyFrame],
-    step_handlers: Mapping[str, MappingStepHandler[Any, Any, Any]],
-) -> pl.LazyFrame:
-    """Apply a registered app-provided handler to a mapping step."""
-    handler = step_handlers.get(step.handler)
-    if handler is None:
-        raise ValueError(f"No custom mapping handler registered for {step.handler!r}")
-    if not isinstance(frame, handler.input_type):
-        raise ValueError(
-            f"Custom mapping handler {step.handler!r} expects {handler.input_type.__name__}, "
-            f"received {type(frame).__name__}"
-        )
-    options = handler.options_model.model_validate(step.kwargs)
-    output = handler.apply(frame, options=options)
-    if not isinstance(output, handler.output_type):
-        raise ValueError(
-            f"Custom mapping handler {step.handler!r} declared {handler.output_type.__name__} "
-            f"but returned {type(output).__name__}"
-        )
-    if not isinstance(output, pl.LazyFrame):
-        raise ValueError(f"Custom mapping handler {step.handler!r} must return a Polars LazyFrame")
-    return output
 
 
 class PolarsTabularBackend(TabularBackend[pl.LazyFrame]):
@@ -246,14 +63,85 @@ class PolarsTabularBackend(TabularBackend[pl.LazyFrame]):
         *,
         source_frames: Mapping[str, pl.LazyFrame],
     ) -> Result[pl.LazyFrame, ValueError]:
-        """Dispatch a mapping step and translate Polars failures into Results."""
+        """Apply one mapping step, returning validation and Polars errors."""
         try:
-            result = dispatch_polars_mapping_operation(
-                step,
-                frame=frame,
-                source_frames=source_frames,
-                step_handlers=self.step_handlers,
-            )
+            match step:
+                case AssertStep():
+                    predicate = compile_polars_expression(step.predicate).fill_null(False)
+                    violations = frame.filter(~predicate).limit(1).collect()
+                    if violations.height:
+                        raise ValueError("assert step failed for at least one row")
+                case FilterStep():
+                    frame = frame.filter(compile_polars_expression(step.predicate))
+                case SelectStep():
+                    frame = frame.select(
+                        [compile_polars_expression(expr).alias(name) for name, expr in step.columns.items()]
+                    )
+                case WithColumnsStep():
+                    frame = frame.with_columns(
+                        [compile_polars_expression(expr).alias(name) for name, expr in step.columns.items()]
+                    )
+                case UnpivotStep():
+                    column_names = frame.collect_schema().names()
+                    missing = set(step.index).difference(column_names)
+                    if missing:
+                        raise ValueError(f"unpivot index columns not found: {sorted(missing)}")
+                    value_columns = [name for name in column_names if name not in step.index]
+                    if not value_columns:
+                        raise ValueError("unpivot requires at least one value column")
+                    if step.variable_name == step.value_name or {
+                        step.variable_name,
+                        step.value_name,
+                    }.intersection(step.index):
+                        raise ValueError(
+                            "unpivot output names must be distinct from each other and the index"
+                        )
+                    frame = frame.unpivot(
+                        on=value_columns,
+                        index=step.index,
+                        variable_name=step.variable_name,
+                        value_name=step.value_name,
+                    )
+                case GroupByStep():
+                    frame = frame.group_by(step.by, maintain_order=True).agg(
+                        [compile_polars_expression(expr).alias(name) for name, expr in step.agg.items()]
+                    )
+                case JoinStep():
+                    if step.source not in source_frames:
+                        raise ValueError(f"join source {step.source!r} was not provided")
+                    frame = frame.join(
+                        source_frames[step.source],
+                        on=step.on,
+                        how=step.how,
+                        validate=step.join_validation or "m:m",
+                    )
+                case SortStep():
+                    frame = frame.sort(step.by)
+                case UniqueStep():
+                    frame = frame.unique(subset=step.subset, keep="first", maintain_order=True)
+                case CustomStep():
+                    handler = self.step_handlers.get(step.handler)
+                    if handler is None:
+                        raise ValueError(f"No custom mapping handler registered for {step.handler!r}")
+                    if not isinstance(frame, handler.input_type):
+                        raise ValueError(
+                            f"Custom mapping handler {step.handler!r} expects {handler.input_type.__name__}, "
+                            f"received {type(frame).__name__}"
+                        )
+                    options = handler.options_model.model_validate(step.kwargs)
+                    output = handler.apply(frame, options=options)
+                    if not isinstance(output, handler.output_type):
+                        raise ValueError(
+                            f"Custom mapping handler {step.handler!r} declared {handler.output_type.__name__} "
+                            f"but returned {type(output).__name__}"
+                        )
+                    if not isinstance(output, pl.LazyFrame):
+                        raise ValueError(
+                            f"Custom mapping handler {step.handler!r} must return a Polars LazyFrame"
+                        )
+                    frame = output
+                case _:
+                    raise ValueError(f"Unsupported mapping operation: {type(step).__name__}")
         except (ValueError, TypeError, pl.exceptions.PolarsError) as error:
             return Err(ValueError(f"Mapping operation {step.op!r} failed: {error}"))
-        return Ok(result)
+        return Ok(frame)

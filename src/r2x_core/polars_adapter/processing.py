@@ -37,7 +37,9 @@ def resolve_schema_names(data_frame: pl.LazyFrame, schema_names: list[str] | Non
     return list(data_frame.collect_schema().names()) if schema_names is None else schema_names
 
 
-def unchanged_result(data_frame: pl.LazyFrame, schema_names: list[str]) -> TabularTransformResult:
+def unchanged_result(
+    data_frame: pl.LazyFrame, schema_names: list[str]
+) -> TabularTransformResult[pl.LazyFrame]:
     """Return an unchanged frame with its current schema names."""
     return TabularTransformResult(data_frame=data_frame, schema_names=schema_names)
 
@@ -124,7 +126,7 @@ def pl_pivot_on(
     data_file: DataFile,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
-) -> TabularTransformResult:
+) -> TabularTransformResult[pl.LazyFrame]:
     """Pivot a DataFrame long-to-wide using the configured pivot column.
 
     Perform a long-to-wide pivot using grouped value aggregations. The pivot
@@ -196,7 +198,7 @@ def pl_unpivot_on(
     data_file: DataFile,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
-) -> TabularTransformResult:
+) -> TabularTransformResult[pl.LazyFrame]:
     """Unpivot configured value columns while retaining identifier columns."""
     schema_names = resolve_schema_names(data_frame, schema_names)
     if not proc_spec.unpivot_on:
@@ -226,7 +228,7 @@ def pl_split_columns(
     data_file: DataFile,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
-) -> TabularTransformResult:
+) -> TabularTransformResult[pl.LazyFrame]:
     """Split configured string columns into named fields."""
     schema_names = resolve_schema_names(data_frame, schema_names)
     if not proc_spec.split_column:
@@ -263,7 +265,7 @@ def pl_strip_chars(
     data_file: DataFile,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
-) -> TabularTransformResult:
+) -> TabularTransformResult[pl.LazyFrame]:
     """Remove configured literal strings and surrounding whitespace."""
     schema_names = resolve_schema_names(data_frame, schema_names)
     if not proc_spec.strip_chars:
@@ -286,7 +288,7 @@ def pl_scale(
     data_file: DataFile,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
-) -> TabularTransformResult:
+) -> TabularTransformResult[pl.LazyFrame]:
     """Multiply configured numeric columns by their scale factors."""
     schema_names = resolve_schema_names(data_frame, schema_names)
     if not proc_spec.scale:
@@ -352,7 +354,7 @@ def pl_replace_values(
     data_file: DataFile,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
-) -> TabularTransformResult:
+) -> TabularTransformResult[pl.LazyFrame]:
     """Replace values when their logical families match each column."""
     schema_names = resolve_schema_names(data_frame, schema_names)
     if not proc_spec.replace_values:
@@ -412,7 +414,7 @@ def pl_fill_null(
     data_file: DataFile,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
-) -> TabularTransformResult:
+) -> TabularTransformResult[pl.LazyFrame]:
     """Fill null values in configured columns."""
     schema_names = resolve_schema_names(data_frame, schema_names)
     if not proc_spec.fill_null:
@@ -452,7 +454,7 @@ def pl_aggregate(
     data_file: DataFile,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
-) -> TabularTransformResult:
+) -> TabularTransformResult[pl.LazyFrame]:
     """Group and aggregate rows using configured Polars aggregations."""
     schema_names = resolve_schema_names(data_frame, schema_names)
     if not proc_spec.aggregate_on:
@@ -479,7 +481,7 @@ def pl_distinct(
     data_file: DataFile,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
-) -> TabularTransformResult:
+) -> TabularTransformResult[pl.LazyFrame]:
     """Remove duplicate rows using the configured subset of columns."""
     schema_names = resolve_schema_names(data_frame, schema_names)
     if not proc_spec.distinct_on:
@@ -499,7 +501,7 @@ def pl_sort(
     data_file: DataFile,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
-) -> TabularTransformResult:
+) -> TabularTransformResult[pl.LazyFrame]:
     """Sort rows according to configured column directions."""
     schema_names = resolve_schema_names(data_frame, schema_names)
     if not proc_spec.sort_by:
@@ -520,7 +522,7 @@ def pl_lowercase(
     data_file: DataFile,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
-) -> TabularTransformResult:
+) -> TabularTransformResult[pl.LazyFrame]:
     """Convert all string columns to lowercase.
 
     Returns the transformed frame and an updated schema name list (lowercased).
@@ -542,7 +544,7 @@ def pl_drop_columns(
     data_file: DataFile,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
-) -> TabularTransformResult:
+) -> TabularTransformResult[pl.LazyFrame]:
     """Drop specified columns if they exist.
 
     Returns the transformed frame and an updated schema name list.
@@ -564,7 +566,7 @@ def pl_rename_columns(
     data_file: DataFile,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
-) -> TabularTransformResult:
+) -> TabularTransformResult[pl.LazyFrame]:
     """Rename columns based on mapping.
 
     Returns the transformed frame and an updated schema name list.
@@ -588,7 +590,7 @@ def pl_cast_schema(
     data_file: DataFile,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
-) -> TabularTransformResult:
+) -> TabularTransformResult[pl.LazyFrame]:
     """Cast columns to specified data types. Column names are unchanged."""
     schema_names = resolve_schema_names(data_frame, schema_names)
     if not proc_spec.column_schema:
@@ -611,7 +613,7 @@ def pl_apply_filters(
     data_file: DataFile,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
-) -> TabularTransformResult:
+) -> TabularTransformResult[pl.LazyFrame]:
     """Apply row filters. Column names are unchanged."""
     schema_names = resolve_schema_names(data_frame, schema_names)
     if not proc_spec.filter_by:
@@ -633,7 +635,7 @@ def pl_select_columns(
     data_file: DataFile,
     proc_spec: TabularProcessing,
     schema_names: list[str] | None = None,
-) -> TabularTransformResult:
+) -> TabularTransformResult[pl.LazyFrame]:
     """Select specific columns.
 
     Returns the transformed frame and an updated schema name list.

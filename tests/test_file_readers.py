@@ -257,6 +257,27 @@ def test_read_csv_rejects_unsupported_multirow_header_options(tmp_path, header_r
         )
 
 
+@pytest.mark.parametrize(
+    ("separator", "expected_columns"),
+    [(" ", ["Model Year", "Capacity MW"]), (" | ", ["Model | Year", "Capacity | MW"])],
+)
+def test_csv_headers_preserve_separator_whitespace(
+    tmp_path: Path, separator: str, expected_columns: list[str]
+) -> None:
+    csv_path = tmp_path / "headers.csv"
+    csv_path.write_text("Model,Capacity\nYear,MW\n2025,10\n", encoding="utf-8")
+    data_file = DataFile(
+        name="headers",
+        fpath=csv_path,
+        reader=ReaderConfig(kwargs={"header_rows": 2, "header_separator": separator}),
+    )
+
+    frame = DataReader().read_data_file(data_file, folder_path=tmp_path).collect()
+
+    assert frame.columns == expected_columns
+    assert frame.rows() == [(2025, 10)]
+
+
 def test_read_csv_rejects_insufficient_header_rows(tmp_path):
     csv_path = tmp_path / "one_header.csv"
     csv_path.write_text("name,value\na,1\n")

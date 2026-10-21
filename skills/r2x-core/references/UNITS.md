@@ -6,8 +6,9 @@ conversion, per-unit values, display modes, or unit-aware model validation.
 ## Contracts (source-verified)
 
 - `Unit(unit: str, *, base: str | None = None) -> UnitSpec`
-- `HasUnits` collects annotated field metadata and binds base units when a
-  Pydantic model class is created, then formats those fields in `repr`.
+- `HasUnits` collects immutable unit metadata when Pydantic builds or rebuilds
+  a model schema. It resolves base units from the owning model during validation
+  and formats unit-aware fields in `repr`.
 - `HasPerUnit` extends `HasUnits` with optional system-base display support.
 - `set_unit_system(unit_system: UnitSystem) -> None`
 - `get_unit_system() -> UnitSystem`
@@ -95,8 +96,7 @@ class Generator(HasUnits, Component):
 ```
 
 Use `class MyModel(HasUnits, BaseModel)` or `class MyComponent(HasUnits,
-Component)`. `HasUnits` validates at subclass creation that the model also
-inherits from Pydantic `BaseModel` directly or through `Component`.
+Component)`. The mixin relies on Pydantic schema and field-validation hooks.
 
 ## Input semantics
 

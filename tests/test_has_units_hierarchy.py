@@ -4,6 +4,7 @@ from typing import Annotated
 
 import pytest
 from infrasys import Component
+from pydantic import BaseModel
 
 from r2x_core.units import HasPerUnit, HasUnits, Unit, UnitSystem, set_unit_system
 
@@ -172,7 +173,8 @@ def test_unit_specs_contains_exactly_annotated_fields():
     """The class-level registry contains only fields with Unit metadata."""
     assert set(Sensor.unit_specs) == {"temperature", "pressure"}
     assert set(Generator.unit_specs) == {"base_power", "rated_voltage", "rating", "voltage"}
-    assert Generator.unit_specs["rating"].base_unit == "MVA"
+    assert Generator.unit_specs["rating"].base == "base_power"
+    assert Generator.unit_specs["base_power"].unit == "MVA"
 
 
 def test_same_named_classes_resolve_their_own_base_units():
@@ -201,6 +203,57 @@ def test_same_named_classes_resolve_their_own_base_units():
 
     assert mva_instance.rating == pytest.approx(0.8)
     assert kva_instance.rating == pytest.approx(0.8)
+
+
+def test_subclasses_can_override_base_units_without_changing_parent_conversion() -> None:
+    class Parent(HasUnits, BaseModel):
+        base_power: Annotated[float, Unit("MVA")]
+        rating: Annotated[float, Unit("pu", base="base_power")]
+
+    class Child(Parent):
+        base_power: Annotated[float, Unit("kVA")]
+
+    parent = Parent.model_validate({"base_power": 100.0, "rating": {"value": 80.0, "unit": "MVA"}})
+    child = Child.model_validate({"base_power": 100.0, "rating": {"value": 80.0, "unit": "kVA"}})
+
+    assert parent.rating == pytest.approx(0.8)
+    assert child.rating == pytest.approx(0.8)
+    assert Parent.unit_specs["base_power"].unit == "MVA"
+    assert Child.unit_specs["base_power"].unit == "kVA"
+
+
+def test_reusable_unit_annotations_resolve_each_models_base_unit() -> None:
+    per_unit = Annotated[float, Unit("pu", base="base_power")]
+
+    class MegavoltDevice(HasUnits, BaseModel):
+        base_power: Annotated[float, Unit("MVA")]
+        rating: per_unit
+
+    class KilovoltDevice(HasUnits, BaseModel):
+        base_power: Annotated[float, Unit("kVA")]
+        rating: per_unit
+
+    mega = MegavoltDevice.model_validate({"base_power": 100.0, "rating": {"value": 80.0, "unit": "MVA"}})
+    kilo = KilovoltDevice.model_validate({"base_power": 100.0, "rating": {"value": 80.0, "unit": "kVA"}})
+
+    assert mega.rating == pytest.approx(0.8)
+    assert kilo.rating == pytest.approx(0.8)
+
+
+@pytest.mark.parametrize("explicit_rebuild", [False, True])
+def test_deferred_unit_annotations_convert_after_model_completion(explicit_rebuild: bool) -> None:
+    class DeferredDevice(HasUnits, BaseModel):
+        base_power: Annotated[float, Unit("MVA")]
+        rating: "Annotated[deferred_rating, Unit('pu', base='base_power')]"
+
+    deferred_rating = float
+    if explicit_rebuild:
+        DeferredDevice.model_rebuild()
+    device = DeferredDevice.model_validate({"base_power": 100.0, "rating": {"value": 80.0, "unit": "MVA"}})
+
+    assert device.rating == pytest.approx(0.8)
+    assert set(DeferredDevice.unit_specs) == {"base_power", "rating"}
+    assert "0.8 pu" in repr(device)
 
 
 def test_missing_base_unit_field_raises_at_class_creation():

@@ -242,8 +242,9 @@ rebuild.
   point, not a registry.
 - The config layer never imports the execution layer. Guarded by a subprocess
   test in `tests/test_public_imports.py`.
-- No private helpers. Module-level functions carry descriptive public names;
-  `__all__` and the root `_LAZY_IMPORTS` decide what is exported.
+- Project-owned type variables, constants, attributes, and helpers have no
+  leading underscores. Python and framework special methods keep their required
+  names. `__all__` and the root `LAZY_IMPORTS` decide what is exported.
 - No undeclared fields. Configuration is read through declared Pydantic fields.
   `getattr` is reserved for names that come from user rule JSON, importlib
   module probing, and generic introspection.

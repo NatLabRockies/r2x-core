@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
-from pydantic import BaseModel, GetCoreSchemaHandler, PrivateAttr, ValidationInfo, field_validator
+from pydantic import BaseModel, GetCoreSchemaHandler, ValidationInfo, field_validator
 from pydantic_core import core_schema
 
 from .specs import UnitSpec, unit_value_type
@@ -113,12 +113,10 @@ class HasUnits:
 class HasPerUnit(HasUnits):
     """Add system-base display state to a unit-aware model."""
 
-    _system_base: float | None = PrivateAttr(default=None)
-
     @property
     def system_base(self) -> float | None:
         """Return the system base power bound to this model."""
-        return self.__dict__.get("_system_base")
+        return self.__dict__.get("system_base")
 
     def bind_system_base(self, base_power: float | None) -> None:
         """Set the system base used for per-unit display.
@@ -128,4 +126,4 @@ class HasPerUnit(HasUnits):
         base_power : float or None
             System base power to bind to this model.
         """
-        self.__dict__["_system_base"] = base_power
+        self.__dict__["system_base"] = base_power

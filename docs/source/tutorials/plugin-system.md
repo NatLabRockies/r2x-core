@@ -134,9 +134,9 @@ class ParserConfig(PluginConfig):
 class SimpleParser(Plugin[ParserConfig]):
     @property
     def store(self) -> DataStore:  # Non-Optional = required
-        if self._ctx.store is None:
+        if self.ctx.store is None:
             raise RuntimeError("DataStore required for parsing")
-        return self._ctx.store
+        return self.ctx.store
 ...
     def on_build(self) -> Result[System, Exception]:
         system = System(name="parsed_system")
@@ -162,9 +162,9 @@ class ExporterConfig(PluginConfig):
 class SimpleExporter(Plugin[ExporterConfig]):
     @property
     def system(self) -> System:  # Non-Optional = required
-        if self._ctx.system is None:
+        if self.ctx.system is None:
             raise RuntimeError("System required for export")
-        return self._ctx.system
+        return self.ctx.system
 ...
     def on_export(self) -> Result[None, Exception]:
         # Export system to files

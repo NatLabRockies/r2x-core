@@ -56,7 +56,7 @@ def extract_doctest_blocks(path: Path) -> list[DocBlock]:
 
     while i < len(lines):
         match = FENCE_RE.match(lines[i])
-        if not match or not _is_doctest_marker(match.group(2)):
+        if not match or not is_doctest_marker(match.group(2)):
             i += 1
             continue
 
@@ -71,7 +71,7 @@ def extract_doctest_blocks(path: Path) -> list[DocBlock]:
             i += 1
 
         # Extract doctest-formatted lines
-        doctest_lines = _extract_doctest_lines(block_lines)
+        doctest_lines = extract_doctest_lines(block_lines)
         if doctest_lines:
             blocks.append(
                 DocBlock(
@@ -86,7 +86,7 @@ def extract_doctest_blocks(path: Path) -> list[DocBlock]:
     return blocks
 
 
-def _is_doctest_marker(lang_info: str | None) -> bool:
+def is_doctest_marker(lang_info: str | None) -> bool:
     """Check if language info contains both 'python' and 'doctest' markers."""
     if not lang_info:
         return False
@@ -94,7 +94,7 @@ def _is_doctest_marker(lang_info: str | None) -> bool:
     return "python" in parts and "doctest" in parts
 
 
-def _extract_doctest_lines(block_lines: list[str]) -> list[str]:
+def extract_doctest_lines(block_lines: list[str]) -> list[str]:
     """Extract lines that look like doctest (prompts and expected output)."""
     result = []
     has_prompt = False
@@ -111,7 +111,7 @@ def _extract_doctest_lines(block_lines: list[str]) -> list[str]:
     return result
 
 
-def _run_doctest_block(block: DocBlock, block_index: int) -> tuple[int, int]:
+def run_doctest_block(block: DocBlock, block_index: int) -> tuple[int, int]:
     """Run a single doctest block.
 
     Returns
@@ -174,7 +174,7 @@ def test_markdown_doctest(doc_path: Path) -> None:
     total_tests = 0
 
     for i, block in enumerate(blocks):
-        failures, tests = _run_doctest_block(block, i)
+        failures, tests = run_doctest_block(block, i)
         total_failures += failures
         total_tests += tests
 

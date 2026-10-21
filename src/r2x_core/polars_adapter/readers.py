@@ -23,7 +23,7 @@ class CSVReaderOptions(StrictConfigModel):
     header_separator: NonEmptyString = "|"
 
 
-_HEADER_READ_OPTIONS = frozenset(
+HEADER_READ_OPTIONS = frozenset(
     {
         "separator",
         "comment_prefix",
@@ -60,7 +60,7 @@ def read_polars_table_file(
     if scan_kwargs.get("skip_rows_after_header", 0):
         raise ValueError("skip_rows_after_header cannot be combined with multiple header rows")
 
-    header_options = {key: value for key, value in scan_kwargs.items() if key in _HEADER_READ_OPTIONS}
+    header_options = {key: value for key, value in scan_kwargs.items() if key in HEADER_READ_OPTIONS}
     header = pl.read_csv(
         file_path,
         has_header=False,
@@ -105,7 +105,7 @@ class PolarsTabularFileReader(FileReader[pl.LazyFrame]):
 
     def __init__(self, *, h5_reader: H5Reader | None = None) -> None:
         """Select the HDF5 format reader used by Polars."""
-        self._h5_reader = h5_reader
+        self.h5_reader = h5_reader
 
     def supports_file_type(self, file_type: FileFormat, /) -> bool:
         """Return whether this reader supports the file format."""
@@ -141,7 +141,7 @@ class PolarsTabularFileReader(FileReader[pl.LazyFrame]):
             return read_polars_h5_file(
                 file_path=file_path,
                 reader_config=reader_config,
-                h5_reader=self._h5_reader,
+                h5_reader=self.h5_reader,
             )
         if isinstance(file_type, ParquetFormat):
             return pl.scan_parquet(file_path, **reader_config.kwargs)

@@ -24,11 +24,11 @@ from .types import EXTENSION_MAPPING, PLACEHOLDER_PATTERN, FileFormat, JSONForma
 from .utils.files import resolve_path
 from .utils.validation import validate_file_extension, validate_glob_pattern
 
-_ProcessingPlaceholder = Annotated[str, StringConstraints(pattern=r"^\{[^{}]+\}$")]
-_SUPPORTED_AGGREGATIONS = frozenset(
+ProcessingPlaceholder = Annotated[str, StringConstraints(pattern=r"^\{[^{}]+\}$")]
+SUPPORTED_AGGREGATIONS = frozenset(
     {"count", "first", "last", "max", "mean", "median", "min", "n_unique", "std", "sum", "var"}
 )
-_PIVOT_AGGREGATIONS = _SUPPORTED_AGGREGATIONS - {"n_unique", "std", "var"}
+PIVOT_AGGREGATIONS = SUPPORTED_AGGREGATIONS - {"n_unique", "std", "var"}
 
 
 def extension_for_path_source(
@@ -204,14 +204,14 @@ class TabularProcessing(BaseModel):
     replace_values: Annotated[dict[Any, Any] | None, Field(description="Value replacement map")] = None
     fill_null: Annotated[dict[str, Any] | None, Field(description="Null fill values")] = None
     lowercase: Annotated[
-        bool | _ProcessingPlaceholder,
+        bool | ProcessingPlaceholder,
         Field(description="Lowercase column names and string values; accepts complete placeholders"),
     ] = False
     strip_chars: Annotated[
         dict[str, list[str]] | None, Field(description="Literal strings to remove from string columns")
     ] = None
     scale: Annotated[
-        dict[str, float | _ProcessingPlaceholder] | None,
+        dict[str, float | ProcessingPlaceholder] | None,
         Field(description="Numeric multipliers by column; accepts complete placeholders"),
     ] = None
     split_column: Annotated[
@@ -242,25 +242,25 @@ class TabularProcessing(BaseModel):
             }
             if len(pivot_functions) > 1:
                 raise ValueError("pivot_on requires one aggregation function for all value columns")
-            unsupported_pivot_functions = pivot_functions - _PIVOT_AGGREGATIONS
+            unsupported_pivot_functions = pivot_functions - PIVOT_AGGREGATIONS
             if unsupported_pivot_functions:
                 raise ValueError(
                     "pivot_on does not support aggregation function(s): "
                     + ", ".join(sorted(unsupported_pivot_functions))
-                    + f". Supported pivot aggregations: {', '.join(sorted(_PIVOT_AGGREGATIONS))}."
+                    + f". Supported pivot aggregations: {', '.join(sorted(PIVOT_AGGREGATIONS))}."
                 )
         if self.aggregate_on:
             invalid = {
                 column: function
                 for column, function in self.aggregate_on.items()
                 if PLACEHOLDER_PATTERN.search(function) is None
-                and function.lower() not in _SUPPORTED_AGGREGATIONS
+                and function.lower() not in SUPPORTED_AGGREGATIONS
             }
             if invalid:
                 raise ValueError(
                     "Unsupported aggregation function(s): "
                     + ", ".join(f"{column}={function!r}" for column, function in invalid.items())
-                    + f". Supported functions: {', '.join(sorted(_SUPPORTED_AGGREGATIONS))}."
+                    + f". Supported functions: {', '.join(sorted(SUPPORTED_AGGREGATIONS))}."
                 )
         if self.scale:
             invalid_scales = {

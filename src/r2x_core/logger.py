@@ -18,7 +18,7 @@ import traceback
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 
-from loguru import logger as _loguru_logger
+from loguru import logger as loguru_logger
 
 if TYPE_CHECKING:
     import loguru
@@ -48,7 +48,7 @@ VERBOSITY_DEBUG = 1
 VERBOSITY_TRACE = 2
 DEFAULT_LOG_LEVEL = "WARNING"
 
-_VERBOSITY_TO_LEVEL = {
+VERBOSITY_TO_LEVEL = {
     VERBOSITY_TRACE: "TRACE",
     VERBOSITY_INFO: "INFO",
     VERBOSITY_DEBUG: "DEBUG",
@@ -63,7 +63,7 @@ JSON_LEVEL_NAMES = {
 }
 DEFAULT_TIME_FORMAT = "%Y-%m-%dT%H:%M:%S.{ms}"
 
-_verbosity: int = 0
+current_verbosity: int = 0
 
 
 @lru_cache(maxsize=1)
@@ -114,7 +114,7 @@ def format_tty(record: dict[str, Any]) -> None:
     extras = extract_extras(record)
     console_instance = console()
 
-    show_timestamp = _verbosity >= VERBOSITY_TRACE
+    show_timestamp = current_verbosity >= VERBOSITY_TRACE
     extras_str = "  ".join(f"{k}={v}" for k, v in extras.items()) if extras else ""
 
     rich_printed = False
@@ -214,18 +214,18 @@ def setup_logging(
             "At least one output must be enabled."
         )
 
-    global _verbosity
+    global current_verbosity
 
-    _verbosity = verbosity
+    current_verbosity = verbosity
 
-    _loguru_logger.enable("r2x_core")
+    loguru_logger.enable("r2x_core")
 
-    level = _VERBOSITY_TO_LEVEL.get(verbosity, DEFAULT_LOG_LEVEL)
+    level = VERBOSITY_TO_LEVEL.get(verbosity, DEFAULT_LOG_LEVEL)
 
-    _loguru_logger.remove()
+    loguru_logger.remove()
 
     if log_file:
-        _loguru_logger.add(
+        loguru_logger.add(
             log_file,
             level="TRACE",
             format="[{time:YYYY-MM-DD HH:mm:ss}] [PYTHON] {level} {message}",
@@ -235,7 +235,7 @@ def setup_logging(
         )
 
     if log_to_console:
-        _loguru_logger.add(
+        loguru_logger.add(
             structured_sink,
             level=level,
             backtrace=True,
@@ -245,4 +245,4 @@ def setup_logging(
 
 def get_logger(name: str) -> loguru.Logger:
     """Get a logger for a specific component or plugin."""
-    return _loguru_logger.bind(name=name)
+    return loguru_logger.bind(name=name)

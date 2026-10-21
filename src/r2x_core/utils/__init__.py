@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     )
     from .version import UNKNOWN_VERSION, get_package_version, warn_if_persisted_version_newer_than_installed
 
-_LAZY_IMPORTS: dict[str, str] = {
+LAZY_IMPORTS: dict[str, str] = {
     "UNKNOWN_VERSION": ".version",
     "RuleOutputs": ".rules",
     "UpgradeCoordinator": ".upgrade",
@@ -78,7 +78,7 @@ _LAZY_IMPORTS: dict[str, str] = {
 def __getattr__(name: str) -> object:
     """Lazily import and cache public utility attributes on first access."""
     try:
-        module_path = _LAZY_IMPORTS[name]
+        module_path = LAZY_IMPORTS[name]
     except KeyError:
         msg = f"module {__name__!r} has no attribute {name!r}"
         raise AttributeError(msg) from None

@@ -141,8 +141,8 @@ Display modes affect `repr` formatting:
 ## `HasPerUnit` pattern
 
 `HasPerUnit` is for models that need system-base display in addition to the
-normal `HasUnits` validation/formatting behavior. It adds private system-base
-state used by formatting. Keep ordinary device-base conversion on `HasUnits`.
+normal `HasUnits` validation/formatting behavior. It keeps per-instance
+system-base state out of serialization. Keep device-base conversion on `HasUnits`.
 
 ```python
 from typing import Annotated

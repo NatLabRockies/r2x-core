@@ -118,7 +118,7 @@ def test_build_target_fields_applies_defaults_and_getters(context_example):
         name = "comp_a"
         demand = None
 
-    def area_getter(_src: Any, *, context: Any) -> Result[str, ValueError]:
+    def area_getter(src: Any, *, context: Any) -> Result[str, ValueError]:
         _ = context
         return Ok("north")
 
@@ -205,7 +205,7 @@ def test_build_target_fields_getter_error_without_default(context_example):
     class Source:
         value = "x"
 
-    def faulty_getter(_src: Any, *, context: Any) -> Result[Any, ValueError]:
+    def faulty_getter(src: Any, *, context: Any) -> Result[Any, ValueError]:
         _ = context
         return Err(ValueError("boom"))
 
@@ -358,7 +358,7 @@ def test_build_component_kwargs_optional_missing_and_getter_values(context_examp
     class Source:
         value = "present"
 
-    def none_getter(_source: Any, *, context: Any) -> Result[Any, ValueError]:
+    def none_getter(source: Any, *, context: Any) -> Result[Any, ValueError]:
         _ = context
         return Ok(None)
 
@@ -377,7 +377,7 @@ def test_build_component_kwargs_optional_missing_and_getter_values(context_examp
 def test_build_component_kwargs_getter_error_optional(context_example):
     """Optional output mappings skip getter failures without defaults."""
 
-    def faulty_getter(_source: Any, *, context: Any) -> Result[Any, ValueError]:
+    def faulty_getter(source: Any, *, context: Any) -> Result[Any, ValueError]:
         _ = context
         return Err(ValueError("boom"))
 
@@ -398,7 +398,7 @@ def test_build_target_fields_getter_error_uses_default(context_example):
     class Source:
         value = "x"
 
-    def faulty_getter(_src: Any, *, context: Any) -> Result[Any, ValueError]:
+    def faulty_getter(src: Any, *, context: Any) -> Result[Any, ValueError]:
         _ = context
         return Err(ValueError("boom"))
 
@@ -478,7 +478,7 @@ def test_evaluate_rule_filter_missing_getter_candidate(context_example):
     from r2x_core import RuleFilter
     from r2x_core.utils import evaluate_rule_filter
 
-    def none_getter(_source, *, context):
+    def none_getter(source, *, context):
         _ = context
         return Ok(None)
 
@@ -501,7 +501,7 @@ def test_evaluate_rule_filter_missing_field_requires_field():
     object.__setattr__(filt, "getter", None)
     object.__setattr__(filt, "op", "eq")
     object.__setattr__(filt, "values", ["gas"])
-    object.__setattr__(filt, "_normalized_values", ["gas"])
+    object.__setattr__(filt, "normalized_values", ["gas"])
     with pytest.raises(ValueError, match="field or getter"):
         evaluate_rule_filter(object(), rule_filter=filt)
 
@@ -518,7 +518,7 @@ def test_evaluate_rule_filter_unknown_operation_returns_false():
     object.__setattr__(filt, "getter", None)
     object.__setattr__(filt, "op", "unknown")
     object.__setattr__(filt, "values", ["gas"])
-    object.__setattr__(filt, "_normalized_values", ["gas"])
+    object.__setattr__(filt, "normalized_values", ["gas"])
     object.__setattr__(filt, "casefold", True)
     object.__setattr__(filt, "on_missing", "exclude")
     assert not evaluate_rule_filter(type("Component", (), {"name": "gas"})(), rule_filter=filt)
@@ -584,7 +584,7 @@ def test_evaluate_rule_filter_getter_failure_raises(context_example):
     class Component:
         name = "plant_alpha"
 
-    def faulty_getter(_src, *, context):
+    def faulty_getter(src, *, context):
         _ = context
         return Err(ValueError("boom"))
 
@@ -604,7 +604,7 @@ def test_evaluate_rule_filter_getter_requires_context():
     class Component:
         name = "plant_alpha"
 
-    filt = RuleFilter(getter=lambda _src, *, context: "gas", op="eq", values=["gas"])
+    filt = RuleFilter(getter=lambda src, *, context: "gas", op="eq", values=["gas"])
 
     with pytest.raises(ValueError, match="getter-backed filters require PluginContext"):
         evaluate_rule_filter(Component(), rule_filter=filt)

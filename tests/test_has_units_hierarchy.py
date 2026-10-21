@@ -140,6 +140,20 @@ def test_has_per_units_system_base_can_be_set():
     assert gen.system_base == 150.0
 
 
+def test_system_base_binding_is_instance_local_and_excluded_from_serialization() -> None:
+    first = Generator(name="first", base_power=100.0, rated_voltage=13.8, rating=0.8, voltage=1.0)
+    second = Generator(name="second", base_power=100.0, rated_voltage=13.8, rating=0.8, voltage=1.0)
+    fields = set(first.model_dump())
+
+    first.bind_system_base(150.0)
+
+    assert first.system_base == 150.0
+    assert second.system_base is None
+    assert set(first.model_dump()) == fields
+    assert "system_base" not in first.model_dump_json()
+    assert "system_base" not in Generator.model_json_schema()["properties"]
+
+
 def test_has_per_units_system_base_repr():
     """Test HasPerUnit repr with system base set."""
     set_unit_system(UnitSystem.SYSTEM_BASE)

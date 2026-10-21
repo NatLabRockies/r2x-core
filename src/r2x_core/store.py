@@ -103,24 +103,14 @@ class DataStore:
         else:
             folder_path = resolved_path
 
-        self._reader = reader or DataReader()
-        self._folder = folder_path.resolve()
-        self._cache: dict[str, DataFile] = {}
-        self._upgrade = UpgradeCoordinator()
+        self.reader = reader or DataReader()
+        self.folder = folder_path.resolve()
+        self.data_files: dict[str, DataFile] = {}
+        self.upgrade_coordinator = UpgradeCoordinator()
         logger.debug("Initialized DataStore with folder: {}", self.folder)
 
         if mapping_path is not None:
             self.load_file_mapping(mapping_path)
-
-    @property
-    def folder(self) -> Path:
-        """Return the resolved folder path containing data files."""
-        return self._folder
-
-    @property
-    def reader(self) -> DataReader:
-        """Return the :class:`DataReader` instance."""
-        return self._reader
 
     def __getitem__(self, key: str) -> DataFile:
         """Return a data file by name.
@@ -135,15 +125,15 @@ class DataStore:
         KeyError
             If the data file name is not in the store.
         """
-        if key not in self._cache:
-            available_files = list(self._cache.keys())
+        if key not in self.data_files:
+            available_files = list(self.data_files.keys())
             raise KeyError(f"'{key}' not present in store. Available files: {available_files}")
 
-        return self._cache[key]
+        return self.data_files[key]
 
     def __contains__(self, name: str) -> bool:
         """Check if a :class:`DataFile` exists in the store."""
-        return name in self._cache
+        return name in self.data_files
 
     @classmethod
     def from_data_files(
@@ -253,8 +243,8 @@ class DataStore:
         try:
             store.load_file_mapping(json_fpath)
         except ValidationError as exc:
-            if store._upgrade.should_attempt(exc):
-                store._upgrade.run(store=store, reason="file mapping validation failed")
+            if store.upgrade_coordinator.should_attempt(exc):
+                store.upgrade_coordinator.run(store=store, reason="file mapping validation failed")
                 store.load_file_mapping(json_fpath)
             else:
                 raise
@@ -332,13 +322,13 @@ class DataStore:
         if any(not isinstance(data_file, DataFile) for data_file in data_files):
             raise TypeError
 
-        if any(data_file.name in self._cache for data_file in data_files) and not overwrite:
+        if any(data_file.name in self.data_files for data_file in data_files) and not overwrite:
             msg = "Some data files already exists with the same name. "
             msg += "Pass overwrite=True to replace it."
             raise KeyError(msg)
 
         for data_file in data_files:
-            self._cache[data_file.name] = data_file
+            self.data_files[data_file.name] = data_file
             logger.debug("Added data file '{}' to store", data_file.name)
 
     def list_data(self) -> list[str]:
@@ -349,7 +339,7 @@ class DataStore:
         list[str]
             Sorted list of all data file names.
         """
-        return sorted(self._cache.keys())
+        return sorted(self.data_files.keys())
 
     def read_data(self, name: str, *, placeholders: dict[str, Any] | None = None) -> Any:
         """Load data from a file using the configured :class:`DataReader`.
@@ -371,10 +361,10 @@ class DataStore:
         KeyError
             If the data file name is not in the store.
         """
-        if name not in self._cache:
+        if name not in self.data_files:
             raise KeyError(f"'{name}' not present in store.")
 
-        data_file = self._cache[name]
+        data_file = self.data_files[name]
         try:
             return self.reader.read_data_file(
                 data_file,
@@ -382,10 +372,10 @@ class DataStore:
                 placeholders=placeholders,
             )
         except FileNotFoundError as exc:
-            if not self._upgrade.can_run:
+            if not self.upgrade_coordinator.can_run:
                 raise
             logger.warning("Missing data file; attempting upgrade before retrying: {}", exc)
-            self._upgrade.run(store=self, reason="missing data file during read")
+            self.upgrade_coordinator.run(store=self, reason="missing data file during read")
             return self.reader.read_data_file(
                 data_file,
                 folder_path=self.folder,
@@ -399,11 +389,11 @@ class DataStore:
         upgrade_handler: UpgradeHandler | None = None,
     ) -> None:
         """Configure upgrade handling using plugin config and an optional handler override."""
-        self._upgrade = UpgradeCoordinator(
+        self.upgrade_coordinator = UpgradeCoordinator(
             plugin_config=plugin_config,
             handler=upgrade_handler,
         )
-        self._upgrade.resolve()
+        self.upgrade_coordinator.resolve()
 
     def remove_data(self, *names: str) -> None:
         """Remove one or more data files from the store.
@@ -420,11 +410,11 @@ class DataStore:
             If any data file name is not in the store.
         """
         for name in names:
-            if name not in self._cache:
+            if name not in self.data_files:
                 raise KeyError(f"Data file '{name}' not found in store.")
 
         for name in names:
-            del self._cache[name]
+            del self.data_files[name]
             logger.debug("Removed data file '{}' from store", name)
 
     def to_json(self, fpath: str | Path, **model_dump_kwargs: Any) -> None:
@@ -447,7 +437,7 @@ class DataStore:
                 round_trip=True,
                 **filter_kwargs_for(data_file.model_dump, kwargs=model_dump_kwargs),
             )
-            for data_file in self._cache.values()
+            for data_file in self.data_files.values()
         ]
 
         with open(fpath, "wb") as f:

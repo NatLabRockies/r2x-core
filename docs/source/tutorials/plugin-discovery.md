@@ -37,13 +37,13 @@ class ReEDSParser(Plugin[ReEDSConfig]):
 
     @property
     def config(self) -> ReEDSConfig:
-        return self._ctx.config
+        return self.ctx.config
 
     @property
     def store(self) -> DataStore:  # Non-Optional = required
-        if self._ctx.store is None:
+        if self.ctx.store is None:
             raise RuntimeError("DataStore required")
-        return self._ctx.store
+        return self.ctx.store
 
     def on_validate(self) -> Result[None, Exception]:
         if not self.config.input_folder:

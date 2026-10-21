@@ -69,26 +69,24 @@ class DataReader:
         and tabular backend are loaded only when requested.
         """
         configured_file_readers = () if file_readers is None else tuple(file_readers)
-        self._file_readers: tuple[FileReader[Any], ...] = (
+        self.file_readers: tuple[FileReader[Any], ...] = (
             *configured_file_readers,
             JSONFileReader(),
             XMLFileReader(),
         )
-        self._configured_tabular_backend = tabular_backend
-        self._configured_json_processor = json_processor
+        if tabular_backend is not None:
+            self.tabular_backend = tabular_backend
+        if json_processor is not None:
+            self.json_processor = json_processor
 
     @cached_property
     def tabular_backend(self) -> TabularBackend[Any]:
-        """Return the configured backend or lazily create the default."""
-        if self._configured_tabular_backend is not None:
-            return self._configured_tabular_backend
+        """Lazily create the default backend when none was configured."""
         return default_tabular_backend()
 
     @cached_property
     def json_processor(self) -> JSONProcessor:
-        """Return the configured JSON processor or lazily create the default."""
-        if self._configured_json_processor is not None:
-            return self._configured_json_processor
+        """Lazily create the default JSON processor when none was configured."""
         return default_json_processor()
 
     @cached_property
@@ -109,7 +107,7 @@ class DataReader:
         ImportError
             If a tabular format needs Polars but the optional dependency is absent.
         """
-        for file_reader in self._file_readers:
+        for file_reader in self.file_readers:
             if file_reader.supports_file_type(file_type):
                 return file_reader
 

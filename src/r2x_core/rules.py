@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from functools import cached_property
 from typing import TYPE_CHECKING, Annotated, Any, Literal, Protocol, TypeAlias
 
-from pydantic import BaseModel, Field, PrivateAttr, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from rust_ok import Result
 
 from .types import FilterOperator
@@ -30,7 +31,6 @@ class RuleFilter(BaseModel):
         Literal["include", "exclude"],
         Field(description="Action when a field is missing or has a None value."),
     ] = "exclude"
-    _normalized_values: list[Any] = PrivateAttr(default_factory=list)
 
     @field_validator("getter", mode="before")
     @classmethod
@@ -89,15 +89,15 @@ class RuleFilter(BaseModel):
                 if self.op == "endswith" and any(not isinstance(value, str) for value in self.values):
                     raise ValueError("RuleFilter endswith values must be strings")
 
-            # Precompute casefolded values once so evaluate_rule_filter does not
-            # recompute them per component.
-            normalized = [
-                str(val).casefold() if self.casefold and isinstance(val, str) else val
-                for val in self.values or []
-            ]
-            object.__setattr__(self, "_normalized_values", normalized)
-
         return self
+
+    @cached_property
+    def normalized_values(self) -> list[Any]:
+        """Normalize comparison values once without changing serialized input."""
+        return [
+            value.casefold() if self.casefold and isinstance(value, str) else value
+            for value in self.values or []
+        ]
 
     def matches(self, component: Any, *, context: PluginContext | None = None) -> bool:
         """Evaluate this filter against a component instance."""

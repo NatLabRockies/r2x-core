@@ -133,8 +133,8 @@ class ProvenanceBuilder:
         source_system : System
             The source system being translated from.
         """
-        self._source_system = source_system
-        self._translated_source_uuids: set[UUID] = set()
+        self.source_system = source_system
+        self.translated_source_uuids: set[UUID] = set()
 
     def record_translation(
         self,
@@ -179,7 +179,7 @@ class ProvenanceBuilder:
             # marked by those rules' record_translation calls.
             return
 
-        self._translated_source_uuids.add(source_component.uuid)
+        self.translated_source_uuids.add(source_component.uuid)
 
         provenance = SourceProvenance(
             source_uuid=source_component.uuid,
@@ -219,7 +219,7 @@ class ProvenanceBuilder:
             # need to re-link composed refs by uuid; the executor's normal
             # auto_add_composed_components path already de-duplicates by uuid
             # so this does not corrupt the target's component graph.
-            copy = self._source_system.deepcopy_component(source_component)
+            copy = self.source_system.deepcopy_component(source_component)
             try:
                 target_system.add_component(copy)
             except ISAlreadyAttached as exc:
@@ -260,8 +260,8 @@ class ProvenanceBuilder:
         # "produced by an ancient version" rather than silently accept.
         return ProvenanceInfo(
             r2x_core_version=coerce_version(get_package_version("r2x_core", fallback="0.0.0")),
-            source_system_uuid=self._source_system.uuid,
-            source_system_name=self._source_system.name,
+            source_system_uuid=self.source_system.uuid,
+            source_system_name=self.source_system.name,
         )
 
     def iter_untranslated_source_components(self) -> Iterator[Component]:
@@ -269,8 +269,8 @@ class ProvenanceBuilder:
 
         Call after all rules have been applied.
         """
-        for component in self._source_system.iter_all_components():
-            if component.uuid not in self._translated_source_uuids:
+        for component in self.source_system.iter_all_components():
+            if component.uuid not in self.translated_source_uuids:
                 yield component
 
     def preserve_source_supplemental_attributes(
@@ -296,12 +296,12 @@ class ProvenanceBuilder:
 
         # get_supplemental_attributes() with no type arg yields nothing (infrasys
         # iterates only requested types); pass the base to iterate all subtypes.
-        for source_sa in self._source_system.get_supplemental_attributes(SupplementalAttribute):
+        for source_sa in self.source_system.get_supplemental_attributes(SupplementalAttribute):
             if isinstance(source_sa, SourceProvenance):
                 # Never carry provenance tags across systems; each translation
                 # produces its own provenance for the target.
                 continue
-            source_owners = self._source_system.get_components_with_supplemental_attribute(source_sa)
+            source_owners = self.source_system.get_components_with_supplemental_attribute(source_sa)
             preserved_owner_uuids = [owner.uuid for owner in source_owners if owner.uuid in preserved_uuids]
             if not preserved_owner_uuids:
                 continue

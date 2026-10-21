@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from ..rules import Rule, RuleFilter, RuleGetter, RuleLike
 
 
-_COMPONENT_TYPE_CACHE: dict[tuple[tuple[str, ...], str], type] = {}
+COMPONENT_TYPE_CACHE: dict[tuple[tuple[str, ...], str], type] = {}
 
 
 def resolve_component_type(type_name: str, *, context: PluginContext) -> Result[type, TypeError]:
@@ -38,8 +38,8 @@ def resolve_component_type(type_name: str, *, context: PluginContext) -> Result[
     Searches modules specified in config.models.
     """
     cache_key = (context.config.models, type_name)
-    if cache_key in _COMPONENT_TYPE_CACHE:
-        return Ok(_COMPONENT_TYPE_CACHE[cache_key])
+    if cache_key in COMPONENT_TYPE_CACHE:
+        return Ok(COMPONENT_TYPE_CACHE[cache_key])
 
     modules_to_search: list[str] = list(context.config.models)
 
@@ -48,7 +48,7 @@ def resolve_component_type(type_name: str, *, context: PluginContext) -> Result[
             module = importlib.import_module(module_name)
             component_type = getattr(module, type_name, None)
             if component_type is not None:
-                _COMPONENT_TYPE_CACHE[cache_key] = component_type
+                COMPONENT_TYPE_CACHE[cache_key] = component_type
                 return Ok(component_type)
         except ImportError:
             continue
@@ -274,7 +274,7 @@ def evaluate_rule_filter(
     candidate = (
         str(candidate).casefold() if rule_filter.casefold and isinstance(candidate, str) else candidate
     )
-    values = rule_filter._normalized_values
+    values = rule_filter.normalized_values
 
     if rule_filter.op == "eq":
         return candidate == values[0]

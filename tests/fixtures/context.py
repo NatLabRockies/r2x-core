@@ -13,14 +13,14 @@ FIXTURE_MODEL_MODULES: tuple[str, ...] = (
 )
 
 
-def _build_config() -> PluginConfig:
+def build_config() -> PluginConfig:
     """Create a PluginConfig pointing at fixture component modules."""
     from r2x_core import PluginConfig
 
     return PluginConfig(models=FIXTURE_MODEL_MODULES)
 
 
-def _build_plugin_context(
+def build_plugin_context(
     rules_simple,
     source_system,
     target_system,
@@ -30,7 +30,7 @@ def _build_plugin_context(
     return PluginContext(
         source_system=source_system,
         target_system=target_system,
-        config=_build_config(),
+        config=build_config(),
         rules=rules_simple,
         store=None,
     )
@@ -43,4 +43,4 @@ def context_example(
     target_system,
 ) -> PluginContext:
     """PluginContext with populated systems and fixture rules."""
-    return _build_plugin_context(rules_simple, source_system, target_system)
+    return build_plugin_context(rules_simple, source_system, target_system)

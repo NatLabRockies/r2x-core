@@ -9,7 +9,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Annotated, Any
 
 from loguru import logger
-from pydantic import BaseModel, PrivateAttr, ValidationError
+from pydantic import BaseModel, ValidationError
 from pydantic_core import ErrorDetails
 from rust_ok import Err, Ok, Result
 
@@ -46,7 +46,6 @@ class UpgradeStep(BaseModel):
     priority: int = 100
     min_version: str | None = None
     max_version: str | None = None
-    _sig: inspect.Signature | None = PrivateAttr(None)
 
 
 def shall_we_upgrade(
@@ -88,10 +87,7 @@ def run_upgrade_step(
     cause. Unexpected programming errors propagate to the caller.
     """
     logger.debug("Applying upgrade step: {}", step.name)
-    sig = step._sig
-    if sig is None:
-        sig = inspect.signature(step.func)
-        object.__setattr__(step, "_sig", sig)
+    sig = inspect.signature(step.func)
 
     accepts_context = "upgrader_context" in sig.parameters or any(
         p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()

@@ -70,7 +70,7 @@ if TYPE_CHECKING:
     )
 
 # ── Lazy at runtime ─────────────────────────────────────────────────
-_LAZY_IMPORTS: dict[str, str] = {
+LAZY_IMPORTS: dict[str, str] = {
     "DataFile": ".datafile",
     "FileInfo": ".datafile",
     "JSONProcessing": ".datafile",
@@ -133,7 +133,7 @@ _LAZY_IMPORTS: dict[str, str] = {
 def __getattr__(name: str) -> object:
     """Lazily import and cache public API attributes on first access."""
     try:
-        module_path = _LAZY_IMPORTS[name]
+        module_path = LAZY_IMPORTS[name]
     except KeyError:
         msg = f"module {__name__!r} has no attribute {name!r}"
         raise AttributeError(msg) from None

@@ -104,21 +104,10 @@ class Plugin(ABC, Generic[ConfigT]):
     'MyConfig'
     """
 
-    _ctx: PluginContext[ConfigT]
+    ctx: PluginContext[ConfigT]
 
     def __init__(self) -> None:
         """Parameterless init for simple instantiation."""
-
-    @property
-    def ctx(self) -> PluginContext[ConfigT]:
-        """Access the current plugin context.
-
-        Returns
-        -------
-        PluginContext[ConfigT]
-            The context passed to from_context() or run().
-        """
-        return self._ctx
 
     @property
     def config(self) -> ConfigT:
@@ -129,7 +118,7 @@ class Plugin(ABC, Generic[ConfigT]):
         ConfigT
             The plugin configuration from the context.
         """
-        return self._ctx.config
+        return self.ctx.config
 
     @property
     def store(self) -> DataStore:
@@ -145,9 +134,9 @@ class Plugin(ABC, Generic[ConfigT]):
         PluginError
             If store is not provided in context.
         """
-        if self._ctx.store is None:
+        if self.ctx.store is None:
             raise PluginError("DataStore not provided in context")
-        return self._ctx.store
+        return self.ctx.store
 
     @property
     def system(self) -> System:
@@ -163,9 +152,9 @@ class Plugin(ABC, Generic[ConfigT]):
         PluginError
             If system is not provided in context.
         """
-        if self._ctx.system is None:
+        if self.ctx.system is None:
             raise PluginError("System not provided in context")
-        return self._ctx.system
+        return self.ctx.system
 
     @property
     def source_system(self) -> System:
@@ -181,9 +170,9 @@ class Plugin(ABC, Generic[ConfigT]):
         PluginError
             If source_system is not provided in context.
         """
-        if self._ctx.source_system is None:
+        if self.ctx.source_system is None:
             raise PluginError("Source system not provided in context")
-        return self._ctx.source_system
+        return self.ctx.source_system
 
     @property
     def target_system(self) -> System:
@@ -199,9 +188,9 @@ class Plugin(ABC, Generic[ConfigT]):
         PluginError
             If target_system is not available in context.
         """
-        if self._ctx.target_system is None:
+        if self.ctx.target_system is None:
             raise PluginError("Target system not available")
-        return self._ctx.target_system
+        return self.ctx.target_system
 
     @property
     def metadata(self) -> dict[str, Any]:
@@ -212,7 +201,7 @@ class Plugin(ABC, Generic[ConfigT]):
         dict[str, Any]
             The metadata dictionary from the context.
         """
-        return self._ctx.metadata
+        return self.ctx.metadata
 
     @classmethod
     def from_context(cls, ctx: PluginContext[ConfigT]) -> Plugin[ConfigT]:
@@ -239,7 +228,7 @@ class Plugin(ABC, Generic[ConfigT]):
         >>> plugin = Plugin.from_context(ctx)  # Would instantiate subclass in practice
         """
         instance = cls()
-        instance._ctx = ctx
+        instance.ctx = ctx
         return instance
 
     @classmethod
@@ -338,7 +327,7 @@ class Plugin(ABC, Generic[ConfigT]):
         'test'
         """
         if ctx is not None:
-            self._ctx = ctx
+            self.ctx = ctx
 
         plugin_name = type(self).__name__
         logger.info("Running plugin: {}", plugin_name)
@@ -362,7 +351,7 @@ class Plugin(ABC, Generic[ConfigT]):
 
             # Update context if this hook produces a result
             if hook_spec.context_attribute and isinstance(result, Ok):
-                setattr(self._ctx, hook_spec.context_attribute, result.value)
+                setattr(self.ctx, hook_spec.context_attribute, result.value)
 
         logger.info("Plugin {} completed successfully", plugin_name)
-        return self._ctx
+        return self.ctx

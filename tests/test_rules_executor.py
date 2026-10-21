@@ -29,7 +29,7 @@ from r2x_core.rules_executor import (
 from r2x_core.utils import RuleOutputs
 
 
-def _build_context(
+def build_context(
     *,
     rules: list[Rule],
     source_system: System | None = None,
@@ -64,7 +64,7 @@ def test_apply_rules_rejects_duplicate_rule_names(source_system, target_system):
         name="dup",
     )
 
-    context = _build_context(
+    context = build_context(
         rules=[rule_a, rule_b],
         source_system=source_system,
         target_system=target_system,
@@ -84,7 +84,7 @@ def test_apply_rules_detects_missing_dependency(source_system, target_system):
         name="dependent",
         depends_on=["missing"],
     )
-    context = _build_context(
+    context = build_context(
         rules=[dependent],
         source_system=source_system,
         target_system=target_system,
@@ -121,7 +121,7 @@ def test_apply_single_rule_missing_source_attribute(source_system, target_system
         version=1,
         field_map={"unknown": "missing_attribute"},
     )
-    context = _build_context(
+    context = build_context(
         rules=[rule],
         source_system=source_system,
         target_system=target_system,
@@ -148,7 +148,7 @@ def test_apply_single_rule_getter_filter_uses_context(source_system, target_syst
         field_map={"name": "name", "uuid": "uuid"},
         filter=RuleFilter(getter=selected_fuel_type, op="eq", values=["gas"]),
     )
-    context = _build_context(
+    context = build_context(
         rules=[rule],
         source_system=source_system,
         target_system=target_system,
@@ -163,7 +163,7 @@ def test_apply_single_rule_getter_filter_failure(source_system, target_system):
     """Getter failures bubble out as rule failures instead of matches."""
     from rust_ok import Err
 
-    def faulty_filter(_src, *, context):
+    def faulty_filter(src, *, context):
         _ = context
         return Err(ValueError("boom"))
 
@@ -174,7 +174,7 @@ def test_apply_single_rule_getter_filter_failure(source_system, target_system):
         field_map={"name": "name", "uuid": "uuid"},
         filter=RuleFilter(getter=faulty_filter, op="eq", values=["gas"]),
     )
-    context = _build_context(
+    context = build_context(
         rules=[rule],
         source_system=source_system,
         target_system=target_system,
@@ -212,7 +212,7 @@ def test_apply_single_rule_reports_missing_primary_target_type(source_system, ta
     )
     result = apply_single_rule(
         rule,
-        context=_build_context(rules=[rule], source_system=source_system, target_system=target_system),
+        context=build_context(rules=[rule], source_system=source_system, target_system=target_system),
     )
     assert result.is_err()
     assert "MissingTarget" in str(result.err())
@@ -240,7 +240,7 @@ def test_apply_single_rule_requires_selected_system(source_system):
 def test_apply_single_rule_requires_source_types(source_system, target_system):
     """Rules without source types return a configuration error."""
     rule = Rule(source_type=[], target_type="NodeComponent", version=1)
-    context = _build_context(rules=[rule], source_system=source_system, target_system=target_system)
+    context = build_context(rules=[rule], source_system=source_system, target_system=target_system)
 
     result = apply_single_rule(rule, context=context)
 
@@ -264,7 +264,7 @@ def test_apply_single_rule_rejects_supplemental_primary_target(context_example):
 def test_attach_rule_outputs_rejects_supplemental_primary(source_system):
     """Supplemental outputs require a primary component."""
     target_system = System(name="executor-target")
-    context = _build_context(
+    context = build_context(
         rules=[],
         source_system=source_system,
         target_system=target_system,
@@ -318,7 +318,7 @@ def test_attach_rule_outputs_preserves_existing_component_on_uuid_conflict(sourc
     target_system = System(name="executor-target")
     existing = BusComponent(name="existing")
     target_system.add_component(existing)
-    context = _build_context(
+    context = build_context(
         rules=[],
         source_system=source_system,
         target_system=target_system,
@@ -346,7 +346,7 @@ def test_attach_rule_outputs_rolls_back_after_supplemental_rejection(source_syst
             raise ValueError("attachment failed")
 
     target_system = System(name="executor-target")
-    context = _build_context(
+    context = build_context(
         rules=[],
         source_system=source_system,
         target_system=target_system,
@@ -387,7 +387,7 @@ def test_attach_rule_outputs_requires_target_system(source_system):
 def test_attach_rule_outputs_rejects_supplemental_without_target_owner(source_system):
     """A supplemental attribute fails when its owner is absent from the target system."""
     target_system = System(name="executor-target")
-    context = _build_context(
+    context = build_context(
         rules=[],
         source_system=source_system,
         target_system=target_system,

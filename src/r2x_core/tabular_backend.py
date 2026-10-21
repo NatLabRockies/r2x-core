@@ -13,30 +13,30 @@ from .datafile import DataFile, TabularProcessing
 from .models import MappingStep
 from .types import FrameT
 
-_HandlerOptionsT = TypeVar("_HandlerOptionsT", bound=BaseModel)
-_HandlerInputT = TypeVar("_HandlerInputT")
-_HandlerOutputT = TypeVar("_HandlerOutputT")
+HandlerOptionsT = TypeVar("HandlerOptionsT", bound=BaseModel)
+HandlerInputT = TypeVar("HandlerInputT")
+HandlerOutputT = TypeVar("HandlerOutputT")
 
 
-class MappingStepHandler(Protocol[_HandlerOptionsT, _HandlerInputT, _HandlerOutputT]):
+class MappingStepHandler(Protocol[HandlerOptionsT, HandlerInputT, HandlerOutputT]):
     """App-scoped handler contract for a custom mapping operation."""
 
     @property
-    def options_model(self) -> type[_HandlerOptionsT]:
+    def options_model(self) -> type[HandlerOptionsT]:
         """Return the Pydantic model used to validate handler options."""
         ...
 
     @property
-    def input_type(self) -> type[_HandlerInputT]:
+    def input_type(self) -> type[HandlerInputT]:
         """Declare the input type checked before handler execution."""
         ...
 
     @property
-    def output_type(self) -> type[_HandlerOutputT]:
+    def output_type(self) -> type[HandlerOutputT]:
         """Declare the output type checked after handler execution."""
         ...
 
-    def apply(self, value: _HandlerInputT, *, options: _HandlerOptionsT) -> _HandlerOutputT:
+    def apply(self, value: HandlerInputT, *, options: HandlerOptionsT) -> HandlerOutputT:
         """Consume an input value and return its declared output type."""
         ...
 

@@ -45,7 +45,7 @@ class BusGeographicInfo(SupplementalAttribute):
     location_name: str = Field(default="", description="Location name")
 
 
-def _attach_bus_time_series(system: System, bus: BusComponent) -> None:
+def attach_bus_time_series(system: System, bus: BusComponent) -> None:
     """Attach deterministic time series data for translation tests."""
     load_profile = SingleTimeSeries.from_array(
         data=np.array([100.0, 105.0, 110.0, 108.0], dtype=float),
@@ -83,7 +83,7 @@ def build_source_system() -> System:
     )
 
     system.add_components(bus_component, line_component, plant_component)
-    _attach_bus_time_series(system, bus_component)
+    attach_bus_time_series(system, bus_component)
     return system
 
 

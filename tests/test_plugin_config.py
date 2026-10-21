@@ -24,7 +24,7 @@ class SampleConfig(PluginConfig):
     param2: int = 42
 
 
-def _write_assets(tmp_path: Path, payloads: dict[str, object]) -> None:
+def write_assets(tmp_path: Path, payloads: dict[str, object]) -> None:
     for asset, payload in payloads.items():
         (tmp_path / asset).write_text(json.dumps(payload))
 
@@ -130,7 +130,7 @@ def test_load_config_reads_all_assets(tmp_path):
         PARSER_RULES: [{"step": "parse"}],
         TRANSLATION_RULES: [{"rule": "map"}],
     }
-    _write_assets(tmp_path, payloads)
+    write_assets(tmp_path, payloads)
 
     config = SampleConfig(param1="test")
     result = config.load_config(config_path=tmp_path)
@@ -146,7 +146,7 @@ def test_load_config_respects_overrides(tmp_path):
         PARSER_RULES: [],
         TRANSLATION_RULES: [],
     }
-    _write_assets(tmp_path, payloads)
+    write_assets(tmp_path, payloads)
 
     overrides = {
         "defaults": {"value": 2, "items": ["c"]},

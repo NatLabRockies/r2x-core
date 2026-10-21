@@ -89,7 +89,7 @@ def test_format_tty_basic(capsys):
     """Test TTY formatting basic output."""
     import r2x_core.logger as logger_module
 
-    logger_module._verbosity = 0
+    logger_module.current_verbosity = 0
 
     level_mock = mock.Mock()
     level_mock.name = "INFO"
@@ -110,7 +110,7 @@ def test_format_tty_with_timestamp(capsys):
     """Test TTY formatting with timestamp when verbosity >= 2."""
     import r2x_core.logger as logger_module
 
-    logger_module._verbosity = VERBOSITY_TRACE
+    logger_module.current_verbosity = VERBOSITY_TRACE
 
     level_mock = mock.Mock()
     level_mock.name = "DEBUG"
@@ -132,7 +132,7 @@ def test_format_tty_with_extras(capsys):
     """Test TTY formatting with extra fields."""
     import r2x_core.logger as logger_module
 
-    logger_module._verbosity = 0
+    logger_module.current_verbosity = 0
 
     level_mock = mock.Mock()
     level_mock.name = "WARNING"
@@ -348,7 +348,7 @@ def test_format_tty_with_rich_text_output(capsys):
     """Test TTY formatting produces rich text output when Rich is available."""
     import r2x_core.logger as logger_module
 
-    logger_module._verbosity = 0
+    logger_module.current_verbosity = 0
     console.cache_clear()
 
     level_mock = mock.Mock()
@@ -371,7 +371,7 @@ def test_format_tty_fallback_no_rich(monkeypatch, capsys):
     """Test TTY formatting fallback when Rich is not available."""
     import r2x_core.logger as logger_module
 
-    logger_module._verbosity = 0
+    logger_module.current_verbosity = 0
     console.cache_clear()
     monkeypatch.setattr("r2x_core.logger.console", lambda: None)
 
@@ -415,7 +415,7 @@ def test_structured_sink_tty_mode(monkeypatch, capsys):
     import r2x_core.logger as logger_module
 
     monkeypatch.setattr(sys.stderr, "isatty", lambda: True)
-    logger_module._verbosity = 0
+    logger_module.current_verbosity = 0
     console.cache_clear()
     monkeypatch.setattr("r2x_core.logger.console", lambda: None)
 
@@ -444,7 +444,7 @@ def test_setup_logging_with_verbosity_trace():
     import r2x_core.logger as logger_module
 
     setup_logging(verbosity=VERBOSITY_TRACE)
-    assert logger_module._verbosity == VERBOSITY_TRACE
+    assert logger_module.current_verbosity == VERBOSITY_TRACE
 
 
 def test_setup_logging_with_verbosity_info():
@@ -452,7 +452,7 @@ def test_setup_logging_with_verbosity_info():
     import r2x_core.logger as logger_module
 
     setup_logging(verbosity=VERBOSITY_INFO)
-    assert logger_module._verbosity == VERBOSITY_INFO
+    assert logger_module.current_verbosity == VERBOSITY_INFO
 
 
 def test_setup_logging_default_verbosity():
@@ -460,14 +460,14 @@ def test_setup_logging_default_verbosity():
     import r2x_core.logger as logger_module
 
     setup_logging(verbosity=0)
-    assert logger_module._verbosity == 0
+    assert logger_module.current_verbosity == 0
 
 
 def test_format_tty_fallback_with_timestamp_and_extras(monkeypatch, capsys):
     """Test fallback TTY formatting with both timestamp and extras."""
     import r2x_core.logger as logger_module
 
-    logger_module._verbosity = VERBOSITY_TRACE
+    logger_module.current_verbosity = VERBOSITY_TRACE
     console.cache_clear()
     monkeypatch.setattr("r2x_core.logger.console", lambda: None)
 
@@ -494,7 +494,7 @@ def test_format_tty_fallback_only_extras(monkeypatch, capsys):
     """Test fallback TTY formatting with extras but no timestamp."""
     import r2x_core.logger as logger_module
 
-    logger_module._verbosity = 0
+    logger_module.current_verbosity = 0
     console.cache_clear()
     monkeypatch.setattr("r2x_core.logger.console", lambda: None)
 
@@ -606,7 +606,7 @@ def test_setup_logging_without_log_file():
     import r2x_core.logger as logger_module
 
     setup_logging(verbosity=VERBOSITY_INFO)
-    assert logger_module._verbosity == VERBOSITY_INFO
+    assert logger_module.current_verbosity == VERBOSITY_INFO
 
 
 def test_setup_logging_log_to_console_false_no_stderr(tmp_path, capsys):

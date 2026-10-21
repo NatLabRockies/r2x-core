@@ -25,7 +25,7 @@ def test_supplemental_attribute_rule_accepts_callable_getter():
     output = SupplementalAttributeRule(
         target_type="Output",
         field_map={"value": ["first", "second"]},
-        getters={"value": lambda _source, *, context: None},
+        getters={"value": lambda source, *, context: None},
     )
     assert output.target_type == "Output"
 
@@ -64,7 +64,7 @@ def test_validation_with_multiple_multifield_mappings():
 
     from r2x_core import Rule
 
-    def field_getter(_src: object, *, context: object) -> Result[int, ValueError]:
+    def field_getter(src: object, *, context: object) -> Result[int, ValueError]:
         _ = context
         return Ok(0)
 
@@ -162,7 +162,7 @@ def test_rule_from_records_processes_string_getters_and_filters():
     if filter_getter_name not in GETTER_REGISTRY:
 
         @getter(name=filter_getter_name)
-        def rule_filter_record_getter(_src, *, context):
+        def rule_filter_record_getter(src, *, context):
             _ = context
             return Ok("ok")
 

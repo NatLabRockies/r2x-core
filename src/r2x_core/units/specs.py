@@ -185,7 +185,7 @@ class UnitSpec:
     @classmethod
     def __get_pydantic_json_schema__(
         cls,
-        _core_schema: core_schema.CoreSchema,
+        schema: core_schema.CoreSchema,
         handler: GetJsonSchemaHandler,
     ) -> JsonSchemaValue:
         """Generate a numeric JSON Schema for unit-annotated fields."""

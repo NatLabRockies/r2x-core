@@ -40,7 +40,7 @@ class UnitSystem(str, Enum):
     NATURAL_UNITS = "NATURAL_UNITS"
 
 
-_current_unit_system: UnitSystem = UnitSystem.DEVICE_BASE
+current_unit_system: UnitSystem = UnitSystem.DEVICE_BASE
 
 
 def get_unit_system() -> UnitSystem:
@@ -51,7 +51,7 @@ def get_unit_system() -> UnitSystem:
     UnitSystem
         Current display mode
     """
-    return _current_unit_system
+    return current_unit_system
 
 
 def set_unit_system(unit_system: UnitSystem) -> None:
@@ -62,8 +62,8 @@ def set_unit_system(unit_system: UnitSystem) -> None:
     unit_system : UnitSystem
         Display mode to set
     """
-    global _current_unit_system
-    _current_unit_system = unit_system
+    global current_unit_system
+    current_unit_system = unit_system
 
 
 @contextmanager

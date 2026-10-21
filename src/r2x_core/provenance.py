@@ -80,8 +80,10 @@ def coerce_version(value: Any) -> Version:
         try:
             return Version(value)
         except InvalidVersion as exc:
-            raise ValueError(f"{value!r} is not a valid PEP 440 version") from exc
-    raise TypeError(f"expected str or packaging.version.Version, got {type(value).__name__}")
+            msg = f"{value!r} is not a valid PEP 440 version"
+            raise ValueError(msg) from exc
+    msg = f"expected str or packaging.version.Version, got {type(value).__name__}"
+    raise TypeError(msg)
 
 
 VersionField = Annotated[Version, BeforeValidator(coerce_version)]
@@ -226,14 +228,14 @@ class ProvenanceBuilder:
                 # Infrasys owns the canonical UUID uniqueness check. Keep the
                 # preserve-source-specific message while avoiding a duplicate
                 # preflight lookup for every preserved component.
-                message = (
+                msg = (
                     f"Cannot preserve source component {source_component.label} "
                     f"(UUID={source_component.uuid}): target system already contains a "
                     f"component with that UUID. Target systems used with "
                     f"preserve_source=True should not be pre-populated with components "
                     f"that share UUIDs with untranslated source components."
                 )
-                raise ISAlreadyAttached(message) from exc
+                raise ISAlreadyAttached(msg) from exc
             provenance = SourceProvenance(
                 source_uuid=source_component.uuid,
                 preserved=True,

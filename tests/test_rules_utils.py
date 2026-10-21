@@ -74,7 +74,8 @@ def test_resolve_component_type_skips_import_errors(monkeypatch, context_example
 
     def import_module(module_name):
         if module_name == "missing.module":
-            raise ImportError("module unavailable")
+            msg = "module unavailable"
+            raise ImportError(msg)
         return original_import_module(module_name)
 
     monkeypatch.setattr(rules_utils.importlib, "import_module", import_module)

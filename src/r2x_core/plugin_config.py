@@ -125,7 +125,8 @@ class PluginConfig(BaseModel):
             return (value,)
         if isinstance(value, list | tuple | set):
             return tuple(value)
-        raise TypeError("models must be a string or iterable of strings")
+        msg = "models must be a string or iterable of strings"
+        raise TypeError(msg)
 
     @property
     def config_path(self) -> Path:

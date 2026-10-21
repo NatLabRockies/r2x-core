@@ -249,23 +249,27 @@ def evaluate_rule_filter(
         )
 
     if rule_filter.op is None or rule_filter.values is None:
-        raise ValueError("RuleFilter must have field, op, and values for leaf filters")
+        msg = "RuleFilter must have field, op, and values for leaf filters"
+        raise ValueError(msg)
 
     candidate: Any
     if rule_filter.getter is not None:
         if context is None:
-            raise ValueError("RuleFilter getter-backed filters require PluginContext")
+            msg = "RuleFilter getter-backed filters require PluginContext"
+            raise ValueError(msg)
         result = rule_filter.getter(component, context=context)
         match result:
             case Ok(value):
                 candidate = value
             case Err(e):
-                raise ValueError(f"Getter for RuleFilter failed: {e}")
+                msg = f"Getter for RuleFilter failed: {e}"
+                raise ValueError(msg)
         if candidate is None:
             return rule_filter.on_missing == "include"
     else:
         if rule_filter.field is None:
-            raise ValueError("RuleFilter must have field or getter for leaf filters")
+            msg = "RuleFilter must have field or getter for leaf filters"
+            raise ValueError(msg)
         attr = getattr(component, rule_filter.field, None)
         if attr is None:
             return rule_filter.on_missing == "include"

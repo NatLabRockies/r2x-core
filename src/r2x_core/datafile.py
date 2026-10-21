@@ -125,9 +125,11 @@ class SplitColumnSpec(BaseModel):
     def validate_output_columns(self) -> "SplitColumnSpec":
         """Require distinct, non-empty output column names."""
         if any(not name.strip() for name in self.into):
-            raise ValueError("split_column output names cannot be empty")
+            msg = "split_column output names cannot be empty"
+            raise ValueError(msg)
         if len(set(self.into)) != len(self.into):
-            raise ValueError("split_column output names must be unique")
+            msg = "split_column output names must be unique"
+            raise ValueError(msg)
         return self
 
 
@@ -224,16 +226,21 @@ class TabularProcessing(BaseModel):
     def validate_operations(self) -> "TabularProcessing":
         """Reject ambiguous operation combinations and invalid options."""
         if self.pivot_on and self.unpivot_on:
-            raise ValueError("pivot_on and unpivot_on are mutually exclusive")
+            msg = "pivot_on and unpivot_on are mutually exclusive"
+            raise ValueError(msg)
         if self.group_by and not self.aggregate_on:
-            raise ValueError("group_by requires aggregate_on")
+            msg = "group_by requires aggregate_on"
+            raise ValueError(msg)
         if self.pivot_on and self.pivot_on in (self.group_by or ()):
-            raise ValueError("pivot_on cannot also be a group_by column")
+            msg = "pivot_on cannot also be a group_by column"
+            raise ValueError(msg)
         if self.pivot_on and self.pivot_on in (self.aggregate_on or ()):
-            raise ValueError("pivot_on cannot also be an aggregate_on column")
+            msg = "pivot_on cannot also be an aggregate_on column"
+            raise ValueError(msg)
         if self.aggregate_on and set(self.group_by or ()) & set(self.aggregate_on):
             overlapping = sorted(set(self.group_by or ()) & set(self.aggregate_on))
-            raise ValueError(f"aggregate_on cannot aggregate group_by column(s): {overlapping}")
+            msg = f"aggregate_on cannot aggregate group_by column(s): {overlapping}"
+            raise ValueError(msg)
         if self.pivot_on and self.aggregate_on:
             pivot_functions = {
                 function.lower()
@@ -241,14 +248,16 @@ class TabularProcessing(BaseModel):
                 if PLACEHOLDER_PATTERN.search(function) is None
             }
             if len(pivot_functions) > 1:
-                raise ValueError("pivot_on requires one aggregation function for all value columns")
+                msg = "pivot_on requires one aggregation function for all value columns"
+                raise ValueError(msg)
             unsupported_pivot_functions = pivot_functions - PIVOT_AGGREGATIONS
             if unsupported_pivot_functions:
-                raise ValueError(
+                msg = (
                     "pivot_on does not support aggregation function(s): "
                     + ", ".join(sorted(unsupported_pivot_functions))
                     + f". Supported pivot aggregations: {', '.join(sorted(PIVOT_AGGREGATIONS))}."
                 )
+                raise ValueError(msg)
         if self.aggregate_on:
             invalid = {
                 column: function
@@ -257,11 +266,12 @@ class TabularProcessing(BaseModel):
                 and function.lower() not in SUPPORTED_AGGREGATIONS
             }
             if invalid:
-                raise ValueError(
+                msg = (
                     "Unsupported aggregation function(s): "
                     + ", ".join(f"{column}={function!r}" for column, function in invalid.items())
                     + f". Supported functions: {', '.join(sorted(SUPPORTED_AGGREGATIONS))}."
                 )
+                raise ValueError(msg)
         if self.scale:
             invalid_scales = {
                 column: factor
@@ -269,7 +279,8 @@ class TabularProcessing(BaseModel):
                 if not isinstance(factor, str) and not math.isfinite(factor)
             }
             if invalid_scales:
-                raise ValueError(f"scale values must be finite numbers: {invalid_scales}")
+                msg = f"scale values must be finite numbers: {invalid_scales}"
+                raise ValueError(msg)
         if self.strip_chars:
             invalid_characters = {
                 column: values
@@ -277,7 +288,8 @@ class TabularProcessing(BaseModel):
                 if any(not value for value in values)
             }
             if invalid_characters:
-                raise ValueError(f"strip_chars values must be non-empty strings: {invalid_characters}")
+                msg = f"strip_chars values must be non-empty strings: {invalid_characters}"
+                raise ValueError(msg)
         if self.sort_by:
             invalid_directions = {
                 column: direction
@@ -286,11 +298,12 @@ class TabularProcessing(BaseModel):
                 and direction.lower() not in {"asc", "ascending", "desc", "descending"}
             }
             if invalid_directions:
-                raise ValueError(
+                msg = (
                     "Unsupported sort direction(s): "
                     + ", ".join(f"{column}={direction!r}" for column, direction in invalid_directions.items())
                     + ". Use asc, ascending, desc, or descending."
                 )
+                raise ValueError(msg)
         return self
 
 
@@ -450,14 +463,15 @@ class DataFile(BaseModel):
         file_type = self.file_type
         if isinstance(file_type, TableDataFormat):
             if not isinstance(self.proc_spec, TabularProcessing):
-                raise ValueError(
-                    f"Tabular files require TabularProcessing, got {type(self.proc_spec).__name__}."
-                )
+                msg = f"Tabular files require TabularProcessing, got {type(self.proc_spec).__name__}."
+                raise ValueError(msg)
         elif isinstance(file_type, JSONFormat):
             if not isinstance(self.proc_spec, JSONProcessing):
-                raise ValueError(f"JSON files require JSONProcessing, got {type(self.proc_spec).__name__}.")
+                msg = f"JSON files require JSONProcessing, got {type(self.proc_spec).__name__}."
+                raise ValueError(msg)
         else:
-            raise ValueError(f"{type(file_type).__name__} files do not support processing specifications.")
+            msg = f"{type(file_type).__name__} files do not support processing specifications."
+            raise ValueError(msg)
         return self
 
     @computed_field
@@ -497,9 +511,8 @@ class DataFile(BaseModel):
             field for field in ("fpath", "relative_fpath", "glob") if record_copy.get(field) is not None
         ]
         if len(path_fields) != 1:
-            raise ValueError(
-                "Each data file record must define exactly one of fpath, relative_fpath, or glob"
-            )
+            msg = "Each data file record must define exactly one of fpath, relative_fpath, or glob"
+            raise ValueError(msg)
 
         path_field = path_fields[0]
         if path_field == "glob":

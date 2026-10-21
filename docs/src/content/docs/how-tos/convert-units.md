@@ -86,9 +86,11 @@ does not divide them by the base again:
 ```
 
 `System.to_json()` uses the same representation for component fields. Keep the
-marker when storing or transferring serialized data. Bare structured mappings
-are always natural-unit input, not a format for saved internal values. Optional
-structured fields preserve `None`.
+marker when storing or transferring serialized data. The shape
+`{"value": <mapping>, "unit": "pu"}` is reserved for stored internal values.
+A natural structured mapping with scalar `value` and `unit` fields is input data,
+not an envelope. Bare structured mappings are always natural-unit input, not a
+format for saved internal values. Optional structured fields preserve `None`.
 
 ## Switch Display Modes
 

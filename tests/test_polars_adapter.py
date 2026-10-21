@@ -1,6 +1,8 @@
 """Public behavior tests for the Polars expression adapter."""
 
+import json
 from datetime import datetime
+from enum import StrEnum
 from pathlib import Path
 
 import polars as pl
@@ -9,9 +11,62 @@ from pydantic import BaseModel, TypeAdapter, ValidationError
 from rust_ok import Err, Ok
 
 from r2x_core.datafile import DataFile, TabularProcessing
-from r2x_core.models import MappingStep, SelectStep
+from r2x_core.models import ExpressionOperation, LiteralExpression, MappingStep, SelectStep
 from r2x_core.polars_adapter import PolarsTabularBackend, compile_polars_expression
 from r2x_core.tabular_backend import apply_mapping_steps
+from r2x_core.types import MappingExpressionOperator
+
+
+@pytest.mark.parametrize("json_input", [False, True])
+def test_expression_operators_are_enums_with_string_json_values(json_input: bool) -> None:
+    payload = {
+        "op": "divide",
+        "args": [{"op": "sum", "args": [{"column": "load"}]}, {"literal": 2}],
+    }
+    expression = (
+        ExpressionOperation.model_validate_json(json.dumps(payload))
+        if json_input
+        else ExpressionOperation.model_validate(payload)
+    )
+
+    assert isinstance(expression.op, StrEnum)
+    assert expression.op is MappingExpressionOperator.DIVIDE
+    assert isinstance(expression.args[0], ExpressionOperation)
+    assert expression.args[0].op is MappingExpressionOperator.SUM
+    assert expression.model_dump(mode="json") == payload
+    assert json.loads(expression.model_dump_json()) == payload
+    assert ExpressionOperation.model_validate_json(expression.model_dump_json()) == expression
+
+
+def test_enum_expression_operators_compile_to_polars() -> None:
+    expression = ExpressionOperation(
+        op=MappingExpressionOperator.DIVIDE,
+        args=[LiteralExpression(literal=12), LiteralExpression(literal=3)],
+    )
+
+    result = pl.select(compile_polars_expression(expression, column_names=[]))
+
+    assert result.item() == 4.0
+
+
+@pytest.mark.parametrize("operator", ["unknown", "DIVIDE", ""])
+def test_expression_schema_rejects_unknown_operators(operator: str) -> None:
+    with pytest.raises(ValidationError):
+        ExpressionOperation.model_validate({"op": operator, "args": [{"literal": 12}, {"literal": 3}]})
+
+
+@pytest.mark.parametrize(
+    "operator",
+    [
+        MappingExpressionOperator.DIVIDE,
+        MappingExpressionOperator.CAST,
+        MappingExpressionOperator.LIST_GET,
+        MappingExpressionOperator.SPLIT,
+    ],
+)
+def test_binary_expression_operators_require_two_arguments(operator: MappingExpressionOperator) -> None:
+    with pytest.raises(ValidationError, match=f"{operator.value} expects exactly two arguments"):
+        ExpressionOperation(op=operator, args=[LiteralExpression(literal=1)])
 
 
 @pytest.mark.parametrize(
@@ -185,10 +240,47 @@ def test_mapping_expressions_compile_to_polars_results(
         }
     ).lazy()
     select = SelectStep.model_validate({"op": "select", "columns": {"result": expression}})
-    compiled = compile_polars_expression(select.columns["result"])
+    compiled = compile_polars_expression(
+        select.columns["result"], column_names=frame.collect_schema().names()
+    )
     actual = frame.select(compiled.alias("result")).collect().get_column("result").to_list()
 
     assert actual == expected
+
+
+def test_mapping_steps_preserve_regex_shaped_column_names() -> None:
+    frame = pl.LazyFrame({"load": [10.0], "^load$": [99.0], "*": [7]})
+    steps = TypeAdapter(list[MappingStep]).validate_python(
+        [
+            {
+                "op": "select",
+                "columns": {
+                    "regex_name": {"column": "^load$"},
+                    "wildcard_name": {"column": "*"},
+                    "doubled": {"op": "multiply", "args": [{"column": "^load$"}, {"literal": 2}]},
+                },
+            }
+        ]
+    )
+
+    result = apply_mapping_steps(frame, steps, backend=PolarsTabularBackend())
+
+    assert result.unwrap().collect().to_dicts() == [
+        {"regex_name": 99.0, "wildcard_name": 7, "doubled": 198.0}
+    ]
+
+
+@pytest.mark.parametrize("column_name", ["missing", "^load$", "*"])
+def test_mapping_steps_fail_for_missing_exact_column_name(column_name: str) -> None:
+    frame = pl.LazyFrame({"load": [10.0]})
+    steps = TypeAdapter(list[MappingStep]).validate_python(
+        [{"op": "select", "columns": {"result": {"column": column_name}}}]
+    )
+
+    result = apply_mapping_steps(frame, steps, backend=PolarsTabularBackend())
+
+    assert isinstance(result, Err)
+    assert f"Column {column_name!r} not found" in str(result.err())
 
 
 def test_mapping_steps_preserve_exact_column_names() -> None:

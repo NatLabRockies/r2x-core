@@ -35,5 +35,5 @@ def test_sort_step_includes_direction() -> None:
 
 @pytest.mark.xfail(strict=True, reason="parity item 4: add replace-values expression or step")
 def test_mapping_steps_include_replace_values() -> None:
-    operations = mapping_step_operations() | {str(op) for op in get_args(MappingExpressionOperator)}
+    operations = mapping_step_operations() | {op.value for op in MappingExpressionOperator}
     assert {"replace", "replace_values"} & operations

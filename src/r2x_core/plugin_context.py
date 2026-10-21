@@ -276,7 +276,8 @@ class PluginContext(Generic[ConfigT]):
             ):
                 return rule
 
-        raise KeyError(f"No rule found for {source_type} → {target_type} (v{version})")
+        msg = f"No rule found for {source_type} → {target_type} (v{version})"
+        raise KeyError(msg)
 
     def list_available_conversions(self) -> dict[str, list[ConversionOption]]:
         """List available conversions by source type.

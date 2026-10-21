@@ -36,33 +36,56 @@ class ExpressionOperation(StrictConfigModel):
     @model_validator(mode="after")
     def validate_arguments(self) -> ExpressionOperation:
         """Reject argument shapes that violate the mapping expression contract."""
-        binary_operations = {"divide", "eq", "gt", "le", "multiply", "subtract"}
-        unary_operations = {"is_null", "list_sort", "lowercase", "max", "mean", "strip_chars", "sum", "year"}
+        binary_operations = {
+            MappingExpressionOperator.CAST,
+            MappingExpressionOperator.DIVIDE,
+            MappingExpressionOperator.EQ,
+            MappingExpressionOperator.GT,
+            MappingExpressionOperator.LE,
+            MappingExpressionOperator.LIST_GET,
+            MappingExpressionOperator.MULTIPLY,
+            MappingExpressionOperator.SPLIT,
+            MappingExpressionOperator.SUBTRACT,
+        }
+        unary_operations = {
+            MappingExpressionOperator.IS_NULL,
+            MappingExpressionOperator.LIST_SORT,
+            MappingExpressionOperator.LOWERCASE,
+            MappingExpressionOperator.MAX,
+            MappingExpressionOperator.MEAN,
+            MappingExpressionOperator.STRIP_CHARS,
+            MappingExpressionOperator.SUM,
+            MappingExpressionOperator.YEAR,
+        }
 
         if self.op in binary_operations and len(self.args) != 2:
-            raise ValueError(f"{self.op} expects exactly two arguments")
+            msg = f"{self.op} expects exactly two arguments"
+            raise ValueError(msg)
         if self.op in unary_operations and len(self.args) != 1:
-            raise ValueError(f"{self.op} expects exactly one argument")
-        if self.op == "when" and len(self.args) != 3:
-            raise ValueError("when expects a predicate, a true value, and a false value")
-        if self.op == "datetime" and not 3 <= len(self.args) <= 7:
-            raise ValueError("datetime expects year, month, day, and up to four optional time fields")
-        if self.op in {"cast", "list_get", "split"} and len(self.args) != 2:
-            raise ValueError(f"{self.op} expects exactly two arguments")
+            msg = f"{self.op} expects exactly one argument"
+            raise ValueError(msg)
+        if self.op is MappingExpressionOperator.WHEN and len(self.args) != 3:
+            msg = "when expects a predicate, a true value, and a false value"
+            raise ValueError(msg)
+        if self.op is MappingExpressionOperator.DATETIME and not 3 <= len(self.args) <= 7:
+            msg = "datetime expects year, month, day, and up to four optional time fields"
+            raise ValueError(msg)
 
-        if self.op in {"cast", "split"}:
+        if self.op in {MappingExpressionOperator.CAST, MappingExpressionOperator.SPLIT}:
             argument = self.args[1]
             if not isinstance(argument, LiteralExpression) or not isinstance(argument.literal, str):
-                label = "type name" if self.op == "cast" else "separator"
-                raise ValueError(f"{self.op} requires a literal string {label} as its second argument")
-        if self.op == "list_get":
+                label = "type name" if self.op is MappingExpressionOperator.CAST else "separator"
+                msg = f"{self.op} requires a literal string {label} as its second argument"
+                raise ValueError(msg)
+        if self.op is MappingExpressionOperator.LIST_GET:
             argument = self.args[1]
             if (
                 not isinstance(argument, LiteralExpression)
                 or not isinstance(argument.literal, int)
                 or isinstance(argument.literal, bool)
             ):
-                raise ValueError("list_get requires a literal integer index as its second argument")
+                msg = "list_get requires a literal integer index as its second argument"
+                raise ValueError(msg)
 
         return self
 

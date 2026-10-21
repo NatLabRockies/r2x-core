@@ -50,7 +50,8 @@ class H5PyFileReader(H5Reader):
     ) -> H5Result:
         """Read one HDF5 file using the selected HDF5 implementation."""
         if not self.supports_file_type(file_type):
-            raise ValueError(f"HDF5 reader does not support {type(file_type).__name__}")
+            msg = f"HDF5 reader does not support {type(file_type).__name__}"
+            raise ValueError(msg)
         return read_h5_file(file_path=file_path, **reader_config.kwargs)
 
 
@@ -64,34 +65,41 @@ def configurable_h5_reader(h5_file: h5py.File, **reader_kwargs: object) -> H5Res
     """
     group_key = reader_kwargs.get("group_key")
     if group_key is not None and not isinstance(group_key, str):
-        raise ValueError("group_key must be a string")
+        msg = "group_key must be a string"
+        raise ValueError(msg)
 
     scope: h5py.Group = h5_file
     if isinstance(group_key, str):
         selected = h5_file.get(group_key)
         if selected is None:
-            raise ConfiguredGroupNotFoundError(f"HDF5 group '{group_key}' not found")
+            msg = f"HDF5 group '{group_key}' not found"
+            raise ConfiguredGroupNotFoundError(msg)
         if not isinstance(selected, h5py.Group):
-            raise TypeError(f"HDF5 path '{group_key}' is not a group")
+            msg = f"HDF5 path '{group_key}' is not a group"
+            raise TypeError(msg)
         scope = selected
 
     columns_as_datasets = reader_kwargs.get("columns_as_datasets", False)
     if not isinstance(columns_as_datasets, bool):
-        raise ValueError("columns_as_datasets must be a boolean")
+        msg = "columns_as_datasets must be a boolean"
+        raise ValueError(msg)
 
     data_key = reader_kwargs.get("data_key")
     if data_key is not None and (not isinstance(data_key, str) or not data_key):
-        raise ValueError("data_key is required and must be a non-empty string")
+        msg = "data_key is required and must be a non-empty string"
+        raise ValueError(msg)
 
     decode_bytes = reader_kwargs.get("decode_bytes", True)
     if not isinstance(decode_bytes, bool):
-        raise ValueError("decode_bytes must be a boolean")
+        msg = "decode_bytes must be a boolean"
+        raise ValueError(msg)
     if data_key is None and not columns_as_datasets:
         return read_first_dataset(scope)
 
     index_names_key = reader_kwargs.get("index_names_key", DEFAULT_INDEX_NAMES_KEY)
     if not isinstance(index_names_key, str):
-        raise ValueError("index_names_key must be a string")
+        msg = "index_names_key must be a string"
+        raise ValueError(msg)
 
     file_data: dict[str, h5py.Dataset] = {}
     for key in scope:
@@ -111,12 +119,14 @@ def configurable_h5_reader(h5_file: h5py.File, **reader_kwargs: object) -> H5Res
                 fallback_key = f"{INDEX_COLUMN_PREFIX}{index_number}"
                 resolved_dataset = scope.get(fallback_key)
             if not isinstance(resolved_dataset, h5py.Dataset):
-                raise KeyError(f"Missing index dataset referenced by {resolved_key}")
+                msg = f"Missing index dataset referenced by {resolved_key}"
+                raise KeyError(msg)
             file_data[resolved_key] = resolved_dataset
 
     columns_key = reader_kwargs.get("columns_key")
     if columns_key is not None and not isinstance(columns_key, str):
-        raise ValueError("columns_key must be a string")
+        msg = "columns_key must be a string"
+        raise ValueError(msg)
 
     result: H5Result = {}
     if columns_as_datasets:
@@ -127,27 +137,31 @@ def configurable_h5_reader(h5_file: h5py.File, **reader_kwargs: object) -> H5Res
         )
     else:
         if not isinstance(data_key, str):
-            raise ValueError("data_key is required when columns_as_datasets is disabled")
+            msg = "data_key is required when columns_as_datasets is disabled"
+            raise ValueError(msg)
         data_dataset = get_h5_dataset(scope, file_data, data_key)
         if data_dataset is None:
-            raise KeyError(f"HDF5 dataset '{data_key}' not found")
+            msg = f"HDF5 dataset '{data_key}' not found"
+            raise KeyError(msg)
         data = np.asarray(data_dataset[()])
         columns = get_h5_dataset(scope, file_data, columns_key) if isinstance(columns_key, str) else None
         if isinstance(columns, h5py.Dataset):
             column_names = read_h5_labels(columns, decode_bytes=decode_bytes)
             if data.ndim == 2:
                 if len(column_names) != data.shape[1]:
-                    raise ValueError(
+                    msg = (
                         f"columns_key '{columns_key}' contains {len(column_names)} names "
                         f"for data with {data.shape[1]} columns"
                     )
+                    raise ValueError(msg)
                 result = {h5_key_to_string(column): data[:, i] for i, column in enumerate(column_names)}
             else:
                 if len(column_names) != 1:
-                    raise ValueError(
+                    msg = (
                         f"columns_key '{columns_key}' must contain exactly 1 name "
                         f"for 1D data, found {len(column_names)}"
                     )
+                    raise ValueError(msg)
                 result[h5_key_to_string(column_names[0])] = data
         elif data.ndim == 1:
             result[data_key] = data
@@ -158,10 +172,12 @@ def configurable_h5_reader(h5_file: h5py.File, **reader_kwargs: object) -> H5Res
     column_mapping: dict[str, H5Label] = {}
     if raw_mapping is not None:
         if not isinstance(raw_mapping, dict):
-            raise ValueError("column_name_mapping must be a dictionary")
+            msg = "column_name_mapping must be a dictionary"
+            raise ValueError(msg)
         for key, value in raw_mapping.items():
             if not isinstance(key, str) or not isinstance(value, str):
-                raise ValueError("column_name_mapping must map strings to strings")
+                msg = "column_name_mapping must map strings to strings"
+                raise ValueError(msg)
             column_mapping[key] = value
     user_column_mapping = bool(column_mapping)
     if not user_column_mapping and index_names is not None:
@@ -169,13 +185,16 @@ def configurable_h5_reader(h5_file: h5py.File, **reader_kwargs: object) -> H5Res
 
     datetime_key = reader_kwargs.get("datetime_key")
     if datetime_key is not None and not isinstance(datetime_key, str):
-        raise ValueError("datetime_key must be a string")
+        msg = "datetime_key must be a string"
+        raise ValueError(msg)
     datetime_name = reader_kwargs.get("datetime_column_name", DEFAULT_DATETIME_COLUMN_NAME)
     if not isinstance(datetime_name, str):
-        raise ValueError("datetime_column_name must be a string")
+        msg = "datetime_column_name must be a string"
+        raise ValueError(msg)
     strip_timezone = reader_kwargs.get("strip_timezone", True)
     if not isinstance(strip_timezone, bool):
-        raise ValueError("strip_timezone must be a boolean")
+        msg = "strip_timezone must be a boolean"
+        raise ValueError(msg)
 
     datetime_dataset = get_h5_dataset(scope, file_data, datetime_key) if datetime_key is not None else None
     if datetime_dataset is not None:
@@ -193,18 +212,21 @@ def configurable_h5_reader(h5_file: h5py.File, **reader_kwargs: object) -> H5Res
 
     index_key = reader_kwargs.get("index_key")
     if index_key is not None and not isinstance(index_key, str):
-        raise ValueError("index_key must be a string")
+        msg = "index_key must be a string"
+        raise ValueError(msg)
     index_dataset = get_h5_dataset(scope, file_data, index_key) if index_key is not None else None
     if isinstance(index_key, str) and index_dataset is not None and index_key != datetime_key:
         result[index_key] = np.asarray(index_dataset[()])
 
     raw_additional_keys = reader_kwargs.get("additional_keys", [])
     if not isinstance(raw_additional_keys, list):
-        raise ValueError("additional_keys must be a list of strings")
+        msg = "additional_keys must be a list of strings"
+        raise ValueError(msg)
     additional_keys: list[str] = []
     for key in raw_additional_keys:
         if not isinstance(key, str):
-            raise ValueError("additional_keys must be a list of strings")
+            msg = "additional_keys must be a list of strings"
+            raise ValueError(msg)
         additional_keys.append(key)
     for key in additional_keys:
         additional_dataset = get_h5_dataset(scope, file_data, key)
@@ -263,20 +285,24 @@ def read_columnar_group(
 ) -> H5Result:
     """Read one HDF5 dataset for each name listed in a group's columns dataset."""
     if columns_key is None:
-        raise ValueError("columns_key is required when columns_as_datasets is enabled")
+        msg = "columns_key is required when columns_as_datasets is enabled"
+        raise ValueError(msg)
 
     columns_dataset = scope.get(columns_key)
     if columns_dataset is None:
-        raise ValueError(f"HDF5 columns path '{columns_key}' not found")
+        msg = f"HDF5 columns path '{columns_key}' not found"
+        raise ValueError(msg)
     if not isinstance(columns_dataset, h5py.Dataset):
-        raise TypeError(f"HDF5 columns path '{columns_key}' is not a dataset")
+        msg = f"HDF5 columns path '{columns_key}' is not a dataset"
+        raise TypeError(msg)
 
     result: H5Result = {}
     for column in read_h5_labels(columns_dataset, decode_bytes=decode_bytes):
         column_key = h5_key_to_string(column)
         dataset = scope.get(column_key)
         if not isinstance(dataset, h5py.Dataset):
-            raise KeyError(f"HDF5 column dataset '{h5_key_to_string(column)}' not found")
+            msg = f"HDF5 column dataset '{h5_key_to_string(column)}' not found"
+            raise KeyError(msg)
         if dataset.dtype.kind in HDF5_STRING_KINDS:
             values = np.atleast_1d(dataset.asstr()[()]) if decode_bytes else np.atleast_1d(dataset[()])
             result[column_key] = values.tolist()
@@ -290,7 +316,8 @@ def read_first_dataset(scope: h5py.Group) -> H5Result:
     try:
         key = next(iter(scope.keys()))
     except StopIteration as exc:
-        raise ValueError("HDF5 scope contains no datasets") from exc
+        msg = "HDF5 scope contains no datasets"
+        raise ValueError(msg) from exc
 
     dataset = scope[key]
     if not isinstance(dataset, h5py.Dataset):

@@ -68,7 +68,8 @@ def test_reader_uses_injected_file_reader_and_non_polars_backend(tmp_path):
             reader_config: ReaderConfig,
         ) -> CsvRows:
             if reader_config.kwargs.get("header_rows", 1) != 1:
-                raise ValueError("This reader supports one header row")
+                msg = "This reader supports one header row"
+                raise ValueError(msg)
             separator = str(reader_config.kwargs.get("separator", ","))
             with file_path.open(encoding="utf-8", newline="") as file:
                 return CsvRows(list(csv.DictReader(file, delimiter=separator)))

@@ -112,9 +112,11 @@ def validate_file_extension(path: Path, *, info: "ValidationInfo") -> Path:
     with `@field_validator` or `AfterValidator`) and should not be called directly.
     """
     if info is None:
-        raise ValueError("Pydantic validation context is missing.")
+        msg = "Pydantic validation context is missing."
+        raise ValueError(msg)
     if not isinstance(path, Path):
-        raise TypeError(f"Expected Path, got {type(path).__name__}")
+        msg = f"Expected Path, got {type(path).__name__}"
+        raise TypeError(msg)
     ext = path.suffix.lower()
     if ext not in EXTENSION_MAPPING:
         msg = f"{ext=} not found on `EXTENSION_MAPPING`. "

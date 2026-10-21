@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import polars as pl
 from polars.datatypes.classes import DataTypeClass
 
 from ..models import ColumnExpression, Expression, ExpressionOperation, LiteralExpression
+from ..types import MappingExpressionOperator
 
 POLARS_DTYPES: dict[str, DataTypeClass] = {
     "bool": pl.Boolean,
@@ -29,37 +32,47 @@ def resolve_polars_dtype(type_name: str) -> DataTypeClass:
     """Resolve supported mapping type names into Polars data types."""
     polars_type = POLARS_DTYPES.get(type_name.casefold())
     if polars_type is None:
-        raise ValueError(f"Unsupported data type: {type_name}")
+        msg = f"Unsupported data type: {type_name}"
+        raise ValueError(msg)
     return polars_type
 
 
-def compile_polars_expression(expression: Expression) -> pl.Expr:
-    """Compile a mapping expression without exposing Polars in its schema."""
+def compile_polars_expression(expression: Expression, *, column_names: Sequence[str]) -> pl.Expr:
+    """Compile against a frame whose ordered schema matches ``column_names``."""
     if isinstance(expression, ColumnExpression):
-        return pl.col(expression.column)
+        try:
+            index = column_names.index(expression.column)
+        except ValueError as error:
+            msg = f"Column {expression.column!r} not found in current frame"
+            raise ValueError(msg) from error
+        return pl.nth(index)
     if isinstance(expression, LiteralExpression):
         return pl.lit(expression.literal)
     if not isinstance(expression, ExpressionOperation):
-        raise TypeError(f"Unsupported expression model: {type(expression).__name__}")
+        msg = f"Unsupported expression model: {type(expression).__name__}"
+        raise TypeError(msg)
 
-    arguments = [compile_polars_expression(argument) for argument in expression.args]
+    arguments = [
+        compile_polars_expression(argument, column_names=column_names) for argument in expression.args
+    ]
     match expression.op:
-        case "and":
+        case MappingExpressionOperator.AND:
             return pl.all_horizontal(arguments)
-        case "any":
+        case MappingExpressionOperator.ANY:
             return pl.any_horizontal(arguments)
-        case "cast":
+        case MappingExpressionOperator.CAST:
             type_argument = expression.args[1]
             if not isinstance(type_argument, LiteralExpression) or not isinstance(type_argument.literal, str):
-                raise ValueError("cast requires a literal string type name as its second argument")
+                msg = "cast requires a literal string type name as its second argument"
+                raise ValueError(msg)
             return arguments[0].cast(resolve_polars_dtype(type_argument.literal))
-        case "coalesce":
+        case MappingExpressionOperator.COALESCE:
             return pl.coalesce(arguments)
-        case "concat_list":
+        case MappingExpressionOperator.CONCAT_LIST:
             return pl.concat_list(arguments)
-        case "concat_str":
+        case MappingExpressionOperator.CONCAT_STR:
             return pl.concat_str(arguments, separator="")
-        case "datetime":
+        case MappingExpressionOperator.DATETIME:
             return pl.datetime(
                 arguments[0],
                 arguments[1],
@@ -69,53 +82,56 @@ def compile_polars_expression(expression: Expression) -> pl.Expr:
                 second=arguments[5] if len(arguments) > 5 else None,
                 microsecond=arguments[6] if len(arguments) > 6 else None,
             )
-        case "divide":
+        case MappingExpressionOperator.DIVIDE:
             return arguments[0] / arguments[1]
-        case "eq":
+        case MappingExpressionOperator.EQ:
             return arguments[0] == arguments[1]
-        case "gt":
+        case MappingExpressionOperator.GT:
             return arguments[0] > arguments[1]
-        case "is_null":
+        case MappingExpressionOperator.IS_NULL:
             return arguments[0].is_null()
-        case "le":
+        case MappingExpressionOperator.LE:
             return arguments[0] <= arguments[1]
-        case "list_get":
+        case MappingExpressionOperator.LIST_GET:
             index_argument = expression.args[1]
             if (
                 not isinstance(index_argument, LiteralExpression)
                 or not isinstance(index_argument.literal, int)
                 or isinstance(index_argument.literal, bool)
             ):
-                raise ValueError("list_get requires a literal integer index as its second argument")
+                msg = "list_get requires a literal integer index as its second argument"
+                raise ValueError(msg)
             return arguments[0].list.get(index_argument.literal, null_on_oob=True)
-        case "list_sort":
+        case MappingExpressionOperator.LIST_SORT:
             return arguments[0].list.sort()
-        case "lowercase":
+        case MappingExpressionOperator.LOWERCASE:
             return arguments[0].str.to_lowercase()
-        case "max":
+        case MappingExpressionOperator.MAX:
             return arguments[0].max()
-        case "mean":
+        case MappingExpressionOperator.MEAN:
             return arguments[0].mean()
-        case "multiply":
+        case MappingExpressionOperator.MULTIPLY:
             return arguments[0] * arguments[1]
-        case "split":
+        case MappingExpressionOperator.SPLIT:
             separator_argument = expression.args[1]
             if not isinstance(separator_argument, LiteralExpression) or not isinstance(
                 separator_argument.literal, str
             ):
-                raise ValueError("split requires a literal string separator as its second argument")
+                msg = "split requires a literal string separator as its second argument"
+                raise ValueError(msg)
             return arguments[0].str.split(separator_argument.literal)
-        case "strip_chars":
+        case MappingExpressionOperator.STRIP_CHARS:
             return arguments[0].str.strip_chars()
-        case "struct":
+        case MappingExpressionOperator.STRUCT:
             return pl.struct(arguments)
-        case "subtract":
+        case MappingExpressionOperator.SUBTRACT:
             return arguments[0] - arguments[1]
-        case "sum":
+        case MappingExpressionOperator.SUM:
             return arguments[0].sum()
-        case "when":
+        case MappingExpressionOperator.WHEN:
             return pl.when(arguments[0]).then(arguments[1]).otherwise(arguments[2])
-        case "year":
+        case MappingExpressionOperator.YEAR:
             return arguments[0].dt.year()
         case _:
-            raise ValueError(f"Unsupported mapping expression operation: {expression.op}")
+            msg = f"Unsupported mapping expression operation: {expression.op}"
+            raise ValueError(msg)

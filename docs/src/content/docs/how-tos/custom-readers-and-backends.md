@@ -39,7 +39,8 @@ default, but these interfaces do not depend on its frame types.
 ...         reader_config: ReaderConfig,
 ...     ) -> CsvRows:
 ...         if not self.supports_file_type(file_type):
-...             raise ValueError(f"Unsupported format: {type(file_type).__name__}")
+...             msg = f"Unsupported format: {type(file_type).__name__}"
+...             raise ValueError(msg)
 ...         with file_path.open(newline="", encoding="utf-8") as file:
 ...             rows = csv.reader(file)
 ...             headers = next(rows)

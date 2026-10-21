@@ -112,7 +112,8 @@ class DataReader:
         if isinstance(file_type, TableDataFormat):
             return self.tabular_file_reader
 
-        raise ValueError(f"No file reader configured for {type(file_type).__name__}")
+        msg = f"No file reader configured for {type(file_type).__name__}"
+        raise ValueError(msg)
 
     def read_data_file(
         self,

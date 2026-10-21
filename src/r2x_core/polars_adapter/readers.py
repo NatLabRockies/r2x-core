@@ -46,7 +46,8 @@ def read_polars_table_file(
 ) -> pl.LazyFrame:
     """Read CSV or TSV input as a Polars lazy frame."""
     if header_rows < 1:
-        raise ValueError("header_rows must be at least 1")
+        msg = "header_rows must be at least 1"
+        raise ValueError(msg)
     scan_kwargs = dict(reader_kwargs)
     if file_path.suffix.lower() == ".tsv":
         scan_kwargs.setdefault("separator", "\t")
@@ -54,11 +55,14 @@ def read_polars_table_file(
         logger.debug("Scanning {}", file_path)
         return pl.scan_csv(file_path, **scan_kwargs)
     if scan_kwargs.get("has_header") is True:
-        raise ValueError("Do not set reader.kwargs.has_header=True when header_rows is greater than 1")
+        msg = "Do not set reader.kwargs.has_header=True when header_rows is greater than 1"
+        raise ValueError(msg)
     if "new_columns" in scan_kwargs:
-        raise ValueError("Do not set reader.kwargs.new_columns when header_rows is greater than 1")
+        msg = "Do not set reader.kwargs.new_columns when header_rows is greater than 1"
+        raise ValueError(msg)
     if scan_kwargs.get("skip_rows_after_header", 0):
-        raise ValueError("skip_rows_after_header cannot be combined with multiple header rows")
+        msg = "skip_rows_after_header cannot be combined with multiple header rows"
+        raise ValueError(msg)
 
     header_options = {key: value for key, value in scan_kwargs.items() if key in HEADER_READ_OPTIONS}
     header = pl.read_csv(
@@ -69,7 +73,8 @@ def read_polars_table_file(
         **header_options,
     )
     if header.height != header_rows:
-        raise ValueError(f"Expected {header_rows} header rows in {file_path}, found {header.height}")
+        msg = f"Expected {header_rows} header rows in {file_path}, found {header.height}"
+        raise ValueError(msg)
 
     header_values = header.rows()
     names: list[str] = []
@@ -78,7 +83,8 @@ def read_polars_table_file(
         parts = [str(value).strip() for value in values if value is not None and str(value).strip()]
         names.append(header_separator.join(parts) if parts else f"column_{index + 1}")
     if len(set(names)) != len(names):
-        raise ValueError(f"Combining {header_rows} header rows produced duplicate column names: {names}")
+        msg = f"Combining {header_rows} header rows produced duplicate column names: {names}"
+        raise ValueError(msg)
 
     skip_rows = int(scan_kwargs.pop("skip_rows", 0) or 0)
     scan_kwargs["skip_rows"] = skip_rows + header_rows
@@ -130,7 +136,8 @@ class PolarsTabularFileReader(FileReader[pl.LazyFrame]):
             try:
                 options = CSVReaderOptions.model_validate(option_values)
             except PydanticValidationError as error:
-                raise ValueError(f"Invalid CSV reader options: {error}") from error
+                msg = f"Invalid CSV reader options: {error}"
+                raise ValueError(msg) from error
             return read_polars_table_file(
                 file_path=file_path,
                 header_rows=options.header_rows,
@@ -145,4 +152,5 @@ class PolarsTabularFileReader(FileReader[pl.LazyFrame]):
             )
         if isinstance(file_type, ParquetFormat):
             return pl.scan_parquet(file_path, **reader_config.kwargs)
-        raise ValueError(f"Polars cannot read file type {type(file_type).__name__}")
+        msg = f"Polars cannot read file type {type(file_type).__name__}"
+        raise ValueError(msg)

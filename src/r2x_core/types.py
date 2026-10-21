@@ -2,6 +2,7 @@
 
 import re
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Annotated, Any, ClassVar, Literal, TypeAlias, TypeVar
 
 from pydantic import Field, JsonValue, StringConstraints
@@ -94,30 +95,32 @@ FilterOperator: TypeAlias = Literal[
     "endswith",
 ]
 
-MappingExpressionOperator: TypeAlias = Literal[
-    "and",
-    "any",
-    "cast",
-    "coalesce",
-    "concat_list",
-    "concat_str",
-    "datetime",
-    "divide",
-    "eq",
-    "gt",
-    "is_null",
-    "le",
-    "list_get",
-    "list_sort",
-    "lowercase",
-    "max",
-    "mean",
-    "multiply",
-    "split",
-    "strip_chars",
-    "struct",
-    "subtract",
-    "sum",
-    "when",
-    "year",
-]
+
+class MappingExpressionOperator(StrEnum):
+    """Supported mapping expression operators with stable JSON string values."""
+
+    AND = "and"
+    ANY = "any"
+    CAST = "cast"
+    COALESCE = "coalesce"
+    CONCAT_LIST = "concat_list"
+    CONCAT_STR = "concat_str"
+    DATETIME = "datetime"
+    DIVIDE = "divide"
+    EQ = "eq"
+    GT = "gt"
+    IS_NULL = "is_null"
+    LE = "le"
+    LIST_GET = "list_get"
+    LIST_SORT = "list_sort"
+    LOWERCASE = "lowercase"
+    MAX = "max"
+    MEAN = "mean"
+    MULTIPLY = "multiply"
+    SPLIT = "split"
+    STRIP_CHARS = "strip_chars"
+    STRUCT = "struct"
+    SUBTRACT = "subtract"
+    SUM = "sum"
+    WHEN = "when"
+    YEAR = "year"

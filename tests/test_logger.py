@@ -69,7 +69,8 @@ def test_render_exception_with_incomplete_exception():
 def test_render_exception_with_traceback_no_rich(capsys):
     """Test render_exception with traceback when Rich unavailable."""
     try:
-        raise ValueError("Test error")
+        msg = "Test error"
+        raise ValueError(msg)
     except ValueError:
         exc_info = sys.exc_info()
         record = {
@@ -216,7 +217,8 @@ def test_format_json_with_file_info():
 def test_format_json_with_exception():
     """Test JSON formatting with exception."""
     try:
-        raise RuntimeError("Test error")
+        msg = "Test error"
+        raise RuntimeError(msg)
     except RuntimeError:
         exc_info = sys.exc_info()
 
@@ -397,7 +399,8 @@ def test_render_exception_with_traceback_and_rich(capsys):
     console_instance = console()
 
     try:
-        raise ValueError("Test exception")
+        msg = "Test exception"
+        raise ValueError(msg)
     except ValueError:
         exc_info = sys.exc_info()
         record = {

@@ -25,6 +25,7 @@ class JSONFileReader(FileReader[JSONValue]):
     ) -> JSONValue:
         """Read one JSON file."""
         if not self.supports_file_type(file_type):
-            raise ValueError(f"JSON reader does not support {type(file_type).__name__}")
+            msg = f"JSON reader does not support {type(file_type).__name__}"
+            raise ValueError(msg)
         with file_path.open(encoding="utf-8") as file:
             return json.load(file)

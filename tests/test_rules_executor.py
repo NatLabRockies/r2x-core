@@ -343,7 +343,8 @@ def test_attach_rule_outputs_rolls_back_after_supplemental_rejection(source_syst
         location_name: str = Field(default="", description="Location name")
 
         def check_supplemental_attribute_addition(self) -> None:
-            raise ValueError("attachment failed")
+            msg = "attachment failed"
+            raise ValueError(msg)
 
     target_system = System(name="executor-target")
     context = build_context(

@@ -67,6 +67,32 @@ def test_upgrade_coordinator_rejects_handler_without_plugin_config() -> None:
         UpgradeCoordinator(handler=handler)
 
 
+@pytest.mark.parametrize("has_configured_handler", [False, True])
+def test_upgrade_coordinator_prefers_explicit_falsey_handler(
+    tmp_path: Path, has_configured_handler: bool
+) -> None:
+    calls: list[str] = []
+
+    def configured_handler(*, store: DataStore, ctx: PluginContext[Any]) -> None:
+        calls.append("configured")
+
+    class FalseyHandler:
+        def __bool__(self) -> bool:
+            return False
+
+        def __call__(self, *, store: DataStore, ctx: PluginContext[Any]) -> None:
+            calls.append("explicit")
+
+    explicit_handler = FalseyHandler()
+    config = PluginConfig(upgrade_handler=configured_handler if has_configured_handler else None)
+    coordinator = UpgradeCoordinator(plugin_config=config, handler=explicit_handler)
+
+    coordinator.run(store=DataStore(path=tmp_path), reason="test")
+
+    assert coordinator.handler is explicit_handler
+    assert calls == ["explicit"]
+
+
 def test_upgrade_coordinator_runs_and_marks(tmp_path: Path) -> None:
     calls: list[tuple[DataStore, PluginContext[Any]]] = []
 

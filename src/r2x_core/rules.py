@@ -39,7 +39,8 @@ class RuleFilter(BaseModel):
         if value is None or callable(value):
             return value
         if not isinstance(value, str):
-            raise TypeError(f"RuleFilter.getter must be callable or str, not {type(value).__name__}")
+            msg = f"RuleFilter.getter must be callable or str, not {type(value).__name__}"
+            raise TypeError(msg)
 
         from .getters import resolve_getter
 
@@ -59,35 +60,47 @@ class RuleFilter(BaseModel):
         has_children = bool(self.any_of) or bool(self.all_of)
 
         if is_leaf and has_children:
-            raise ValueError("RuleFilter cannot mix field/op/values with any_of/all_of")
+            msg = "RuleFilter cannot mix field/op/values with any_of/all_of"
+            raise ValueError(msg)
         if not is_leaf and not has_children:
-            raise ValueError("RuleFilter requires field/op/values or any_of/all_of")
+            msg = "RuleFilter requires field/op/values or any_of/all_of"
+            raise ValueError(msg)
         if self.any_of and self.all_of:
-            raise ValueError("RuleFilter cannot set both any_of and all_of")
+            msg = "RuleFilter cannot set both any_of and all_of"
+            raise ValueError(msg)
 
         if is_leaf:
             if self.field and self.getter:
-                raise ValueError("RuleFilter cannot set both field and getter")
+                msg = "RuleFilter cannot set both field and getter"
+                raise ValueError(msg)
             if not self.field and self.getter is None:
-                raise ValueError("RuleFilter.field is required for leaf filters")
+                msg = "RuleFilter.field is required for leaf filters"
+                raise ValueError(msg)
             if self.op is None:
-                raise ValueError("RuleFilter.op is required for leaf filters")
+                msg = "RuleFilter.op is required for leaf filters"
+                raise ValueError(msg)
             if self.op in {"startswith", "not_startswith"}:
                 prefix_values = self.prefixes if self.prefixes is not None else self.values
                 if not prefix_values:
-                    raise ValueError("RuleFilter prefix operations require at least one prefix")
+                    msg = "RuleFilter prefix operations require at least one prefix"
+                    raise ValueError(msg)
                 if any(not isinstance(prefix, str) for prefix in prefix_values):
-                    raise ValueError("RuleFilter prefix values must be strings")
+                    msg = "RuleFilter prefix values must be strings"
+                    raise ValueError(msg)
                 object.__setattr__(self, "values", prefix_values)
             else:
                 if self.prefixes is not None:
-                    raise ValueError("RuleFilter.prefixes is only supported for prefix operations")
+                    msg = "RuleFilter.prefixes is only supported for prefix operations"
+                    raise ValueError(msg)
                 if not self.values:
-                    raise ValueError("RuleFilter.values must contain at least one value")
+                    msg = "RuleFilter.values must contain at least one value"
+                    raise ValueError(msg)
                 if self.op == "geq" and len(self.values) != 1:
-                    raise ValueError("RuleFilter.geq expects exactly one comparison value")
+                    msg = "RuleFilter.geq expects exactly one comparison value"
+                    raise ValueError(msg)
                 if self.op == "endswith" and any(not isinstance(value, str) for value in self.values):
-                    raise ValueError("RuleFilter endswith values must be strings")
+                    msg = "RuleFilter endswith values must be strings"
+                    raise ValueError(msg)
 
         return self
 
@@ -127,12 +140,15 @@ class SupplementalAttributeRule:
     def __post_init__(self) -> None:
         """Validate getter functions, multi-field mappings, and the target type."""
         if not isinstance(self.target_type, str) or not self.target_type:
-            raise ValueError("SupplementalAttributeRule.target_type must be a non-empty string")
+            msg = "SupplementalAttributeRule.target_type must be a non-empty string"
+            raise ValueError(msg)
         if self.optional is not True and self.optional is not False:
-            raise TypeError("SupplementalAttributeRule.optional must be a bool")
+            msg = "SupplementalAttributeRule.optional must be a bool"
+            raise TypeError(msg)
         for target_field, getter in self.getters.items():
             if not callable(getter):
-                raise TypeError(f"Getter for {target_field!r} must be callable")
+                msg = f"Getter for {target_field!r} must be callable"
+                raise TypeError(msg)
         for target_field, source_fields in self.field_map.items():
             if isinstance(source_fields, list) and target_field not in self.getters:
                 msg = f"Multi-field mapping for '{target_field}' requires a getter function"
@@ -181,22 +197,26 @@ class Rule:
     def __post_init__(self) -> Any:
         """Validate init."""
         if self.has_multiple_sources() and self.has_multiple_targets():
-            raise NotImplementedError(
+            msg = (
                 f"Rule cannot have both multiple sources and multiple targets. "
                 f"source_type={self.source_type}, target_type={self.target_type}"
             )
+            raise NotImplementedError(msg)
 
         for target_field, getter in self.getters.items():
             if not callable(getter):
-                raise TypeError(f"Getter for {target_field!r} must be callable")
+                msg = f"Getter for {target_field!r} must be callable"
+                raise TypeError(msg)
         if any(not isinstance(output, SupplementalAttributeRule) for output in self.supplemental_attributes):
-            raise TypeError("Rule.supplemental_attributes must contain SupplementalAttributeRule instances")
+            msg = "Rule.supplemental_attributes must contain SupplementalAttributeRule instances"
+            raise TypeError(msg)
         for target_field, source_fields in self.field_map.items():
             if isinstance(source_fields, list) and target_field not in self.getters:
                 msg = f"Multi-field mapping for '{target_field}' requires a getter function"
                 raise ValueError(msg)
         if self.filter is not None and not isinstance(self.filter, RuleFilter):
-            raise TypeError(f"Rule.filter must be a RuleFilter, not {type(self.filter).__name__}")
+            msg = f"Rule.filter must be a RuleFilter, not {type(self.filter).__name__}"
+            raise TypeError(msg)
 
     def __hash__(self) -> int:
         """Hash based on rule's unique identifier."""

@@ -140,6 +140,85 @@ def test_structured_type_serialization():
     assert deserialized.power_limits.max == 0.8
 
 
+def test_structured_natural_mapping_with_unit_field_matches_model_and_round_trips() -> None:
+    class DeclaredUnitLimits(BaseModel):
+        minimum: float
+        maximum: float
+        unit: str
+
+    class Device(HasUnits, BaseModel):
+        base_power: Annotated[float, Unit("MW")]
+        limits: Annotated[DeclaredUnitLimits, Unit("MW", base="base_power")]
+
+    natural = {"minimum": -40.0, "maximum": 40.0, "unit": "MW"}
+    from_model = Device(base_power=100.0, limits=DeclaredUnitLimits(**natural))
+    from_mapping = Device(base_power=100.0, limits=natural)
+
+    assert from_mapping.limits == from_model.limits
+    assert from_mapping.limits.minimum == -0.4
+    serialized = from_mapping.model_dump()
+    assert serialized["limits"]["unit"] == "pu"
+    assert Device.model_validate(serialized).limits == from_mapping.limits
+
+
+def test_structured_value_and_unit_fields_are_natural_input() -> None:
+    class Reading(BaseModel):
+        value: float
+        unit: str
+
+    class Device(HasUnits, BaseModel):
+        base_power: Annotated[float, Unit("MW")]
+        reading: Annotated[Reading, Unit("MW", base="base_power")]
+
+    natural = {"value": 50.0, "unit": "MW"}
+    from_model = Device(base_power=100.0, reading=Reading(**natural))
+    from_mapping = Device(base_power=100.0, reading=natural)
+
+    assert from_mapping.reading == from_model.reading
+    assert from_mapping.reading.value == 0.5
+    serialized = from_mapping.model_dump()
+    assert serialized["reading"] == {"value": {"value": 0.5, "unit": "MW"}, "unit": "pu"}
+    assert Device.model_validate(serialized).reading == from_mapping.reading
+    assert Device.model_validate_json(from_mapping.model_dump_json()).reading == from_mapping.reading
+
+
+@pytest.mark.parametrize("nested_units", [False, True])
+@pytest.mark.parametrize(
+    ("base_power", "expected_error"),
+    [
+        pytest.param(0.0, "finite and non-zero", id="zero"),
+        pytest.param(float("inf"), "finite and non-zero", id="positive-infinity"),
+        pytest.param(float("-inf"), "finite and non-zero", id="negative-infinity"),
+        pytest.param(float("nan"), "finite and non-zero", id="nan"),
+        pytest.param(None, "required", id="none"),
+        pytest.param("missing", "required", id="missing"),
+    ],
+)
+def test_structured_base_must_be_finite_and_nonzero(
+    nested_units: bool, base_power: float | str | None, expected_error: str
+) -> None:
+    class Limits(BaseModel):
+        minimum: float
+        maximum: float
+
+    class UnitAwareLimits(HasUnits, BaseModel):
+        minimum: Annotated[float, Unit("MW")]
+        maximum: Annotated[float, Unit("MW")]
+
+    limits_type = UnitAwareLimits if nested_units else Limits
+
+    class Device(HasUnits, BaseModel):
+        base_power: Annotated[float, Unit("MW")]
+        limits: Annotated[limits_type, Unit("MW", base="base_power")]
+
+    data: dict[str, object] = {"limits": {"minimum": -40.0, "maximum": 40.0}}
+    if base_power != "missing":
+        data["base_power"] = base_power
+    with pytest.raises(ValidationError) as exc_info:
+        Device.model_validate(data)
+    assert expected_error in str(exc_info.value)
+
+
 def test_structured_unit_serialization_preserves_aliases_and_exclusions() -> None:
     class AliasedLimits(BaseModel):
         model_config = ConfigDict(populate_by_name=True)

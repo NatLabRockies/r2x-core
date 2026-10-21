@@ -301,7 +301,8 @@ def test_unit_binding_preserves_multiple_model_validators() -> None:
         @classmethod
         def require_data(cls, value: object) -> object:
             if not isinstance(value, dict):
-                raise ValueError("Device input must be a mapping")
+                msg = "Device input must be a mapping"
+                raise ValueError(msg)
             return value
 
         @model_validator(mode="before")

@@ -43,7 +43,8 @@ def apply_rules_to_context(context: PluginContext) -> TranslationResult:
         If the context has no rules defined or if circular dependencies are detected
     """
     if not context.rules:
-        raise ValueError(f"{type(context).__name__} has no rules. Use context.list_rules().")
+        msg = f"{type(context).__name__} has no rules. Use context.list_rules()."
+        raise ValueError(msg)
 
     sorted_rules = sort_rules_by_dependencies(context.list_rules()).unwrap_or_raise(exc_type=ValueError)
 

@@ -94,7 +94,8 @@ class DataStore:
             resolved_path = Path(path)
 
         if not resolved_path.exists():
-            raise FileNotFoundError(f"Path does not exist: {resolved_path}")
+            msg = f"Path does not exist: {resolved_path}"
+            raise FileNotFoundError(msg)
 
         mapping_path: Path | None = None
         if resolved_path.is_file():
@@ -127,7 +128,8 @@ class DataStore:
         """
         if key not in self.data_files:
             available_files = list(self.data_files.keys())
-            raise KeyError(f"'{key}' not present in store. Available files: {available_files}")
+            msg = f"'{key}' not present in store. Available files: {available_files}"
+            raise KeyError(msg)
 
         return self.data_files[key]
 
@@ -193,11 +195,13 @@ class DataStore:
         json_fpath = Path(json_fpath)
 
         if not json_fpath.exists():
-            raise FileNotFoundError(f"Configuration file not found: {json_fpath}")
+            msg = f"Configuration file not found: {json_fpath}"
+            raise FileNotFoundError(msg)
         folder_path = Path(path) if path is not None else json_fpath.parent
 
         if not folder_path.exists():
-            raise FileNotFoundError(f"Data folder not found: {folder_path}")
+            msg = f"Data folder not found: {folder_path}"
+            raise FileNotFoundError(msg)
 
         store = cls(path=folder_path)
         store.load_file_mapping(json_fpath)
@@ -289,7 +293,8 @@ class DataStore:
         fpath = Path(fpath)
 
         if not fpath.exists():
-            raise FileNotFoundError(f"File not found: {fpath}")
+            msg = f"File not found: {fpath}"
+            raise FileNotFoundError(msg)
 
         if name is None:
             name = fpath.stem
@@ -362,7 +367,8 @@ class DataStore:
             If the data file name is not in the store.
         """
         if name not in self.data_files:
-            raise KeyError(f"'{name}' not present in store.")
+            msg = f"'{name}' not present in store."
+            raise KeyError(msg)
 
         data_file = self.data_files[name]
         try:
@@ -411,7 +417,8 @@ class DataStore:
         """
         for name in names:
             if name not in self.data_files:
-                raise KeyError(f"Data file '{name}' not found in store.")
+                msg = f"Data file '{name}' not found in store."
+                raise KeyError(msg)
 
         for name in names:
             del self.data_files[name]

@@ -71,6 +71,59 @@ def test_has_units_normalizes_prefixed_natural_unit_input() -> None:
     assert model.power == 0.05
 
 
+@pytest.mark.parametrize(
+    ("declared_unit", "value", "input_unit", "base_value", "base_unit", "expected"),
+    [
+        ("MW/min", 10.0, "MW/min", 100.0, "MW", 0.1),
+        ("MW/min", 10000.0, "kW/min", 100.0, "MW", 0.1),
+        ("MW/min", 600.0, "MW/hour", 100.0, "MW", 0.1),
+        ("MW/min", 10.0, "MW/min", 100000.0, "kW", 0.1),
+        ("kW/min", 10.0, "MW/min", 100.0, "MW", 0.1),
+        ("MW/min**2", 10.0, "MW/min**2", 100.0, "MW", 0.1),
+        ("kV", 50.0, "V", 100.0, "V", 0.5),
+    ],
+)
+def test_convert_to_internal_normalizes_relative_quantities(
+    declared_unit: str,
+    value: float,
+    input_unit: str,
+    base_value: float,
+    base_unit: str,
+    expected: float,
+) -> None:
+    spec = UnitSpec(unit=declared_unit, base="base")
+
+    assert (
+        convert_to_internal(
+            {"value": value, "unit": input_unit}, spec, base_value=base_value, base_unit=base_unit
+        )
+        == expected
+    )
+
+
+def test_has_units_converts_scalar_rates_without_losing_time_units() -> None:
+    class RateModel(HasUnits, BaseModel):
+        base_power: Annotated[float, Unit("MW")]
+        ramp: Annotated[float, Unit("MW/min", base="base_power")]
+
+    assert RateModel(base_power=100.0, ramp={"value": 10.0, "unit": "MW/min"}).ramp == 0.1
+    assert RateModel(base_power=100.0, ramp={"value": 10000.0, "unit": "kW/min"}).ramp == 0.1
+
+
+def test_convert_to_internal_translates_invalid_relative_units() -> None:
+    value = {"value": 10.0, "unit": "MW/min"}
+
+    with pytest.raises(ValueError, match="Unknown unit"):
+        convert_to_internal(
+            value, UnitSpec(unit="InvalidUnit", base="base"), base_value=100.0, base_unit="MW"
+        )
+
+    with pytest.raises(ValueError, match="Unknown unit"):
+        convert_to_internal(
+            value, UnitSpec(unit="MW/min", base="base"), base_value=100.0, base_unit="InvalidUnit"
+        )
+
+
 def test_has_units_rejects_incompatible_natural_unit_input() -> None:
     with pytest.raises(ValidationError, match="incompatible"):
         PowerModel(base_power=100.0, power={"value": 50.0, "unit": "kV"})

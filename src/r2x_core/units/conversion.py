@@ -49,23 +49,27 @@ def convert_to_internal(
         return float(value)
 
     if not isinstance(value, dict) or "value" not in value or "unit" not in value:
-        raise ValueError("Expected a number or a mapping with 'value' and 'unit' keys")
+        msg = "Expected a number or a mapping with 'value' and 'unit' keys"
+        raise ValueError(msg)
 
     try:
         input_value = float(value["value"])
     except (TypeError, ValueError) as error:
-        raise ValueError("Unit mapping 'value' must be numeric") from error
+        msg = "Unit mapping 'value' must be numeric"
+        raise ValueError(msg) from error
     input_unit = value["unit"]
     if not isinstance(input_unit, str) or not input_unit:
-        raise ValueError("Unit mapping 'unit' must be a non-empty string")
+        msg = "Unit mapping 'unit' must be a non-empty string"
+        raise ValueError(msg)
 
     if spec.unit == "pu":
         if input_unit == "pu":
             return input_value
         if spec.base is None:
-            raise ValueError("Per-unit conversion requires a declared base field")
+            msg = "Per-unit conversion requires a declared base field"
+            raise ValueError(msg)
 
-    target_unit = base_unit if spec.base is not None else spec.unit
+    target_unit = base_unit if spec.unit == "pu" else spec.unit
     if spec.base is not None:
         if base_value is None:
             msg = f"Base field '{spec.base}' is required for unit conversion but was not provided or is None"
@@ -74,18 +78,21 @@ def convert_to_internal(
             msg = f"Base unit for field '{spec.base}' could not be determined - check field annotations"
             raise ValueError(msg)
         if not math.isfinite(base_value) or base_value == 0:
-            raise ValueError(f"Base field '{spec.base}' must be finite and non-zero for per-unit conversion")
+            msg = f"Base field '{spec.base}' must be finite and non-zero for per-unit conversion"
+            raise ValueError(msg)
 
     try:
-        normalized_value = ureg.Quantity(input_value, input_unit).to(target_unit).magnitude
+        normalized = ureg.Quantity(input_value, input_unit).to(target_unit)
+        if spec.base is None:
+            return float(normalized.magnitude)
+        relative = (normalized / ureg.Quantity(base_value, base_unit)).to_reduced_units()
+        return float(relative.magnitude)
     except pint.UndefinedUnitError as error:
-        raise ValueError(f"Unknown unit in conversion: {error}") from error
+        msg = f"Unknown unit in conversion: {error}"
+        raise ValueError(msg) from error
     except pint.DimensionalityError as error:
-        raise ValueError(f"Unit '{input_unit}' is incompatible with '{target_unit}'") from error
-
-    if spec.base is None:
-        return float(normalized_value)
-    return float(normalized_value / base_value)
+        msg = f"Unit '{input_unit}' is incompatible with '{target_unit}'"
+        raise ValueError(msg) from error
 
 
 def format_for_display(

@@ -151,7 +151,8 @@ def pl_pivot_on(
     require_columns(schema_names, group_columns, operation="group_by", data_file=data_file)
     require_columns(schema_names, value_columns, operation="pivot_on", data_file=data_file)
     if not value_columns:
-        raise ValueError(f"pivot_on in {data_file.name!r} requires at least one value column")
+        msg = f"pivot_on in {data_file.name!r} requires at least one value column"
+        raise ValueError(msg)
 
     functions = {function.lower() for function in (proc_spec.aggregate_on or {}).values()}
     aggregate_name = next(iter(functions), "first")
@@ -160,10 +161,11 @@ def pl_pivot_on(
         data_frame.select(value_name).unique(maintain_order=True).collect().get_column(value_name).to_list()
     )
     if any(value is None for value in pivot_values):
-        raise ValueError(
+        msg = (
             f"pivot_on in {data_file.name!r} contains null key(s) in column {value_name!r}; "
             "drop or fill null pivot keys before pivoting."
         )
+        raise ValueError(msg)
     logger.debug("Pivoting {} on {} in {}", value_columns, value_name, data_file.name)
     result = data_frame.pivot(
         on=value_name,
@@ -186,10 +188,11 @@ def require_columns(
     missing = list(dict.fromkeys(column for column in columns if column not in schema_names))
     if missing:
         available = ", ".join(schema_names) or "<none>"
-        raise ValueError(
+        msg = (
             f"{operation} in {data_file.name!r} references missing column(s): {missing}. "
             f"Available columns at this pipeline stage: {available}."
         )
+        raise ValueError(msg)
 
 
 def pl_unpivot_on(
@@ -209,9 +212,8 @@ def pl_unpivot_on(
     index_columns = [column for column in schema_names if column not in value_columns]
     output_collisions = sorted({"variable", "value"} & set(index_columns))
     if output_collisions:
-        raise ValueError(
-            f"unpivot_on in {data_file.name!r} would overwrite existing column(s): {output_collisions}."
-        )
+        msg = f"unpivot_on in {data_file.name!r} would overwrite existing column(s): {output_collisions}."
+        raise ValueError(msg)
     logger.debug("Unpivoting {} in {}", value_columns, data_file.name)
     result = data_frame.unpivot(
         on=value_columns,
@@ -240,9 +242,8 @@ def pl_split_columns(
         require_columns(current_names, [column], operation="split_column", data_file=data_file)
         collisions = sorted(set(split_spec.into) & (set(current_names) - {column}))
         if collisions:
-            raise ValueError(
-                f"split_column in {data_file.name!r} would overwrite existing column(s): {collisions}."
-            )
+            msg = f"split_column in {data_file.name!r} would overwrite existing column(s): {collisions}."
+            raise ValueError(msg)
         split_expression = (
             pl.col(column)
             .cast(pl.String)
@@ -299,7 +300,8 @@ def pl_scale(
     schema = data_frame.collect_schema()
     invalid = {column: schema[column] for column in columns if not schema[column].is_numeric()}
     if invalid:
-        raise ValueError(f"scale requires numeric columns in {data_file.name!r}: {invalid}")
+        msg = f"scale requires numeric columns in {data_file.name!r}: {invalid}"
+        raise ValueError(msg)
     expressions = [pl.col(column).mul(factor).alias(column) for column, factor in proc_spec.scale.items()]
     return TabularTransformResult(data_frame=data_frame.with_columns(expressions), schema_names=schema_names)
 
@@ -579,7 +581,8 @@ def pl_rename_columns(
     require_columns(schema_names, list(valid_mapping), operation="column_mapping", data_file=data_file)
     new_names = [valid_mapping.get(n, n) for n in schema_names]
     if len(set(new_names)) != len(new_names):
-        raise ValueError(f"column_mapping in {data_file.name!r} creates duplicate column names: {new_names}")
+        msg = f"column_mapping in {data_file.name!r} creates duplicate column names: {new_names}"
+        raise ValueError(msg)
     logger.debug("Renaming columns {} in {}", valid_mapping, data_file.name)
     return TabularTransformResult(data_frame=data_frame.rename(valid_mapping), schema_names=new_names)
 

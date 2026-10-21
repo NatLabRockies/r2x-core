@@ -67,35 +67,49 @@ class PolarsTabularBackend(TabularBackend[pl.LazyFrame]):
         try:
             match step:
                 case AssertStep():
-                    predicate = compile_polars_expression(step.predicate).fill_null(False)
+                    column_names = frame.collect_schema().names()
+                    predicate = compile_polars_expression(
+                        step.predicate, column_names=column_names
+                    ).fill_null(False)
                     violations = frame.filter(~predicate).limit(1).collect()
                     if violations.height:
-                        raise ValueError("assert step failed for at least one row")
+                        msg = "assert step failed for at least one row"
+                        raise ValueError(msg)
                 case FilterStep():
-                    frame = frame.filter(compile_polars_expression(step.predicate))
+                    column_names = frame.collect_schema().names()
+                    frame = frame.filter(compile_polars_expression(step.predicate, column_names=column_names))
                 case SelectStep():
+                    column_names = frame.collect_schema().names()
                     frame = frame.select(
-                        [compile_polars_expression(expr).alias(name) for name, expr in step.columns.items()]
+                        [
+                            compile_polars_expression(expr, column_names=column_names).alias(name)
+                            for name, expr in step.columns.items()
+                        ]
                     )
                 case WithColumnsStep():
+                    column_names = frame.collect_schema().names()
                     frame = frame.with_columns(
-                        [compile_polars_expression(expr).alias(name) for name, expr in step.columns.items()]
+                        [
+                            compile_polars_expression(expr, column_names=column_names).alias(name)
+                            for name, expr in step.columns.items()
+                        ]
                     )
                 case UnpivotStep():
                     column_names = frame.collect_schema().names()
                     missing = set(step.index).difference(column_names)
                     if missing:
-                        raise ValueError(f"unpivot index columns not found: {sorted(missing)}")
+                        msg = f"unpivot index columns not found: {sorted(missing)}"
+                        raise ValueError(msg)
                     value_columns = [name for name in column_names if name not in step.index]
                     if not value_columns:
-                        raise ValueError("unpivot requires at least one value column")
+                        msg = "unpivot requires at least one value column"
+                        raise ValueError(msg)
                     if step.variable_name == step.value_name or {
                         step.variable_name,
                         step.value_name,
                     }.intersection(step.index):
-                        raise ValueError(
-                            "unpivot output names must be distinct from each other and the index"
-                        )
+                        msg = "unpivot output names must be distinct from each other and the index"
+                        raise ValueError(msg)
                     frame = frame.unpivot(
                         on=value_columns,
                         index=step.index,
@@ -103,12 +117,17 @@ class PolarsTabularBackend(TabularBackend[pl.LazyFrame]):
                         value_name=step.value_name,
                     )
                 case GroupByStep():
+                    column_names = frame.collect_schema().names()
                     frame = frame.group_by(step.by, maintain_order=True).agg(
-                        [compile_polars_expression(expr).alias(name) for name, expr in step.agg.items()]
+                        [
+                            compile_polars_expression(expr, column_names=column_names).alias(name)
+                            for name, expr in step.agg.items()
+                        ]
                     )
                 case JoinStep():
                     if step.source not in source_frames:
-                        raise ValueError(f"join source {step.source!r} was not provided")
+                        msg = f"join source {step.source!r} was not provided"
+                        raise ValueError(msg)
                     frame = frame.join(
                         source_frames[step.source],
                         on=step.on,
@@ -122,26 +141,29 @@ class PolarsTabularBackend(TabularBackend[pl.LazyFrame]):
                 case CustomStep():
                     handler = self.step_handlers.get(step.handler)
                     if handler is None:
-                        raise ValueError(f"No custom mapping handler registered for {step.handler!r}")
+                        msg = f"No custom mapping handler registered for {step.handler!r}"
+                        raise ValueError(msg)
                     if not isinstance(frame, handler.input_type):
-                        raise ValueError(
+                        msg = (
                             f"Custom mapping handler {step.handler!r} expects {handler.input_type.__name__}, "
                             f"received {type(frame).__name__}"
                         )
+                        raise ValueError(msg)
                     options = handler.options_model.model_validate(step.kwargs)
                     output = handler.apply(frame, options=options)
                     if not isinstance(output, handler.output_type):
-                        raise ValueError(
+                        msg = (
                             f"Custom mapping handler {step.handler!r} declared {handler.output_type.__name__} "
                             f"but returned {type(output).__name__}"
                         )
+                        raise ValueError(msg)
                     if not isinstance(output, pl.LazyFrame):
-                        raise ValueError(
-                            f"Custom mapping handler {step.handler!r} must return a Polars LazyFrame"
-                        )
+                        msg = f"Custom mapping handler {step.handler!r} must return a Polars LazyFrame"
+                        raise ValueError(msg)
                     frame = output
                 case _:
-                    raise ValueError(f"Unsupported mapping operation: {type(step).__name__}")
+                    msg = f"Unsupported mapping operation: {type(step).__name__}"
+                    raise ValueError(msg)
         except (ValueError, TypeError, pl.exceptions.PolarsError) as error:
             return Err(ValueError(f"Mapping operation {step.op!r} failed: {error}"))
         return Ok(frame)

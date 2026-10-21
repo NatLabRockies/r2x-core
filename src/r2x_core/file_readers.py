@@ -25,5 +25,6 @@ class XMLFileReader(FileReader[ElementTree.Element]):
     ) -> ElementTree.Element:
         """Read one XML file and return its root element."""
         if not self.supports_file_type(file_type):
-            raise ValueError(f"XML reader does not support {type(file_type).__name__}")
+            msg = f"XML reader does not support {type(file_type).__name__}"
+            raise ValueError(msg)
         return ElementTree.parse(file_path).getroot()

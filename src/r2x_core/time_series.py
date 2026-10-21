@@ -260,9 +260,10 @@ def replace_single_time_series(
         **features,
     )
     if len(metadata) != 1:
-        raise ValueError(
+        msg = (
             f"Expected one SingleTimeSeries named '{time_series.name}' on {owner.name}, found {len(metadata)}"
         )
+        raise ValueError(msg)
 
     metadata_store = system.time_series.metadata_store
     error: Exception | None = None
@@ -307,7 +308,8 @@ def transfer_time_series_metadata(context: PluginContext) -> TimeSeriesTransferR
     UUID-matched path with no special handling.
     """
     if context.source_system is None or context.target_system is None:
-        raise ValueError("source_system and target_system must be set in context")
+        msg = "source_system and target_system must be set in context"
+        raise ValueError(msg)
 
     source_system = context.source_system
     target_system = context.target_system

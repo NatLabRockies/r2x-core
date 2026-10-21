@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import types
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Union, get_args, get_origin
@@ -54,7 +55,11 @@ class UnitSpec:
 
         base_value = info.data.get(self.base) if info.data is not None else None
         if base_value is None:
-            raise ValueError(f"Base value {self.base!r} is required for unit conversion")
+            msg = f"Base value {self.base!r} is required for unit conversion"
+            raise ValueError(msg)
+        if not math.isfinite(base_value) or base_value == 0:
+            msg = f"Base value {self.base!r} must be finite and non-zero for unit conversion"
+            raise ValueError(msg)
 
         from .mixins import HasUnits
 
@@ -124,11 +129,15 @@ class UnitSpec:
                 info: core_schema.ValidationInfo,
             ) -> Any:
                 """Accept natural structured values or the explicit internal envelope."""
-                if self.base is not None and isinstance(value, dict) and "unit" in value:
+                if (
+                    self.base is not None
+                    and isinstance(value, dict)
+                    and {"value", "unit"} <= value.keys()
+                    and isinstance(value["value"], dict)
+                ):
                     if set(value) != {"value", "unit"} or value["unit"] != "pu":
-                        raise ValueError(
-                            "Serialized structured unit value must be {'value': ..., 'unit': 'pu'}"
-                        )
+                        msg = "Serialized structured unit value must be {'value': ..., 'unit': 'pu'}"
+                        raise ValueError(msg)
                     return next_validator(value["value"])
                 parsed = next_validator(value)
                 return None if parsed is None else self.convert_structured_value(parsed, info)

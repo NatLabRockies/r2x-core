@@ -35,18 +35,19 @@ def getter(func: F | None = None, *, name: str | None = None) -> F | Callable[[F
         """Decorate function."""
         key = name or f.__name__
         if key in GETTER_REGISTRY:
-            raise ValueError(f"Getter '{key}' already registered")
+            msg = f"Getter '{key}' already registered"
+            raise ValueError(msg)
         GETTER_REGISTRY[key] = f
         logger.debug("Registered getter '{}'", key)
         return f
 
     if func is not None:
         if not callable(func):
-            raise TypeError(f"getter() first argument must be callable or None, got {type(func).__name__}")
+            msg = f"getter() first argument must be callable or None, got {type(func).__name__}"
+            raise TypeError(msg)
         if name is not None:
-            raise TypeError(
-                "Cannot specify 'name' when using @getter without parentheses. Use @getter(name='...') instead"
-            )
+            msg = "Cannot specify 'name' when using @getter without parentheses. Use @getter(name='...') instead"
+            raise TypeError(msg)
         return decorate_getter(func)
 
     return decorate_getter

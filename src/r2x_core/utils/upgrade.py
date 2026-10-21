@@ -123,13 +123,13 @@ class UpgradeCoordinator:
     def __post_init__(self) -> None:
         """Require plugin configuration whenever a handler is provided directly."""
         if self.handler is not None and self.plugin_config is None:
-            raise ValueError("plugin_config is required when an upgrade handler is provided")
+            msg = "plugin_config is required when an upgrade handler is provided"
+            raise ValueError(msg)
 
     def resolve(self) -> None:
         """Resolve the configured handler from the plugin config if needed."""
-        self.handler = self.handler or (
-            self.plugin_config.upgrade_handler if self.plugin_config is not None else None
-        )
+        if self.handler is None:
+            self.handler = self.plugin_config.upgrade_handler if self.plugin_config is not None else None
 
     @property
     def can_run(self) -> bool:
@@ -153,7 +153,8 @@ class UpgradeCoordinator:
         logger.info("Running upgrade handler for DataStore (reason: {})", reason)
 
         if self.plugin_config is None:
-            raise ValueError("plugin_config is required to run an upgrade handler")
+            msg = "plugin_config is required to run an upgrade handler"
+            raise ValueError(msg)
 
         ctx = PluginContext(config=self.plugin_config, store=store)
         result: Result[None, str] | None

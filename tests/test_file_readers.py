@@ -187,7 +187,8 @@ def test_polars_file_reader_uses_an_injected_h5_reader(tmp_path):
             reader_config: ReaderConfig,
         ) -> dict[str, np.ndarray]:
             if not self.supports_file_type(file_type):
-                raise ValueError("Expected HDF5 format")
+                msg = "Expected HDF5 format"
+                raise ValueError(msg)
             with h5py.File(file_path, "r") as h5_file:
                 return {"data": np.asarray(h5_file[str(reader_config.kwargs["data_key"])]) * 2}
 

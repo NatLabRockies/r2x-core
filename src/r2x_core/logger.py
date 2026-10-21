@@ -209,10 +209,11 @@ def setup_logging(
       -vv: TRACE and above, with timestamps
     """
     if not log_file and not log_to_console:
-        raise ValueError(
+        msg = (
             "setup_logging called with no sinks: log_file is None and log_to_console is False. "
             "At least one output must be enabled."
         )
+        raise ValueError(msg)
 
     global current_verbosity
 

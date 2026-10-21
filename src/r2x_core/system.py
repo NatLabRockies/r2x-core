@@ -376,7 +376,8 @@ class System(InfrasysSystem):
                 raise NotImplementedError(msg)
 
         if not isinstance(system, cls):
-            raise TypeError(f"Expected {cls.__name__} from deserialization, got {type(system).__name__}")
+            msg = f"Expected {cls.__name__} from deserialization, got {type(system).__name__}"
+            raise TypeError(msg)
 
         for component in system.get_components(Component):
             if isinstance(component, units.HasPerUnit):

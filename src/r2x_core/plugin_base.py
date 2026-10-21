@@ -135,7 +135,8 @@ class Plugin(ABC, Generic[ConfigT]):
             If store is not provided in context.
         """
         if self.ctx.store is None:
-            raise PluginError("DataStore not provided in context")
+            msg = "DataStore not provided in context"
+            raise PluginError(msg)
         return self.ctx.store
 
     @property
@@ -153,7 +154,8 @@ class Plugin(ABC, Generic[ConfigT]):
             If system is not provided in context.
         """
         if self.ctx.system is None:
-            raise PluginError("System not provided in context")
+            msg = "System not provided in context"
+            raise PluginError(msg)
         return self.ctx.system
 
     @property
@@ -171,7 +173,8 @@ class Plugin(ABC, Generic[ConfigT]):
             If source_system is not provided in context.
         """
         if self.ctx.source_system is None:
-            raise PluginError("Source system not provided in context")
+            msg = "Source system not provided in context"
+            raise PluginError(msg)
         return self.ctx.source_system
 
     @property
@@ -189,7 +192,8 @@ class Plugin(ABC, Generic[ConfigT]):
             If target_system is not available in context.
         """
         if self.ctx.target_system is None:
-            raise PluginError("Target system not available")
+            msg = "Target system not available"
+            raise PluginError(msg)
         return self.ctx.target_system
 
     @property
@@ -347,7 +351,8 @@ class Plugin(ABC, Generic[ConfigT]):
             result = hook()
 
             if isinstance(result, Err):
-                raise PluginError(f"{plugin_name} {hook_spec.phase} failed: {result.error}")
+                msg = f"{plugin_name} {hook_spec.phase} failed: {result.error}"
+                raise PluginError(msg)
 
             # Update context if this hook produces a result
             if hook_spec.context_attribute and isinstance(result, Ok):

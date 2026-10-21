@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, ClassVar, cast
+from functools import partial
+from typing import TYPE_CHECKING, Any, ClassVar
 
-from pydantic import BaseModel, GetCoreSchemaHandler, ValidationInfo, field_validator
+from pydantic import GetCoreSchemaHandler
 from pydantic_core import core_schema
 
-from .specs import UnitSpec, unit_value_type
+from .specs import UnitSpec
 
 if TYPE_CHECKING:
     from pydantic.fields import FieldInfo
@@ -50,21 +51,34 @@ class HasUnits:
                 raise TypeError(msg)
 
         cls.unit_specs = specs
-        return schema
 
-    @field_validator("*", mode="before")
-    @classmethod
-    def convert_natural_unit_input(cls, value: Any, info: ValidationInfo) -> Any:
-        """Convert scalar unit mappings using the owning model's base field."""
-        field_name = cast(str, info.field_name)
-        spec = cls.unit_specs.get(field_name)
-        if spec is None or spec.base is None or not isinstance(value, dict):
-            return value
+        def bind_unit_nodes(node: Any) -> Any:
+            if isinstance(node, dict):
+                if node.get("type") == "definitions":
+                    return {**node, "schema": bind_unit_nodes(node["schema"])}
+                # Nested models bind their own units, even when they share field names.
+                if node.get("type") == "model" and node["cls"] is not cls:
+                    return node
+                metadata = node.get("metadata")
+                spec = metadata.get("r2x_core.unit_spec") if isinstance(metadata, dict) else None
+                if isinstance(spec, UnitSpec):
+                    if spec.base is None:
+                        return node
+                    return {
+                        **node,
+                        "function": {
+                            **node["function"],
+                            "function": partial(
+                                node["function"]["function"], base_unit=specs[spec.base].unit
+                            ),
+                        },
+                    }
+                return {key: bind_unit_nodes(value) for key, value in node.items()}
+            if isinstance(node, list):
+                return [bind_unit_nodes(value) for value in node]
+            return node
 
-        value_type = unit_value_type(cls.model_fields[field_name].annotation)
-        if isinstance(value_type, type) and issubclass(value_type, BaseModel):
-            return value
-        return spec.validate_value(value, info, base_unit=cls.unit_specs[spec.base].unit)
+        return bind_unit_nodes(schema)
 
     @property
     def system_base(self) -> float | None:

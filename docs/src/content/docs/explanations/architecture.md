@@ -30,7 +30,7 @@ flowchart TB
 
     subgraph adapters["Adapters"]
         direction LR
-        polars["polars_adapter<br/>PolarsTabularFileReader<br/>PolarsTabularBackend<br/>(optional extra)"]
+        polars["polars_adapter<br/>PolarsTabularFileReader<br/>PolarsTabularBackend<br/>(runtime dependency, lazy import)"]
         h5["h5_adapter<br/>H5PyFileReader → H5Result"]
         json["json_adapter<br/>JSONFileReader<br/>JSONProcessingBackend"]
         xml["file_readers<br/>XMLFileReader"]
@@ -87,10 +87,10 @@ flowchart TB
 ```
 
 Solid arrows are runtime imports. Dotted arrows are "implements" or
-"holds a reference to". The config layer imports nothing below it, which is
-what keeps `from r2x_core import DataFile` at about 0.2 seconds: infrasys,
-pandas, and Polars load only when an execution-layer or plugin-layer module is
-touched.
+"holds a reference to". The config layer imports nothing below it, which
+keeps `from r2x_core import DataFile` from loading infrasys or Polars. Polars is
+imported lazily when the default tabular reader or backend is first used.
+Custom adapters can replace those defaults.
 
 ## Reading one file
 
@@ -189,7 +189,7 @@ flowchart LR
     decl["class Gen(HasPerUnit, Component):<br/>base_power: Annotated[float, Unit('MVA')]<br/>rating: Annotated[float, Unit('pu', base='base_power')]"]
     hook["HasUnits.__get_pydantic_core_schema__"]
     specs["Gen.unit_specs<br/>{base_power: Unit(MVA), rating: Unit(pu, base=base_power)}"]
-    validate["HasUnits.convert_natural_unit_input<br/>base_power=100<br/>{'value': 80, 'unit': 'MVA'} → 0.8"]
+    validate["Model-bound UnitSpec validator<br/>base_power=100<br/>{'value': 80, 'unit': 'MVA'} → 0.8"]
     decl -->|schema construction| hook --> specs
     specs -->|instance validation| validate
 ```
@@ -197,9 +197,14 @@ flowchart LR
 Unit metadata is collected from the model's resolved fields whenever Pydantic
 builds its schema. A `base=` that names a field without a `Unit` raises
 `TypeError` at that point. Immutable annotations can be shared by models and
-subclasses. Validation resolves base units from the owning model, without a
-validation context or subclass walk. Deferred annotations work after a schema
-rebuild.
+subclasses. Schema construction binds each scalar conversion to the owning
+model's base unit without mutating shared annotations or nested models. Input
+parsers such as annotation-level `BeforeValidator` run in Pydantic's normal
+order. Deferred annotations work after a schema rebuild.
+
+Structured relative fields serialize as `{"value": {...}, "unit": "pu"}`.
+The marker distinguishes stored internal values from natural-unit input, so
+Python, JSON, and `System` round trips do not normalize those values twice.
 
 ## Module inventory
 
@@ -214,7 +219,7 @@ rebuild.
 | `tabular_backend` | Frame-engine seam, optional mapping-step protocol and runner, default backend resolver | `TabularBackend` |
 | `json_adapter` | JSON reader, `JSONProcessor` protocol, default processor | none at root |
 | `h5_adapter` | Configuration-driven HDF5 reader producing neutral columns | `H5Reader`, `H5PyFileReader` |
-| `polars_adapter` | Polars reader, backend, expressions, processing (extra) | none at root |
+| `polars_adapter` | Polars reader, backend, expressions, processing (runtime dependency, lazy import) | none at root |
 | `file_readers` | XML reader | none |
 | `reader` | Read-then-process pipeline | `DataReader` |
 | `processors` | Placeholder substitution and spec-type dispatch | none at root |

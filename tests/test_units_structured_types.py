@@ -4,7 +4,7 @@ from typing import Annotated
 
 import pytest
 from infrasys import Component
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, ValidationError
 
 from r2x_core.units import HasUnits, Unit
 
@@ -33,6 +33,21 @@ class MixedLimits(BaseModel):
 class OptionalFields(BaseModel):
     required: float
     optional: float | None = None
+
+
+def test_annotation_before_validator_runs_before_unit_conversion() -> None:
+    def parse_power(value: object) -> object:
+        return {"value": float(value), "unit": "MW"} if isinstance(value, str) else value
+
+    class CustomInput(HasUnits, BaseModel):
+        base_power: Annotated[float, Unit("MW")]
+        power: Annotated[
+            float,
+            Unit("pu", base="base_power"),
+            BeforeValidator(parse_power),
+        ]
+
+    assert CustomInput.model_validate({"base_power": 100.0, "power": "50"}).power == 0.5
 
 
 def test_structured_type_with_unit_conversion():
@@ -89,6 +104,8 @@ def test_structured_type_optional():
 
     gen1 = Generator(name="Gen1", base_power=100.0)
     assert gen1.limits is None
+    assert gen1.model_dump()["limits"] is None
+    assert Generator.model_validate_json(gen1.model_dump_json()).limits is None
 
     gen2 = Generator(
         name="Gen2",
@@ -113,12 +130,36 @@ def test_structured_type_serialization():
 
     serialized = battery.model_dump()
 
-    assert isinstance(serialized["power_limits"], dict)
-    assert serialized["power_limits"]["min"] == -0.8
-    assert serialized["power_limits"]["max"] == 0.8
+    assert serialized["power_limits"] == {
+        "value": {"min": -0.8, "max": 0.8},
+        "unit": "pu",
+    }
 
     deserialized = Battery.model_validate(serialized)
-    assert isinstance(deserialized, Battery)
+    assert deserialized.power_limits.min == -0.8
+    assert deserialized.power_limits.max == 0.8
+
+
+def test_structured_unit_serialization_preserves_aliases_and_exclusions() -> None:
+    class AliasedLimits(BaseModel):
+        model_config = ConfigDict(populate_by_name=True)
+        minimum: float = Field(alias="lo")
+        maximum: float = Field(alias="hi")
+
+    class Device(HasUnits, BaseModel):
+        base_power: Annotated[float, Unit("MW")]
+        limits: Annotated[AliasedLimits, Unit("MW", base="base_power")]
+
+    device = Device.model_validate({"base_power": 50.0, "limits": {"lo": -40.0, "hi": 40.0}})
+    serialized = device.model_dump(by_alias=True, warnings="error")
+    assert serialized["limits"] == {"value": {"lo": -0.8, "hi": 0.8}, "unit": "pu"}
+    restored = Device.model_validate(serialized)
+    assert restored.limits.minimum == -0.8
+    assert restored.limits.maximum == 0.8
+    assert device.model_dump(exclude={"limits": {"maximum"}}, by_alias=True)["limits"] == {
+        "value": {"lo": -0.8},
+        "unit": "pu",
+    }
 
 
 def test_same_structured_type_different_units():
@@ -144,7 +185,8 @@ def test_same_structured_type_different_units():
     assert comp2.voltage_limits.min == 132.0
 
 
-def test_nested_float_only():
+@pytest.mark.parametrize("raw_mapping", [False, True])
+def test_nested_float_only(raw_mapping: bool) -> None:
     class ComplexLimits(BaseModel):
         value: float
         label: str
@@ -154,10 +196,13 @@ def test_nested_float_only():
         base_power: Annotated[float, Unit("MVA")]
         limits: Annotated[ComplexLimits, Unit("MW", base="base_power")]
 
-    device = Device(
-        name="Dev1",
-        base_power=100.0,
-        limits=ComplexLimits(value=50.0, label="test", enabled=True),
+    limits = ComplexLimits(value=50.0, label="test", enabled=True)
+    device = Device.model_validate(
+        {
+            "name": "Dev1",
+            "base_power": 100.0,
+            "limits": limits.model_dump() if raw_mapping else limits,
+        }
     )
 
     assert device.limits.value == 0.5
@@ -225,6 +270,22 @@ def test_structured_type_with_negative_values():
     assert device.limits.max == 0.75
 
 
+def test_structured_serialized_envelope_rejects_invalid_marker() -> None:
+    class Battery(HasUnits, Component):
+        base_power: Annotated[float, Unit("MVA")]
+        power_limits: Annotated[MinMax, Unit("MW", base="base_power")]
+
+    for envelope in (
+        {"value": {"min": 1.0, "max": 2.0}, "unit": "MW"},
+        {"value": {"min": 1.0, "max": 2.0}},
+        {"value": {"min": 1.0, "max": 2.0}, "unit": "pu", "extra": True},
+        {"value": None, "unit": "pu"},
+        None,
+    ):
+        with pytest.raises(ValidationError):
+            Battery.model_validate({"name": "bad", "base_power": 50.0, "power_limits": envelope})
+
+
 def test_structured_type_json_round_trip():
     class Battery(HasUnits, Component):
         base_power: Annotated[float, Unit("MVA")]
@@ -237,6 +298,7 @@ def test_structured_type_json_round_trip():
     )
 
     json_str = battery.model_dump_json()
+    assert '"unit":"pu"' in json_str
     deserialized = Battery.model_validate_json(json_str)
 
     assert deserialized.power_limits.min == -0.8

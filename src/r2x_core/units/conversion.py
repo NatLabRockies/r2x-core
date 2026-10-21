@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
+import math
+from typing import TYPE_CHECKING, Any
 
 import pint
 
@@ -41,41 +42,50 @@ def convert_to_internal(
     Raises
     ------
     ValueError
-        If a required base value or base unit is unavailable.
+        If input is malformed, units are unknown or incompatible, or a required
+        base is missing, zero, or non-finite.
     """
     if isinstance(value, int | float):
         return float(value)
 
-    if not isinstance(value, dict):
-        return 0.0
-
-    if "value" not in value or "unit" not in value:
-        return 0.0
-
-    input_value = float(cast(Any, value["value"]))
-    input_unit_str = str(cast(Any, value["unit"]))
-
-    if spec.base is None:
-        return input_value
-
-    if base_value is None:
-        msg = f"Base field '{spec.base}' is required for unit conversion but was not provided or is None"
-        raise ValueError(msg)
-
-    if base_unit is None:
-        msg = f"Base unit for field '{spec.base}' could not be determined - check field annotations"
-        raise ValueError(msg)
-
-    if input_unit_str == base_unit:
-        return input_value / base_value
+    if not isinstance(value, dict) or "value" not in value or "unit" not in value:
+        raise ValueError("Expected a number or a mapping with 'value' and 'unit' keys")
 
     try:
-        input_quantity = input_value * ureg(input_unit_str)
-        base_quantity = base_value * ureg(base_unit)
-        ratio: pint.Quantity = input_quantity / base_quantity
-        return float(ratio.magnitude)
-    except (pint.UndefinedUnitError, pint.DimensionalityError):
-        return input_value / base_value
+        input_value = float(value["value"])
+    except (TypeError, ValueError) as error:
+        raise ValueError("Unit mapping 'value' must be numeric") from error
+    input_unit = value["unit"]
+    if not isinstance(input_unit, str) or not input_unit:
+        raise ValueError("Unit mapping 'unit' must be a non-empty string")
+
+    if spec.unit == "pu":
+        if input_unit == "pu":
+            return input_value
+        if spec.base is None:
+            raise ValueError("Per-unit conversion requires a declared base field")
+
+    target_unit = base_unit if spec.base is not None else spec.unit
+    if spec.base is not None:
+        if base_value is None:
+            msg = f"Base field '{spec.base}' is required for unit conversion but was not provided or is None"
+            raise ValueError(msg)
+        if base_unit is None:
+            msg = f"Base unit for field '{spec.base}' could not be determined - check field annotations"
+            raise ValueError(msg)
+        if not math.isfinite(base_value) or base_value == 0:
+            raise ValueError(f"Base field '{spec.base}' must be finite and non-zero for per-unit conversion")
+
+    try:
+        normalized_value = ureg.Quantity(input_value, input_unit).to(target_unit).magnitude
+    except pint.UndefinedUnitError as error:
+        raise ValueError(f"Unknown unit in conversion: {error}") from error
+    except pint.DimensionalityError as error:
+        raise ValueError(f"Unit '{input_unit}' is incompatible with '{target_unit}'") from error
+
+    if spec.base is None:
+        return float(normalized_value)
+    return float(normalized_value / base_value)
 
 
 def format_for_display(

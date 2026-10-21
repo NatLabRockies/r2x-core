@@ -293,10 +293,12 @@ reader = DataReader(
 )
 ```
 
-Implement `FileReader` for a supported file format, `TabularBackend` for a
-non-default tabular representation, or `JSONProcessor` for custom JSON
-processing. See `r2x_core.file_reader`, `r2x_core.tabular_backend`, and
-`r2x_core.json_adapter` for their contracts.
+Polars is a runtime dependency for the built-in tabular reader and backend, but
+is imported only when those defaults are used. Implement `FileReader` for a
+supported file format, `TabularBackend` for a non-default tabular representation,
+or `JSONProcessor` for custom JSON processing. Injected adapters remain
+independent of the Polars implementation. See `r2x_core.file_reader`,
+`r2x_core.tabular_backend`, and `r2x_core.json_adapter` for their contracts.
 
 ## Placeholders in paths and processing specs
 

@@ -4,7 +4,7 @@ from typing import Annotated
 
 import pytest
 from infrasys import Component
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from r2x_core.units import HasPerUnit, HasUnits, Unit, UnitSystem, set_unit_system
 
@@ -268,6 +268,49 @@ def test_deferred_unit_annotations_convert_after_model_completion(explicit_rebui
     assert device.rating == pytest.approx(0.8)
     assert set(DeferredDevice.unit_specs) == {"base_power", "rating"}
     assert "0.8 pu" in repr(device)
+
+
+def test_nested_models_keep_their_own_base_units() -> None:
+    class Inner(HasUnits, BaseModel):
+        base_power: Annotated[float, Unit("kW")]
+        rating: Annotated[float, Unit("pu", base="base_power")]
+
+    class Outer(HasUnits, BaseModel):
+        base_power: Annotated[float, Unit("MW")]
+        rating: Annotated[float, Unit("pu", base="base_power")]
+        inner: Inner
+
+    device = Outer.model_validate(
+        {
+            "base_power": 100.0,
+            "rating": {"value": 5000.0, "unit": "kW"},
+            "inner": {"base_power": 100.0, "rating": {"value": 50.0, "unit": "kW"}},
+        }
+    )
+    assert device.rating == 0.05
+    assert device.inner.rating == 0.5
+    assert Outer.model_validate_json(device.model_dump_json()).inner.rating == 0.5
+
+
+def test_unit_binding_preserves_multiple_model_validators() -> None:
+    class Device(HasUnits, BaseModel):
+        base_power: Annotated[float, Unit("MW")]
+        rating: Annotated[float, Unit("pu", base="base_power")]
+
+        @model_validator(mode="before")
+        @classmethod
+        def require_data(cls, value: object) -> object:
+            if not isinstance(value, dict):
+                raise ValueError("Device input must be a mapping")
+            return value
+
+        @model_validator(mode="before")
+        @classmethod
+        def supply_base(cls, value: dict[str, object]) -> dict[str, object]:
+            return {"base_power": 100.0, **value}
+
+    device = Device.model_validate({"rating": {"value": 50.0, "unit": "MW"}})
+    assert device.rating == 0.5
 
 
 def test_missing_base_unit_field_raises_at_class_creation():

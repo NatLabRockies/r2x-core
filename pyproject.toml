@@ -55,12 +55,10 @@ dependencies = [
   "infrasys>=1.0.0,<2.0.0",
   "loguru>=0.7.3,<0.8.0",
   "packaging>=24.0,<26.0",
+  "polars>=1.33.1,<2.0.0",
   "pydantic>=2.11.9,<3.0.0",
   "rust-ok>=0.3.0,<1.0.0",
 ]
-
-[project.optional-dependencies]
-polars = ["polars>=1.33.1,<2.0.0"]
 
 [project.urls]
 Homepage = "https://github.com/NatLabRockies/r2x-core"
@@ -73,7 +71,6 @@ Changelog = "https://natlabrockies.github.io/r2x-core/CHANGELOG.html"
 dev = [
   "h5py-stubs>=0.1.2,<1.0.0",
   "prek>=0.4.1,<0.6.0",
-  "polars>=1.33.1,<2.0.0",
   "pytest>=8.4.2,<10.0.0",
   "pytest-coverage>=0.0,<1.0.0",
   "ruff>=0.13.2,<0.15.0",

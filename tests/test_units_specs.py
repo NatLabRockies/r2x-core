@@ -1,13 +1,12 @@
 """Tests for the UnitSpec class."""
 
+import json
 from dataclasses import FrozenInstanceError
 from typing import Annotated
 
 import pytest
 from infrasys import Component
 from pydantic import BaseModel, ValidationError
-from pydantic.json_schema import JsonSchemaValue
-from pydantic_core import core_schema
 
 from r2x_core.units import HasUnits, Unit
 from r2x_core.units.specs import UnitSpec
@@ -38,6 +37,27 @@ def test_unitspec_dict_input_with_conversion():
     assert gen.rating == 0.8
 
 
+@pytest.mark.parametrize("json_input", [False, True])
+def test_scalar_units_preserve_optional_types_and_natural_conversion(json_input: bool) -> None:
+    class Device(HasUnits, BaseModel):
+        base_power: Annotated[float, Unit("MW")]
+        rating: Annotated[float, Unit("pu", base="base_power")]
+        optional_rating: Annotated[float | None, Unit("pu", base="base_power")]
+
+    data = {"base_power": 100.0, "rating": {"value": 5000.0, "unit": "kW"}, "optional_rating": None}
+    device = Device.model_validate_json(json.dumps(data)) if json_input else Device.model_validate(data)
+    assert device.rating == 0.05
+    assert device.optional_rating is None
+    assert Device.model_validate_json(device.model_dump_json()).optional_rating is None
+
+    data["rating"] = None
+    with pytest.raises(ValidationError):
+        if json_input:
+            Device.model_validate_json(json.dumps(data))
+        else:
+            Device.model_validate(data)
+
+
 def test_unit_annotations_are_immutable() -> None:
     spec = UnitSpec(unit="pu", base="base_power")
 
@@ -63,17 +83,22 @@ def test_unitspec_invalid_input_type():
         TestModel(value={"invalid": "dict"})  # type: ignore[arg-type]
 
 
-def test_unitspec_get_pydantic_json_schema():
-    """Test that JSON schema generation works for UnitSpec."""
-    spec = UnitSpec(unit="MVA", base=None)
+def test_structured_unit_json_schema_describes_serialized_values() -> None:
+    class Limits(BaseModel):
+        minimum: float
+        maximum: float
 
-    def mock_handler(schema: core_schema.CoreSchema) -> JsonSchemaValue:
-        return {"type": "number"}
+    class Device(HasUnits, BaseModel):
+        base_power: Annotated[float, Unit("MW")]
+        limits: Annotated[Limits, Unit("MW", base="base_power")]
 
-    result = spec.__get_pydantic_json_schema__(core_schema.float_schema(), mock_handler)  # type: ignore[arg-type]
-
-    # Should return the result of handler(core_schema.float_schema())
-    assert result == {"type": "number"}
+    schema = Device.model_json_schema(mode="serialization")
+    limits_schema = schema["properties"]["limits"]
+    assert limits_schema["type"] == "object"
+    assert set(limits_schema["required"]) == {"value", "unit"}
+    assert limits_schema["properties"]["unit"]["const"] == "pu"
+    assert limits_schema["properties"]["value"]["$ref"] == "#/$defs/Limits"
+    assert schema["$defs"]["Limits"]["properties"]["minimum"]["type"] == "number"
 
 
 def test_unitspec_serialization_in_model():
@@ -108,4 +133,4 @@ def test_unitspec_no_base_field():
     assert model2.voltage == 13.8
 
     model3 = SimpleModel(voltage={"value": 13800.0, "unit": "V"})  # type: ignore[arg-type]
-    assert model3.voltage == 13800.0
+    assert model3.voltage == 13.8

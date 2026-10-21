@@ -1,12 +1,24 @@
 """Tests for r2x_core.System class."""
 
 from pathlib import Path
+from typing import Annotated
 
 import pytest
 from infrasys import Component, SingleTimeSeries
 from infrasys.exceptions import ISFileExists
+from pydantic import BaseModel
 
 from r2x_core import System, units
+
+
+class SystemPowerLimits(BaseModel):
+    minimum: float
+    maximum: float
+
+
+class SystemUnitComponent(units.HasUnits, Component):
+    base_power: Annotated[float, units.Unit("MW")]
+    limits: Annotated[SystemPowerLimits, units.Unit("MW", base="base_power")]
 
 
 class PerUnitComponentFixture(units.HasPerUnit, Component):
@@ -149,6 +161,24 @@ def test_roundtrip_serialization(tmp_path):
     assert loaded.name == original.name
     assert loaded.description == original.description
     assert len(list(loaded.get_components(Component))) == 1
+
+
+def test_system_round_trip_preserves_structured_per_unit_values(tmp_path: Path) -> None:
+    system = System(name="UnitRoundtrip")
+    component = SystemUnitComponent(
+        name="generator",
+        base_power=50.0,
+        limits=SystemPowerLimits(minimum=-40.0, maximum=40.0),
+    )
+    system.add_components(component)
+
+    path = tmp_path / "unit-roundtrip.json"
+    system.to_json(filename=path)
+    loaded = System.from_json(path)
+    restored = loaded.get_component(SystemUnitComponent, name="generator")
+
+    assert restored.limits.minimum == -0.8
+    assert restored.limits.maximum == 0.8
 
 
 def test_to_json_with_overwrite(tmp_path):

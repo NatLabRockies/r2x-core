@@ -104,8 +104,6 @@ class DataReader:
         ------
         ValueError
             If no configured or default reader supports the format.
-        ImportError
-            If a tabular format needs Polars but the optional dependency is absent.
         """
         for file_reader in self.file_readers:
             if file_reader.supports_file_type(file_type):

@@ -10,7 +10,8 @@ adding a new extension.
 
 The example uses CSV rows as its frame representation. The custom reader takes
 precedence over the built-in CSV reader, and the configured backend handles
-`TabularProcessing` without requiring Polars.
+`TabularProcessing` without importing or invoking Polars. Polars is installed by
+default, but these interfaces do not depend on its frame types.
 
 ```python doctest
 >>> import csv

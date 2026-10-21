@@ -1223,19 +1223,14 @@ dependencies = [
     { name = "infrasys" },
     { name = "loguru" },
     { name = "packaging" },
+    { name = "polars" },
     { name = "pydantic" },
     { name = "rust-ok" },
-]
-
-[package.optional-dependencies]
-polars = [
-    { name = "polars" },
 ]
 
 [package.dev-dependencies]
 dev = [
     { name = "h5py-stubs" },
-    { name = "polars" },
     { name = "prek" },
     { name = "pytest" },
     { name = "pytest-coverage" },
@@ -1261,16 +1256,14 @@ requires-dist = [
     { name = "infrasys", specifier = ">=1.0.0,<2.0.0" },
     { name = "loguru", specifier = ">=0.7.3,<0.8.0" },
     { name = "packaging", specifier = ">=24.0,<26.0" },
-    { name = "polars", marker = "extra == 'polars'", specifier = ">=1.33.1,<2.0.0" },
+    { name = "polars", specifier = ">=1.33.1,<2.0.0" },
     { name = "pydantic", specifier = ">=2.11.9,<3.0.0" },
     { name = "rust-ok", specifier = ">=0.3.0,<1.0.0" },
 ]
-provides-extras = ["polars"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "h5py-stubs", specifier = ">=0.1.2,<1.0.0" },
-    { name = "polars", specifier = ">=1.33.1,<2.0.0" },
     { name = "prek", specifier = ">=0.4.1,<0.6.0" },
     { name = "pytest", specifier = ">=8.4.2,<10.0.0" },
     { name = "pytest-coverage", specifier = ">=0.0,<1.0.0" },

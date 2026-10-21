@@ -7,7 +7,7 @@ conversion, per-unit values, display modes, or unit-aware model validation.
 
 - `Unit(unit: str, *, base: str | None = None) -> UnitSpec`
 - `HasUnits` collects immutable unit metadata when Pydantic builds or rebuilds
-  a model schema. It resolves base units from the owning model during validation
+  a model schema. It binds scalar conversion to the owning model's base units
   and formats unit-aware fields in `repr`.
 - `HasPerUnit` extends `HasUnits` with optional system-base display support.
 - `set_unit_system(unit_system: UnitSystem) -> None`
@@ -106,16 +106,32 @@ For `Annotated[float, Unit("pu", base="base_power")]`:
 - Dict input such as `{"value": 40.0, "unit": "MW"}` is converted to
   per-unit using `base_power` and the base field's `Unit(...)` annotation.
 - Dict input must contain both `value` and `unit`.
+- Compatible prefixes are normalized before division. For example, 5000 kW
+  against a 100 MW base becomes 0.05 pu.
 - Natural-unit conversion needs both the base value and the base unit
-  annotation. If the base value is absent during validation, current source may
-  keep the numeric input rather than failing.
-- Internal stored representation remains a float.
+  annotation. Declare base fields before dependent fields. Missing, zero, or
+  non-finite bases fail conversion, as do unknown or incompatible units.
+- Internal stored representation remains a float. Optional annotations accept
+  `None` in both Python and JSON validation.
 
 For `Annotated[float, Unit("kV")]` or other fields without `base=...`:
 
 - Numeric input is stored as a float.
-- Dict input with `value` and `unit` stores the numeric value; it does not
-  perform unit conversion or dimensional checking in current source.
+- Dict input with `value` and `unit` converts compatible units to the declared
+  unit. For example, `{"value": 13800, "unit": "V"}` becomes 13.8 kV.
+- Unknown or dimensionally incompatible units fail validation.
+
+For structured fields such as `Annotated[Limits, Unit("MW", base="base_power")]`:
+
+- A model instance or bare mapping is natural-unit input. Its numeric fields
+  are divided by the base once.
+- `model_dump()` and `model_dump_json()` use an explicit internal envelope:
+  `{"value": {"minimum": -0.8, "maximum": 0.8}, "unit": "pu"}`.
+- Validating that envelope checks the nested model without dividing again.
+  The same representation is used in `System` persistence.
+- `None` stays `None` for optional structured fields.
+- Bare structured mappings are always natural input. Do not load previously
+  saved bare per-unit mappings as if they were marked internal values.
 
 ## Display modes
 

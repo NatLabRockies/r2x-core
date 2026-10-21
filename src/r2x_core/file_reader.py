@@ -32,14 +32,7 @@ class FileReader(ABC, Generic[FileOutputT]):
 
 
 def default_tabular_file_reader() -> FileReader[Any]:
-    """Create the default Polars file reader, importing Polars only when requested."""
-    try:
-        from .polars_adapter import PolarsTabularFileReader
-    except ModuleNotFoundError as error:
-        if error.name != "polars":
-            raise
-        raise ImportError(
-            'The default tabular file reader requires the "polars" extra. Install '
-            "r2x-core[polars] or configure a FileReader."
-        ) from error
+    """Create the default Polars reader, importing Polars only when requested."""
+    from .polars_adapter import PolarsTabularFileReader
+
     return PolarsTabularFileReader()

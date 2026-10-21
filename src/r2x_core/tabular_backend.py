@@ -77,15 +77,8 @@ class MappingStepBackend(Protocol[FrameT]):
 
 def default_tabular_backend() -> TabularBackend[Any]:
     """Create the default Polars backend, importing Polars only when requested."""
-    try:
-        from .polars_adapter import PolarsTabularBackend
-    except ModuleNotFoundError as error:
-        if error.name != "polars":
-            raise
-        raise ImportError(
-            'The default tabular backend requires the "polars" extra. Install '
-            "r2x-core[polars] or provide a TabularBackend."
-        ) from error
+    from .polars_adapter import PolarsTabularBackend
+
     return PolarsTabularBackend()
 
 

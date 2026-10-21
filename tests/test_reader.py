@@ -1,6 +1,12 @@
 from pathlib import Path
 
 import pytest
+from processing_spec_fixtures import json_processing, tabular_processing
+
+from r2x_core.models import JSONProcessing as JSONProcessingModel
+from r2x_core.models import RenameColumnsStep
+from r2x_core.models import TabularProcessing as TabularProcessingModel
+from r2x_core.types import FileRequirement
 
 
 @pytest.fixture
@@ -45,7 +51,7 @@ def test_reader_uses_injected_file_reader_and_non_polars_backend(tmp_path):
 
     from rust_ok import Ok, Result
 
-    from r2x_core.datafile import DataFile, ReaderConfig, TabularProcessing
+    from r2x_core.datafile import DataFile, ReaderConfig
     from r2x_core.file_reader import FileReader
     from r2x_core.reader import DataReader
     from r2x_core.tabular_backend import TabularBackend
@@ -83,9 +89,12 @@ def test_reader_uses_injected_file_reader_and_non_polars_backend(tmp_path):
             frame: CsvRows,
             *,
             data_file: DataFile,
-            proc_spec: TabularProcessing,
+            proc_spec: TabularProcessingModel,
         ) -> Result[CsvRows, ValueError]:
-            column_mapping = proc_spec.column_mapping or {}
+            rename_step = next(
+                (step for step in proc_spec.steps if isinstance(step, RenameColumnsStep)), None
+            )
+            column_mapping = rename_step.column_mapping if rename_step is not None else {}
             return Ok(
                 CsvRows(
                     [
@@ -103,7 +112,7 @@ def test_reader_uses_injected_file_reader_and_non_polars_backend(tmp_path):
     data_file = DataFile(
         name="alternate-backend",
         fpath=csv_path,
-        proc_spec=TabularProcessing(column_mapping={"old_name": "name"}),
+        proc_spec=tabular_processing(column_mapping={"old_name": "name"}),
     )
 
     result = reader.read_data_file(data_file, folder_path=tmp_path)
@@ -130,7 +139,7 @@ def test_read_optional_missing_file(reader_example, tmp_path):
     dummy_file = tmp_path / "dummy.csv"
     dummy_file.write_text("col1,col2\n1,2\n")
 
-    data_file = DataFile(name="test", fpath=dummy_file, info=FileInfo(is_optional=True))
+    data_file = DataFile(name="test", fpath=dummy_file, info=FileInfo(requirement=FileRequirement.OPTIONAL))
     dummy_file.unlink()
 
     result = reader_example.read_data_file(data_file, folder_path=tmp_path)
@@ -144,7 +153,7 @@ def test_read_required_missing_file(reader_example, tmp_path):
     dummy_file = tmp_path / "dummy.csv"
     dummy_file.write_text("col1,col2\n1,2\n")
 
-    data_file = DataFile(name="test", fpath=dummy_file, info=FileInfo(is_optional=False))
+    data_file = DataFile(name="test", fpath=dummy_file, info=FileInfo(requirement=FileRequirement.REQUIRED))
 
     dummy_file.unlink()
 
@@ -213,7 +222,7 @@ def test_json_processing_does_not_import_polars(tmp_path: Path) -> None:
     code = """
 import sys
 from pathlib import Path
-from r2x_core.datafile import DataFile, JSONProcessing
+from r2x_core import DataFile, JSONProcessing
 from r2x_core.reader import DataReader
 
 path = Path(sys.argv[1])
@@ -221,7 +230,7 @@ path.write_text('{"old":"value"}', encoding="utf-8")
 data_file = DataFile(
     name="lazy-json",
     fpath=path,
-    proc_spec=JSONProcessing(key_mapping={"old": "new"}),
+    proc_spec=JSONProcessing(steps=[{"op": "rename_keys", "mapping": {"old": "new"}}]),
 )
 assert DataReader().read_data_file(data_file, folder_path=path.parent) == {"new": "value"}
 assert "polars" not in sys.modules
@@ -239,7 +248,7 @@ assert "polars" not in sys.modules
 def test_reader_uses_an_injected_json_processor(tmp_path):
     from rust_ok import Err, Ok, Result
 
-    from r2x_core.datafile import DataFile, JSONProcessing
+    from r2x_core.datafile import DataFile
     from r2x_core.json_adapter import JSONProcessor
     from r2x_core.reader import DataReader
     from r2x_core.types import JSONValue
@@ -250,7 +259,7 @@ def test_reader_uses_an_injected_json_processor(tmp_path):
             data: JSONValue,
             *,
             data_file: DataFile,
-            proc_spec: JSONProcessing,
+            proc_spec: JSONProcessingModel,
         ) -> Result[JSONValue, ValueError]:
             if not isinstance(data, dict):
                 return Err(ValueError("Expected a JSON object"))
@@ -260,7 +269,7 @@ def test_reader_uses_an_injected_json_processor(tmp_path):
     path = tmp_path / "payload.json"
     path.write_text('{"name":"grid","capacity":4}', encoding="utf-8")
     reader = DataReader(json_processor=processor)
-    data_file = DataFile(name="custom-transform", fpath=path, proc_spec=JSONProcessing())
+    data_file = DataFile(name="custom-transform", fpath=path, proc_spec=json_processing())
 
     result = reader.read_data_file(data_file, folder_path=tmp_path)
 
@@ -310,13 +319,13 @@ def test_read_data_file_with_custom_reader(reader_example, sample_csv, tmp_path)
 
 
 def test_read_data_file_with_processing_error(reader_example, sample_csv, tmp_path):
-    from r2x_core.datafile import DataFile, TabularProcessing
+    from r2x_core.datafile import DataFile
     from r2x_core.exceptions import ReaderError
 
     data_file = DataFile(
         name="test",
         fpath=sample_csv,
-        proc_spec=TabularProcessing(column_schema={"a": "invalid_type_name"}),
+        proc_spec=tabular_processing(column_schema={"a": "invalid_type_name"}),
     )
 
     with pytest.raises(ReaderError):
@@ -345,14 +354,14 @@ def test_read_data_file_substitutes_placeholders_in_path_sources(reader_example,
 
 
 def test_read_data_file_substitutes_boolean_and_numeric_processing_placeholders(reader_example, tmp_path):
-    from r2x_core.datafile import DataFile, TabularProcessing
+    from r2x_core.datafile import DataFile
 
     csv_path = tmp_path / "typed.csv"
     csv_path.write_text("Value\n2\n")
     data_file = DataFile(
         name="typed-placeholders",
         fpath=csv_path,
-        proc_spec=TabularProcessing(lowercase="{enabled}", scale={"value": "{factor}"}),
+        proc_spec=tabular_processing(lowercase="{enabled}", scale={"value": "{factor}"}),
     )
 
     result = reader_example.read_data_file(
@@ -374,7 +383,7 @@ def test_read_data_file_rejects_unknown_path_placeholder(reader_example, tmp_pat
 
 
 def test_read_data_file_combines_multiple_header_rows_and_processes_them(reader_example, tmp_path):
-    from r2x_core.datafile import DataFile, ReaderConfig, TabularProcessing
+    from r2x_core.datafile import DataFile, ReaderConfig
 
     csv_path = tmp_path / "profiles.csv"
     csv_path.write_text("Model Year,2025,2025,2030\nZone,NYISO_A,NYISO_B,NYISO_A\nNYISO,10,20,30\n")
@@ -382,7 +391,7 @@ def test_read_data_file_combines_multiple_header_rows_and_processes_them(reader_
         name="profiles",
         fpath=csv_path,
         reader=ReaderConfig(kwargs={"header_rows": 2}),
-        proc_spec=TabularProcessing(
+        proc_spec=tabular_processing(
             unpivot_on=["2025|NYISO_A", "2025|NYISO_B", "2030|NYISO_A"],
             split_column={"variable": {"separator": "|", "into": ["year", "zone"]}},
             column_schema={"year": "int"},
@@ -437,7 +446,7 @@ def test_read_optional_data_file_missing_h5_group(reader_example, tmp_path):
     data_file = DataFile(
         name="fuel_price",
         fpath=h5_path,
-        info=FileInfo(is_optional=True),
+        info=FileInfo(requirement=FileRequirement.OPTIONAL),
         reader=ReaderConfig(kwargs={"group_key": "fuel_price"}),
     )
 
@@ -459,7 +468,7 @@ def test_read_required_data_file_missing_h5_group_raises(reader_example, tmp_pat
     data_file = DataFile(
         name="fuel_price",
         fpath=h5_path,
-        info=FileInfo(is_optional=False),
+        info=FileInfo(requirement=FileRequirement.REQUIRED),
         reader=ReaderConfig(kwargs={"group_key": "fuel_price"}),
     )
 
@@ -501,13 +510,13 @@ def test_read_data_file_h5_group(reader_example, tmp_path):
 def test_custom_reader_applies_processing(reader_example, sample_csv, tmp_path):
     import polars as pl
 
-    from r2x_core.datafile import DataFile, ReaderConfig, TabularProcessing
+    from r2x_core.datafile import DataFile, ReaderConfig
 
     data_file = DataFile(
         name="custom-processed",
         fpath=sample_csv,
         reader=ReaderConfig(function=lambda path: pl.LazyFrame({"old": [1]})),
-        proc_spec=TabularProcessing(column_mapping={"old": "new"}),
+        proc_spec=tabular_processing(column_mapping={"old": "new"}),
     )
 
     result = reader_example.read_data_file(data_file, folder_path=tmp_path)
@@ -518,17 +527,17 @@ def test_custom_reader_applies_processing(reader_example, sample_csv, tmp_path):
 def test_custom_reader_processing_errors_are_reader_errors(reader_example, sample_csv, tmp_path):
     import polars as pl
 
-    from r2x_core.datafile import DataFile, ReaderConfig, TabularProcessing
+    from r2x_core.datafile import DataFile, ReaderConfig
     from r2x_core.exceptions import ReaderError
 
     data_file = DataFile(
         name="custom-invalid",
         fpath=sample_csv,
         reader=ReaderConfig(function=lambda path: pl.LazyFrame({"a": [1]})),
-        proc_spec=TabularProcessing(filter_by={"missing": "x"}),
+        proc_spec=tabular_processing(filter_by={"missing": "x"}),
     )
 
-    with pytest.raises(ReaderError, match="filter_by"):
+    with pytest.raises(ReaderError, match="filter_columns"):
         reader_example.read_data_file(data_file, folder_path=tmp_path)
 
 

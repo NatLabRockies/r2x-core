@@ -1,512 +1,129 @@
-"""Data Model for datafiles (refactored to nested models)."""
+"""Configuration models for input data files."""
 
-import math
+from __future__ import annotations
+
 from collections.abc import Callable
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, ClassVar
 
-from pydantic import (
-    AfterValidator,
-    BaseModel,
-    ConfigDict,
-    Field,
-    StringConstraints,
-    ValidationError,
-    ValidationInfo,
-    computed_field,
-    field_validator,
-    model_validator,
-)
+from pydantic import AfterValidator, ConfigDict, Field, ValidationError, model_validator
 from pydantic_core import InitErrorDetails
 from rust_ok import is_err
 
-from .types import EXTENSION_MAPPING, PLACEHOLDER_PATTERN, FileFormat, JSONFormat, TableDataFormat
+from .types import (
+    EXTENSION_MAPPING,
+    PLACEHOLDER_PATTERN,
+    FileFormat,
+    FileProcessing,
+    FileRequirement,
+    FileType,
+    JSONFormat,
+    StrictModel,
+    TableDataFormat,
+)
 from .utils.files import resolve_path
 from .utils.validation import validate_file_extension, validate_glob_pattern
 
-ProcessingPlaceholder = Annotated[str, StringConstraints(pattern=r"^\{[^{}]+\}$")]
-SUPPORTED_AGGREGATIONS = frozenset(
-    {"count", "first", "last", "max", "mean", "median", "min", "n_unique", "std", "sum", "var"}
-)
-PIVOT_AGGREGATIONS = SUPPORTED_AGGREGATIONS - {"n_unique", "std", "var"}
 
-
-def extension_for_path_source(
-    fpath: Path | None,
-    relative_fpath: Path | str | None,
-    glob: str | None,
-) -> str | None:
-    """Return the extension encoded by one DataFile path source."""
-    if fpath is not None:
-        return fpath.suffix.lower()
-    if relative_fpath is not None:
-        return Path(relative_fpath).suffix.lower()
-    if glob is not None and "." in glob:
-        return "." + glob.rsplit(".", 1)[-1].rstrip("*?[]")
-    return None
-
-
-def validate_optional_file_extension(path: Path | None, info: ValidationInfo) -> Path | None:
-    """Run validate_file_extension when a path is provided."""
-    if path is None:
+def extension_for_path_source(path_source: Path | str | None, /) -> str | None:
+    """Return the extension encoded by one configured path source."""
+    if path_source is None:
         return None
-    return validate_file_extension(path, info=info)
+    suffix = Path(path_source).suffix.lower()
+    return suffix.rstrip("*?[]") or None
 
 
-class FileInfo(BaseModel):
-    """File metadata and properties.
+class FileInfo(StrictModel):
+    """Describe data semantics and availability for one input file."""
 
-    Contains descriptive information about the data file, including its role
-    in the workflow, whether it contains time series data, and units for
-    single-column files.
-
-    Attributes
-    ----------
-    description : str | None
-        Human-readable description of the file purpose.
-    is_input : bool
-        Whether the file is an input source. Default is True.
-    is_optional : bool
-        Whether the file is optional for processing. Default is False.
-    is_timeseries : bool
-        Whether the file contains time series data. Default is False.
-    units : str | None
-        Units for single-column numeric data. Default is None.
-
-    See Also
-    --------
-    :class:`DataFile` : Complete data file configuration.
-    """
-
-    description: Annotated[str | None, Field(description="Description of the data file")] = None
-    is_input: Annotated[bool, Field(description="Whether this is an input file")] = True
-    is_optional: Annotated[bool, Field(description="Whether this file is optional")] = False
-    is_timeseries: Annotated[bool, Field(description="Whether file contains time series data")] = False
-    units: Annotated[str | None, Field(description="Units for single-column data")] = None
-
-    model_config = ConfigDict(extra="forbid")
+    description: str | None = None
+    file_type: FileType = FileType.STATIC
+    requirement: FileRequirement = FileRequirement.REQUIRED
+    units: str | None = None
 
 
-class ReaderConfig(BaseModel):
-    """Reader configuration for file loading.
+class ReaderConfig(StrictModel):
+    """Configure a custom reader or pass keyword arguments to a built-in one."""
 
-    Specifies how to read the data file, including keyword arguments for
-    the default reader or a custom function for specialized file formats.
-
-    Attributes
-    ----------
-    function : Callable[..., Any] | None
-        Custom reader function that takes a file path and configured keyword
-        arguments and returns loaded data. The argument types are dynamic
-        because each reader defines its own options.
-        If None, uses the default reader for the file type. Default is None.
-    kwargs : dict[str, Any]
-        Keyword arguments passed to the reader function. Default is empty.
-
-    See Also
-    --------
-    :class:`DataFile` : Complete data file configuration.
-    :class:`DataStore` : Container that uses ReaderConfig to load files.
-    """
-
-    kwargs: Annotated[dict[str, Any], Field(default_factory=dict, description="Keyword arguments for reader")]
-    function: Annotated[Callable[..., Any] | None, Field(description="Custom reader function")] = None
-
-    model_config = ConfigDict(extra="forbid")
+    kwargs: dict[str, Any] = Field(default_factory=dict)
+    function: Callable[..., Any] | None = None
 
 
-class SplitColumnSpec(BaseModel):
-    """Configuration for splitting a string column into named fields."""
+class DataFile(StrictModel):
+    """Describe one input file, its reader, metadata, and ordered processing."""
 
-    separator: Annotated[str, Field(min_length=1, description="Literal separator to split on")]
-    into: Annotated[list[str], Field(min_length=2, description="Names for the resulting columns")]
+    name: str
+    fpath: Annotated[Path | None, AfterValidator(validate_file_extension)] = None
+    relative_fpath: Path | str | None = None
+    glob: Annotated[str | None, AfterValidator(validate_glob_pattern)] = None
+    info: FileInfo = Field(default_factory=FileInfo)
+    reader: ReaderConfig = Field(default_factory=ReaderConfig)
+    proc_spec: FileProcessing | None = None
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
 
     @model_validator(mode="after")
-    def validate_output_columns(self) -> "SplitColumnSpec":
-        """Require distinct, non-empty output column names."""
-        if any(not name.strip() for name in self.into):
-            msg = "split_column output names cannot be empty"
-            raise ValueError(msg)
-        if len(set(self.into)) != len(self.into):
-            msg = "split_column output names must be unique"
-            raise ValueError(msg)
-        return self
-
-
-class TabularProcessing(BaseModel):
-    """Data transformations for tabular files (CSV, HDF5, Parquet, etc.).
-
-    Transitional contract
-    ---------------------
-    This is the current ``DataFile.proc_spec`` contract and remains in use until
-    ordered mapping steps reach parity, as described in the
-    `Tabular Processing Roadmap <https://natlabrockies.github.io/r2x-core/explanations/tabular-processing-roadmap/>`_.
-
-    Defines a sequence of operations to apply to tabular data after loading.
-    Supports column selection, filtering, reshaping, aggregation, and more.
-
-    Attributes
-    ----------
-    select_columns : list[str] | None
-        List of column names to keep. Removes all other columns.
-    drop_columns : list[str] | None
-        List of column names to remove.
-    column_mapping : dict[str, str] | None
-        Maps original column names to new names.
-    column_schema : dict[str, str] | None
-        Maps column names to data types for type coercion.
-    filter_by : dict[str, Any] | None
-        Conditions for filtering rows by column values.
-    pivot_on : str | None
-        Input column used for a long-to-wide pivot. The column must exist.
-    unpivot_on : list[str] | None
-        Value columns to unpivot. Remaining columns are retained as identifier
-        columns, and the generated columns are named ``variable`` and ``value``.
-    group_by : list[str] | None
-        Columns to group by before applying ``aggregate_on``.
-    aggregate_on : dict[str, str] | None
-        Mapping of columns to supported aggregation functions.
-    sort_by : dict[str, str] | None
-        Columns and sort directions for ordering. Directions are ``asc`` or
-        ``desc`` (the ``ascending`` and ``descending`` aliases are also accepted).
-    distinct_on : list[str] | None
-        Columns to use for deduplication.
-    replace_values : dict[Any, Any] | None
-        Maps old values to new values across compatible columns.
-    fill_null : dict[str, Any] | None
-        Specifies fill values for null entries by column.
-    lowercase : bool | str
-        If True, lowercase column names and string values before processing. A
-        complete placeholder may defer the boolean value until processing.
-    strip_chars : dict[str, list[str]] | None
-        Literal strings to remove from configured columns before casting.
-    scale : dict[str, float | str] | None
-        Multipliers applied to numeric columns after casting. A complete
-        placeholder may defer a multiplier until processing.
-    split_column : dict[str, SplitColumnSpec] | None
-        Split columns into named fields using a literal separator.
-
-    See Also
-    --------
-    :class:`DataFile` : Uses TabularProcessing in proc_spec field.
-    :class:`JSONProcessing` : Transformations for JSON files.
-    """
-
-    select_columns: Annotated[list[str] | None, Field(description="Columns to keep")] = None
-    drop_columns: Annotated[list[str] | None, Field(description="Columns to remove")] = None
-    column_mapping: Annotated[dict[str, str] | None, Field(description="Column rename mapping")] = None
-    column_schema: Annotated[dict[str, str] | None, Field(description="Column type definitions")] = None
-    filter_by: Annotated[dict[str, Any] | None, Field(description="Row filters")] = None
-    pivot_on: Annotated[str | None, Field(description="Input column used for a long-to-wide pivot")] = None
-    unpivot_on: Annotated[list[str] | None, Field(description="Columns to unpivot")] = None
-    group_by: Annotated[list[str] | None, Field(description="Columns to group by")] = None
-    aggregate_on: Annotated[dict[str, str] | None, Field(description="Aggregation spec")] = None
-    sort_by: Annotated[dict[str, str] | None, Field(description="Sort specification")] = None
-    distinct_on: Annotated[list[str] | None, Field(description="Columns for deduplication")] = None
-    replace_values: Annotated[dict[Any, Any] | None, Field(description="Value replacement map")] = None
-    fill_null: Annotated[dict[str, Any] | None, Field(description="Null fill values")] = None
-    lowercase: Annotated[
-        bool | ProcessingPlaceholder,
-        Field(description="Lowercase column names and string values; accepts complete placeholders"),
-    ] = False
-    strip_chars: Annotated[
-        dict[str, list[str]] | None, Field(description="Literal strings to remove from string columns")
-    ] = None
-    scale: Annotated[
-        dict[str, float | ProcessingPlaceholder] | None,
-        Field(description="Numeric multipliers by column; accepts complete placeholders"),
-    ] = None
-    split_column: Annotated[
-        dict[str, SplitColumnSpec] | None, Field(description="Split string columns into named fields")
-    ] = None
-
-    model_config = ConfigDict(extra="forbid")
-
-    @model_validator(mode="after")
-    def validate_operations(self) -> "TabularProcessing":
-        """Reject ambiguous operation combinations and invalid options."""
-        if self.pivot_on and self.unpivot_on:
-            msg = "pivot_on and unpivot_on are mutually exclusive"
-            raise ValueError(msg)
-        if self.group_by and not self.aggregate_on:
-            msg = "group_by requires aggregate_on"
-            raise ValueError(msg)
-        if self.pivot_on and self.pivot_on in (self.group_by or ()):
-            msg = "pivot_on cannot also be a group_by column"
-            raise ValueError(msg)
-        if self.pivot_on and self.pivot_on in (self.aggregate_on or ()):
-            msg = "pivot_on cannot also be an aggregate_on column"
-            raise ValueError(msg)
-        if self.aggregate_on and set(self.group_by or ()) & set(self.aggregate_on):
-            overlapping = sorted(set(self.group_by or ()) & set(self.aggregate_on))
-            msg = f"aggregate_on cannot aggregate group_by column(s): {overlapping}"
-            raise ValueError(msg)
-        if self.pivot_on and self.aggregate_on:
-            pivot_functions = {
-                function.lower()
-                for function in self.aggregate_on.values()
-                if PLACEHOLDER_PATTERN.search(function) is None
-            }
-            if len(pivot_functions) > 1:
-                msg = "pivot_on requires one aggregation function for all value columns"
-                raise ValueError(msg)
-            unsupported_pivot_functions = pivot_functions - PIVOT_AGGREGATIONS
-            if unsupported_pivot_functions:
-                msg = (
-                    "pivot_on does not support aggregation function(s): "
-                    + ", ".join(sorted(unsupported_pivot_functions))
-                    + f". Supported pivot aggregations: {', '.join(sorted(PIVOT_AGGREGATIONS))}."
-                )
-                raise ValueError(msg)
-        if self.aggregate_on:
-            invalid = {
-                column: function
-                for column, function in self.aggregate_on.items()
-                if PLACEHOLDER_PATTERN.search(function) is None
-                and function.lower() not in SUPPORTED_AGGREGATIONS
-            }
-            if invalid:
-                msg = (
-                    "Unsupported aggregation function(s): "
-                    + ", ".join(f"{column}={function!r}" for column, function in invalid.items())
-                    + f". Supported functions: {', '.join(sorted(SUPPORTED_AGGREGATIONS))}."
-                )
-                raise ValueError(msg)
-        if self.scale:
-            invalid_scales = {
-                column: factor
-                for column, factor in self.scale.items()
-                if not isinstance(factor, str) and not math.isfinite(factor)
-            }
-            if invalid_scales:
-                msg = f"scale values must be finite numbers: {invalid_scales}"
-                raise ValueError(msg)
-        if self.strip_chars:
-            invalid_characters = {
-                column: values
-                for column, values in self.strip_chars.items()
-                if any(not value for value in values)
-            }
-            if invalid_characters:
-                msg = f"strip_chars values must be non-empty strings: {invalid_characters}"
-                raise ValueError(msg)
-        if self.sort_by:
-            invalid_directions = {
-                column: direction
-                for column, direction in self.sort_by.items()
-                if PLACEHOLDER_PATTERN.search(direction) is None
-                and direction.lower() not in {"asc", "ascending", "desc", "descending"}
-            }
-            if invalid_directions:
-                msg = (
-                    "Unsupported sort direction(s): "
-                    + ", ".join(f"{column}={direction!r}" for column, direction in invalid_directions.items())
-                    + ". Use asc, ascending, desc, or descending."
-                )
-                raise ValueError(msg)
-        return self
-
-
-class JSONProcessing(BaseModel):
-    """Data transformations for JSON files.
-
-    Defines operations for processing JSON-structured data, including key
-    selection, filtering, and value transformations.
-
-    Attributes
-    ----------
-    key_mapping : dict[str, str] | None
-        Maps original JSON keys to new key names.
-    rename_index : str | None
-        New name for the dictionary keys.
-    drop_columns : list[str] | None
-        Keys to remove from nested dictionaries.
-    filter_by : dict[str, Any] | None
-        Conditions for filtering JSON objects by key values.
-    replace_values : dict[Any, Any] | None
-        Maps old values to new values for replacement.
-    select_keys : list[str] | None
-        Select specific keys to keep.
-
-    See Also
-    --------
-    :class:`DataFile` : Uses JSONProcessing in proc_spec field.
-    :class:`TabularProcessing` : Transformations for tabular files.
-    """
-
-    key_mapping: Annotated[dict[str, str] | None, Field(description="Key rename mapping (JSON-specific)")] = (
-        None
-    )
-    rename_index: Annotated[str | None, Field(description="Rename dict keys")] = None
-    drop_keys: Annotated[list[str] | None, Field(description="Keys to drop from nested dicts")] = None
-    filter_by: Annotated[dict[str, Any] | None, Field(description="Filter conditions")] = None
-    replace_values: Annotated[dict[Any, Any] | None, Field(description="Value replacement map")] = None
-    select_keys: Annotated[list[str] | None, Field(description="Select certain keys.")] = None
-
-    model_config = ConfigDict(extra="forbid")
-
-
-FileProcessing = TabularProcessing | JSONProcessing
-
-
-class DataFile(BaseModel):
-    """Data file configuration with nested structure.
-
-    Defines how to locate, read, and transform a single data file. Supports
-    absolute paths, relative paths, and glob patterns. Processing is applied
-    after reading and is type-specific (tabular or JSON).
-
-    Parameters
-    ----------
-    name : str
-        Unique identifier for this file mapping.
-    fpath : Path | None, optional
-        Absolute path to the data file. Exactly one of fpath, relative_fpath,
-        or glob must be specified. Default is None.
-    relative_fpath : Path | str | None, optional
-        Path relative to DataStore folder. Default is None.
-    glob : str | None, optional
-        Glob pattern to locate files. Default is None.
-    info : FileInfo | None, optional
-        File metadata including role, optionality, time series flag.
-        Default is None.
-    reader : ReaderConfig | None, optional
-        Reader configuration specifying kwargs and custom functions.
-        Default is None.
-    proc_spec : FileProcessing | None, optional
-        Data transformations (TabularProcessing or JSONProcessing).
-        Default is None.
-
-    Raises
-    ------
-    ValueError
-        If path sources are not exactly one of: fpath, relative_fpath, glob.
-    ValueError
-        If file type does not support time series, or its processing model is
-        incompatible with the file format.
-
-    See Also
-    --------
-    :class:`FileInfo` : File metadata.
-    :class:`ReaderConfig` : Reader configuration.
-    :class:`TabularProcessing` : Transformations for tabular files.
-    :class:`JSONProcessing` : Transformations for JSON files.
-    :class:`DataStore` : Container that manages DataFile instances.
-    """
-
-    name: Annotated[str, Field(description="Name of the mapping")]
-    fpath: Annotated[
-        Path | None,
-        AfterValidator(validate_optional_file_extension),
-        Field(description="Absolute file path"),
-    ] = None
-    relative_fpath: Annotated[Path | str | None, Field(description="Relative file path")] = None
-    glob: Annotated[str | None, AfterValidator(validate_glob_pattern), Field(description="Glob pattern")] = (
-        None
-    )
-    info: Annotated[FileInfo | None, Field(description="File metadata")] = None
-    reader: Annotated[ReaderConfig | None, Field(description="Reader configuration")] = None
-    proc_spec: Annotated[FileProcessing | None, Field(description="Data transformations")] = None
-
-    model_config = ConfigDict(frozen=True)
-
-    @field_validator("proc_spec", mode="before")
-    @classmethod
-    def parse_processing_for_file_format(cls, value: Any, info: ValidationInfo) -> Any:
-        """Parse mapping configurations with the model required by their format."""
-        if not isinstance(value, dict):
-            return value
-
-        extension = extension_for_path_source(
-            info.data.get("fpath"),
-            info.data.get("relative_fpath"),
-            info.data.get("glob"),
-        )
-        if extension is None:
-            return value
-
-        format_type = EXTENSION_MAPPING.get(extension)
-        if format_type is None:
-            return value
-        if issubclass(format_type, TableDataFormat):
-            return TabularProcessing.model_validate(value)
-        if issubclass(format_type, JSONFormat):
-            return JSONProcessing.model_validate(value)
-        return value
-
-    @model_validator(mode="after")
-    def validate_path_sources(self) -> "DataFile":
-        """Validate that exactly one of fpath, relative_fpath, or glob is specified."""
-        paths_set = sum([self.fpath is not None, self.relative_fpath is not None, self.glob is not None])
-        if paths_set == 0:
+    def validate_data_file(self) -> DataFile:
+        """Validate path sources and ensure processing matches the file format."""
+        path_sources = [self.fpath, self.relative_fpath, self.glob]
+        configured_sources = [path for path in path_sources if path is not None]
+        if len(configured_sources) != 1:
             msg = "Exactly one of 'fpath', 'relative_fpath', or 'glob' must be specified"
-            raise ValueError(msg)
-        if paths_set > 1:
-            msg = "Multiple path sources specified. Use exactly one of: 'fpath', 'relative_fpath', or 'glob'"
             raise ValueError(msg)
 
         if self.fpath is not None:
-            is_optional = self.info.is_optional if self.info else False
             has_template = PLACEHOLDER_PATTERN.search(str(self.fpath)) is not None
+            is_optional = self.info.requirement is FileRequirement.OPTIONAL
             if not is_optional and not has_template and not self.fpath.exists():
                 msg = f"File not found: {self.fpath}"
                 raise FileNotFoundError(msg)
 
+        if self.proc_spec is not None:
+            file_format = self.file_format
+            if isinstance(file_format, TableDataFormat) and self.proc_spec.kind != "tabular":
+                msg = "Tabular files require TabularProcessing."
+                raise ValueError(msg)
+            if isinstance(file_format, JSONFormat) and self.proc_spec.kind != "json":
+                msg = "JSON files require JSONProcessing."
+                raise ValueError(msg)
+            if not isinstance(file_format, TableDataFormat | JSONFormat):
+                msg = f"{type(file_format).__name__} files do not support processing specifications."
+                raise ValueError(msg)
         return self
 
-    @model_validator(mode="after")
-    def validate_processing_model(self) -> "DataFile":
-        """Ensure the processing model matches the file's format."""
-        if self.proc_spec is None:
-            return self
-
-        file_type = self.file_type
-        if isinstance(file_type, TableDataFormat):
-            if not isinstance(self.proc_spec, TabularProcessing):
-                msg = f"Tabular files require TabularProcessing, got {type(self.proc_spec).__name__}."
-                raise ValueError(msg)
-        elif isinstance(file_type, JSONFormat):
-            if not isinstance(self.proc_spec, JSONProcessing):
-                msg = f"JSON files require JSONProcessing, got {type(self.proc_spec).__name__}."
-                raise ValueError(msg)
-        else:
-            msg = f"{type(file_type).__name__} files do not support processing specifications."
-            raise ValueError(msg)
-        return self
-
-    @computed_field
     @property
-    def file_type(self) -> FileFormat:
-        """Computed file type based on file extension."""
-        extension = extension_for_path_source(self.fpath, self.relative_fpath, self.glob)
+    def file_format(self) -> FileFormat:
+        """Return the physical file format inferred from its path source."""
+        path_source = next(
+            (path for path in (self.fpath, self.relative_fpath, self.glob) if path is not None),
+            None,
+        )
+        extension = extension_for_path_source(path_source)
         if extension is None:
             if self.glob is not None:
-                msg = "Cannot determine file type from glob pattern without extension"
+                msg = "Cannot determine file format from glob pattern without an extension"
             else:
-                msg = "Either fpath, relative_fpath, or glob must be set"
+                msg = "A path source is required to determine the file format"
             raise ValueError(msg)
+        try:
+            file_format_class = EXTENSION_MAPPING[extension]
+        except KeyError:
+            msg = f"Unsupported file extension {extension!r}. Supported: {', '.join(EXTENSION_MAPPING)}"
+            raise ValueError(msg) from None
 
-        if extension not in EXTENSION_MAPPING:
-            msg = f"{extension=} not found on EXTENSION_MAPPING"
+        if self.info.file_type is FileType.TIME_SERIES and not file_format_class.supports_timeseries:
+            msg = f"File format {file_format_class.__name__} does not support time-series data"
             raise ValueError(msg)
-        file_type_class = EXTENSION_MAPPING[extension]
-
-        if self.info and self.info.is_timeseries and not file_type_class.supports_timeseries:
-            msg = f"File type {file_type_class.__name__} does not support time series data"
-            raise ValueError(msg)
-
-        return file_type_class()
+        return file_format_class()
 
     @classmethod
-    def from_record(cls, record: dict[str, Any], *, folder_path: Path) -> "DataFile":
-        """Build a DataFile from a record with exactly one path source.
-
-        Relative paths are resolved against ``folder_path``. Glob patterns are
-        retained for resolution when the data file is read.
-        """
+    def from_record(cls, record: dict[str, Any], *, folder_path: Path) -> DataFile:
+        """Build a DataFile record with relative paths resolved against a folder."""
         record_copy = dict(record)
         info = record_copy.get("info")
-        is_optional = bool(info.get("is_optional")) if isinstance(info, dict) else False
+        is_optional = (
+            isinstance(info, dict) and info.get("requirement", FileRequirement.REQUIRED.value) == "optional"
+        )
         path_fields = [
             field for field in ("fpath", "relative_fpath", "glob") if record_copy.get(field) is not None
         ]
@@ -530,29 +147,27 @@ class DataFile(BaseModel):
         return cls.model_validate(record_copy)
 
     @classmethod
-    def from_records(cls, records: list[dict[str, Any]], *, folder_path: Path) -> list["DataFile"]:
-        """Construct multiple DataFile instances from JSON records."""
+    def from_records(cls, records: list[dict[str, Any]], *, folder_path: Path) -> list[DataFile]:
+        """Construct multiple DataFile instances and aggregate invalid records."""
         data_files: list[DataFile] = []
         errors: list[ValidationError] = []
 
         for idx, record in enumerate(records):
             try:
                 data_files.append(cls.from_record(record, folder_path=folder_path))
-
-            except ValidationError as exc:
-                errors.append(exc)
-
-            except (FileNotFoundError, KeyError, TypeError, ValueError) as exc:
-                path_error = isinstance(exc, FileNotFoundError)
+            except ValidationError as error:
+                errors.append(error)
+            except (FileNotFoundError, KeyError, TypeError, ValueError) as error:
+                path_error = isinstance(error, FileNotFoundError)
                 errors.append(
                     ValidationError.from_exception_data(
                         title=f"Record[{idx}] {'path resolution' if path_error else 'invalid path source'} error",
                         line_errors=[
                             {
                                 "type": "value_error",
-                                "input": str(exc),
+                                "input": str(error),
                                 "loc": ("fpath" if path_error else "path",),
-                                "ctx": {"error": str(exc), "exc_type": type(exc).__name__},
+                                "ctx": {"error": error, "exc_type": type(error).__name__},
                             }
                         ],
                     )
@@ -570,7 +185,6 @@ class DataFile(BaseModel):
                     if "ctx" in details:
                         init_error["ctx"] = details["ctx"]
                     line_errors.append(init_error)
-
             raise ValidationError.from_exception_data(
                 title="Invalid data file records",
                 line_errors=line_errors,
@@ -585,7 +199,7 @@ class DataFile(BaseModel):
         folder_path: Path,
         must_exist: bool = True,
     ) -> Path:
-        """Resolve a raw path into an absolute path with optional checking."""
+        """Resolve a raw path under a folder and optionally require it to exist."""
         result = resolve_path(raw_path, base_folder=folder_path, must_exist=must_exist)
         if is_err(result):
             raise result.err()

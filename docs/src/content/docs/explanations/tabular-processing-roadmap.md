@@ -1,44 +1,60 @@
 ---
-title: "Tabular Processing Roadmap"
-description: "The current processing contract and parity gates for its replacement."
+title: "Ordered Processing"
+description: "How tabular and JSON processing specs preserve declared operation order."
 ---
 
-`TabularProcessing` is the current contract for `DataFile.proc_spec`. It is
-transitional.
+`TabularProcessing` and `JSONProcessing` are strict configuration models with
+ordered, tagged steps. Every operation runs in the order declared by its `steps`
+list. There is no hidden branch that changes the order based on the selected
+operations.
 
-## Why it is transitional
+## Tabular processing
 
-`TabularProcessing` has 17 optional operation fields, but their execution order
-is implicit. `polars_adapter.processing.process_tabular_data` contains two
-hard-coded orderings, selected according to whether `unpivot_on` is set. Each
-new transform requires a placement decision in both orderings.
+A tabular spec contains `MappingStep` variants such as `filter`,
+`rename_columns`, `unpivot_columns`, `aggregate`, `sort`, and `unique`. Each step
+validates its own inputs and is dispatched by the configured `TabularBackend`.
+The default Polars backend implements the core operations. Applications can
+provide a different backend for their frame type.
 
-## Intended replacement
+```python doctest
+>>> from r2x_core import TabularProcessing
+>>> processing = TabularProcessing(steps=[
+...     {"op": "unpivot_columns", "columns": ["2025", "2030"]},
+...     {"op": "rename_columns", "column_mapping": {"variable": "year"}},
+...     {"op": "sort", "by": {"year": "asc"}},
+... ])
+>>> [step.op for step in processing.steps]
+['unpivot_columns', 'rename_columns', 'sort']
+```
 
-An ordered list of `MappingStep` from `r2x_core.models` will be executed by
-`tabular_backend.apply_mapping_steps`, which delegates each operation to
-`MappingStepBackend.apply_mapping_operation`. The executor exists today and is
-exercised by `tests/test_polars_adapter.py`. The step-list form is not yet a
-supported `DataFile.proc_spec`.
+The JSON `kind` tag is `"tabular"` and is filled by the model when omitted.
+Serialized file mappings include the tag so `FileProcessing` can validate the
+union without guessing the schema.
 
-`PolarsTabularBackend` implements both contracts. A backend that only processes
-`DataFile` inputs needs just `TabularBackend.supports_data` and `process`.
+## JSON processing
 
-## Parity checklist
+`JSONProcessing` uses a separate set of steps for JSON values, including
+`rename_keys`, `drop_keys`, `filter`, `replace_values`, and `select_keys`.
+Its `kind` tag is `"json"`.
 
-The replacement is gated on all of the following:
+```python doctest
+>>> from r2x_core import JSONProcessing
+>>> processing = JSONProcessing(steps=[
+...     {"op": "rename_keys", "mapping": {"old": "new"}},
+...     {"op": "select_keys", "keys": ["new"]},
+... ])
+>>> [step.op for step in processing.steps]
+['rename_keys', 'select_keys']
+```
 
-1. A pivot step equivalent to `pivot_on` with `group_by` and `aggregate_on`.
-2. A drop-columns step.
-3. Sort direction on `SortStep`.
-4. A replace-values expression or step.
-5. Behavioral equivalence tests that run every existing `TabularProcessing` test
-   fixture through an equivalent `MappingStep` list and compare collected frames.
+## Validation and execution
 
-When parity lands, remove `TabularProcessing` in the same change. The two models
-must not ship as alternatives for the same `DataFile`.
+Strict models reject unknown fields, and each tagged step has a closed schema.
+For example, column renaming and filtering are separate operations rather than
+optional fields whose interaction depends on a global execution order. A
+processing error is returned as a `Result` by the backend and surfaced by
+`DataReader` as a `ReaderError`.
 
-## Configuration authors
-
-Continue using `TabularProcessing` today. The step-list form is not a supported
-`proc_spec` yet.
+See the [processor reference](/r2x-core/references/processors/) for the
+supported steps and [custom readers and backends](/r2x-core/how-tos/custom-readers-and-backends/)
+for the extension interfaces.

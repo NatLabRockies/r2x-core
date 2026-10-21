@@ -7,11 +7,12 @@ from typing import Any
 from pydantic import ValidationError as PydanticValidationError
 from rust_ok import Err, Ok, Result, is_err
 
-from .datafile import DataFile, FileProcessing, JSONProcessing, TabularProcessing
+from .datafile import DataFile
 from .exceptions import ValidationError
 from .json_adapter import JSONProcessor, default_json_processor
+from .models import JSONProcessing, TabularProcessing
 from .tabular_backend import TabularBackend, default_tabular_backend
-from .types import PLACEHOLDER_PATTERN
+from .types import PLACEHOLDER_PATTERN, FileProcessing
 
 
 def substitute_placeholders(
@@ -138,8 +139,7 @@ def apply_processing(
     data_file: DataFile,
     proc_spec: FileProcessing | None,
     placeholders: dict[str, Any] | None = None,
-    tabular_backend: TabularBackend[Any] | None = None,
-    json_processor: JSONProcessor | None = None,
+    processor: TabularBackend[Any] | JSONProcessor | None = None,
 ) -> Result[Any, ValueError | ValidationError]:
     """Apply the processor selected by the configured processing specification."""
     if proc_spec is None:
@@ -162,12 +162,16 @@ def apply_processing(
 
     match proc_spec:
         case TabularProcessing():
-            backend = tabular_backend if tabular_backend is not None else default_tabular_backend()
-            if not backend.supports_data(data):
+            selected = processor if processor is not None else default_tabular_backend()
+            if not isinstance(selected, TabularBackend):
+                return Err(ValueError("TabularProcessing requires a TabularBackend"))
+            if not selected.supports_data(data):
                 return Err(
-                    ValueError(f"{type(backend).__name__} does not support data type {type(data).__name__}")
+                    ValueError(f"{type(selected).__name__} does not support data type {type(data).__name__}")
                 )
-            return backend.process(data, data_file=data_file, proc_spec=proc_spec)
+            return selected.process(data, data_file=data_file, proc_spec=proc_spec)
         case JSONProcessing():
-            processor = json_processor if json_processor is not None else default_json_processor()
-            return processor.process(data, data_file=data_file, proc_spec=proc_spec)
+            if isinstance(processor, TabularBackend):
+                return Err(ValueError("JSONProcessing requires a JSONProcessor"))
+            selected = processor if processor is not None else default_json_processor()
+            return selected.process(data, data_file=data_file, proc_spec=proc_spec)

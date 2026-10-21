@@ -1,7 +1,7 @@
 # File formats and validation
 
-`DataFile.file_type` returns a lightweight marker selected from the file
-extension. Format markers and `EXTENSION_MAPPING` are defined in
+`DataFile.file_format` returns a lightweight marker selected from the file
+extension. Format markers and `EXTENSION_MAPPING` are exposed through
 `r2x_core.types`.
 
 ## Supported formats
@@ -23,7 +23,7 @@ that format to load the file.
 >>> from r2x_core.types import EXTENSION_MAPPING, H5Format, JSONFormat, TableDataFormat, TableFormat
 >>> csv_file = DataFile(name="profiles", relative_fpath="profiles.csv")
 >>> h5_file = DataFile(name="load", relative_fpath="load.h5")
->>> isinstance(csv_file.file_type, TableFormat), isinstance(h5_file.file_type, H5Format)
+>>> isinstance(csv_file.file_format, TableFormat), isinstance(h5_file.file_format, H5Format)
 (True, True)
 >>> EXTENSION_MAPPING[".json"] is JSONFormat
 True

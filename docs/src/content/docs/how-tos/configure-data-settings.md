@@ -4,87 +4,79 @@ title: "Configuring Data Settings"
 
 <span id="configuring-data-settings"></span>
 
-Define data source configurations as JSON to manage file paths, units, filtering rules, and metadata. Use [`from_json`](/r2x-core/references/api/) to load configurations into a [`DataStore`](/r2x-core/references/api/).
+`DataStore` loads an array of `DataFile` records from JSON. File metadata is
+nested under `info`, and processing settings use a tagged `proc_spec` with
+ordered steps.
 
-## Define Data Configuration in JSON
-
-Create a JSON configuration file that describes multiple data files with their properties and processing rules:
+## Define file records
 
 ```python doctest
->>> import json
 >>> config = [
 ...     {
 ...         "name": "generators",
 ...         "relative_fpath": "gen_data.csv",
-...         "description": "Generator capacity data",
-...         "units": "MW"
+...         "info": {"description": "Generator capacity", "units": "MW"},
 ...     },
 ...     {
 ...         "name": "loads",
 ...         "relative_fpath": "load_data.csv",
-...         "description": "Load profiles",
-...         "filter_by": {"year": 2030}
-...     }
+...         "info": {"file_type": "time_series", "requirement": "optional"},
+...         "proc_spec": {
+...             "kind": "tabular",
+...             "steps": [
+...                 {"op": "filter_columns", "filter_by": {"year": 2030}}
+...             ],
+...         },
+...     },
 ... ]
->>> # Verify configuration structure
->>> config[0]["name"]
-'generators'
->>> config[1]["relative_fpath"]
-'load_data.csv'
->>> len(config)
-2
+>>> config[1]["proc_spec"]["steps"][0]["op"]
+'filter_columns'
 ```
 
-## Load Configuration into a DataStore
+`file_type` describes static versus time-series content. `requirement`
+controls whether a missing input is skipped. The physical format is inferred
+from the file extension and is not configured as `file_type`.
 
-Load a JSON configuration file to create a [`DataStore`](/r2x-core/references/api/) with all file definitions:
+## Load configuration into a DataStore
 
 ```python doctest
 >>> from pathlib import Path
->>> from r2x_core import DataStore
+>>> from tempfile import TemporaryDirectory
 >>> import json
->>> import tempfile
->>>
->>> # Create a temporary config file for demonstration
->>> with tempfile.TemporaryDirectory() as tmpdir:
-...     # Create sample CSV files
-...     gen_path = Path(tmpdir) / "gen_data.csv"
-...     _ = gen_path.write_text("name,capacity\nGen1,100\nGen2,200\n")
-...     load_path = Path(tmpdir) / "load_data.csv"
-...     _ = load_path.write_text("zone,load\nZone1,50\nZone2,75\n")
-...
-...     config = [
-...         {"name": "generators", "fpath": str(gen_path)},
-...         {"name": "loads", "fpath": str(load_path)}
-...     ]
-...     config_path = Path(tmpdir) / "data_config.json"
-...     with open(config_path, "w") as f:
-...         json.dump(config, f)
-...
-...     # Load the configuration
-...     store = DataStore.from_json(str(config_path), path=tmpdir)
-...     files = store.list_data()
-...     print("Configured files:", len(files))
-...     print("Generator data configured:", "generators" in files)
-Configured files: 2
-Generator data configured: True
+>>> from r2x_core import DataStore
+>>> with TemporaryDirectory() as directory:
+...     root = Path(directory)
+...     gen_path = root / "gen_data.csv"
+...     _ = gen_path.write_text("name,capacity\nGen1,100\n", encoding="utf-8")
+...     config_path = root / "data_config.json"
+...     _ = config_path.write_text(
+...         json.dumps([{"name": "generators", "fpath": str(gen_path)}]),
+...         encoding="utf-8",
+...     )
+...     store = DataStore.from_json(config_path, path=root)
+...     store.list_data()
+['generators']
 ```
 
-## Configuration File Format
+## Record fields
 
-A configuration JSON file should be an array of objects, each representing a [`DataFile`](/r2x-core/references/api/) with properties such as:
+A file record accepts one path source: `fpath`, `relative_fpath`, or `glob`.
+Optional metadata belongs in `info`, for example:
 
-- **name**: Unique identifier for the data source
-- **fpath**: Relative path to the data file
-- **description**: Human-readable description of the data
-- **units**: Unit of measurement if applicable
-- **is_timeseries**: Boolean indicating if data contains time-varying values
-- **filter_by**: Dictionary of column-value pairs for filtering rows
+- `description`: human-readable context.
+- `file_type`: `static` or `time_series`.
+- `requirement`: `required` or `optional`.
+- `units`: units for single-column data.
 
-## See Also
+A tabular `proc_spec` has `kind: "tabular"` and an ordered `steps` list. A JSON
+`proc_spec` has `kind: "json"` and JSON-specific steps. See the
+[processor reference](/r2x-core/references/processors/) for supported
+operations and examples.
 
-- [manage datastores](/r2x-core/how-tos/manage-datastores/) - Manage data file collections
-- [read data files](/r2x-core/how-tos/read-data-files/) - Read configured data files
-- [process file data](/r2x-core/how-tos/process-file-data/) - Apply transformations during reading
-- [`DataStore`](/r2x-core/references/api/) - DataStore API reference
-- [`DataFile`](/r2x-core/references/api/) - DataFile API reference
+## See also
+
+- [Manage datastores](/r2x-core/how-tos/manage-datastores/)
+- [Read data files](/r2x-core/how-tos/read-data-files/)
+- [Process file data](/r2x-core/how-tos/process-file-data/)
+- [`DataStore`](/r2x-core/references/api/)
+- [`DataFile`](/r2x-core/references/api/)

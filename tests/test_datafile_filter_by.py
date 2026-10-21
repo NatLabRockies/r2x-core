@@ -29,7 +29,10 @@ def test_filter_by_with_solve_year_substitution(tmp_path: Path):
         {
             "name": "generators",
             "fpath": "generators.csv",
-            "proc_spec": {"filter_by": {"year": "{solve_year}"}},
+            "proc_spec": {
+                "kind": "tabular",
+                "steps": [{"op": "filter_columns", "filter_by": {"year": "{solve_year}"}}],
+            },
         }
     ]
     mapping_file.write_text(json.dumps(mapping))
@@ -64,11 +67,17 @@ def test_filter_by_with_multiple_config_variables(tmp_path: Path):
             "name": "filtered_data",
             "fpath": "data.csv",
             "proc_spec": {
-                "filter_by": {
-                    "year": "{solve_year}",
-                    "weather_year": "{weather_year}",
-                    "scenario": "{scenario}",
-                },
+                "kind": "tabular",
+                "steps": [
+                    {
+                        "op": "filter_columns",
+                        "filter_by": {
+                            "year": "{solve_year}",
+                            "weather_year": "{weather_year}",
+                            "scenario": "{scenario}",
+                        },
+                    }
+                ],
             },
         }
     ]
@@ -102,7 +111,8 @@ def test_filter_by_with_config_variable_in_list(tmp_path: Path):
             "name": "multi_year",
             "fpath": "data.csv",
             "proc_spec": {
-                "filter_by": {"year": [2025, "{solve_year}"]},
+                "kind": "tabular",
+                "steps": [{"op": "filter_columns", "filter_by": {"year": [2025, "{solve_year}"]}}],
             },
         }
     ]
@@ -136,7 +146,13 @@ def test_filter_by_with_custom_config_fields(tmp_path: Path):
             "name": "custom_filter",
             "fpath": "data.csv",
             "proc_spec": {
-                "filter_by": {"model_year": "{model_year}", "horizon_year": "{horizon_year}"},
+                "kind": "tabular",
+                "steps": [
+                    {
+                        "op": "filter_columns",
+                        "filter_by": {"model_year": "{model_year}", "horizon_year": "{horizon_year}"},
+                    }
+                ],
             },
         }
     ]
@@ -170,7 +186,8 @@ def test_filter_by_placeholder_without_substitutions_fails_gracefully(tmp_path: 
             "name": "test_data",
             "fpath": "data.csv",
             "proc_spec": {
-                "filter_by": {"year": "{solve_year}"},
+                "kind": "tabular",
+                "steps": [{"op": "filter_columns", "filter_by": {"year": "{solve_year}"}}],
             },
         }
     ]
@@ -204,7 +221,8 @@ def test_filter_by_unknown_placeholder_fails_gracefully(tmp_path: Path):
             "name": "test_data",
             "fpath": "data.csv",
             "proc_spec": {
-                "filter_by": {"year": "{unknown_var}"},
+                "kind": "tabular",
+                "steps": [{"op": "filter_columns", "filter_by": {"year": "{unknown_var}"}}],
             },
         }
     ]

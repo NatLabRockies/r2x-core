@@ -20,8 +20,10 @@ unfamiliar symbol, or docs and runtime behavior disagree.
 - `r2x_core.rules`: `Rule`, `RuleFilter`
 - `r2x_core.rules_executor`: `apply_rules_to_context`, `apply_single_rule`
 - `r2x_core.store`: `DataStore`
-- `r2x_core.datafile`: `DataFile`, `ReaderConfig`, processing specs
-- `r2x_core.h5_adapter`, `r2x_core.polars_adapter`, and `r2x_core.file_readers`: format readers
+- `r2x_core.datafile`: `DataFile`, `FileInfo`, `ReaderConfig`
+- `r2x_core.models`: ordered tabular and JSON processing specs
+- `r2x_core.rules`: concrete `FieldFilter`, `GetterFilter`, `AnyOfFilter`, and `AllOfFilter` models
+- `r2x_core.h5_adapter`, `r2x_core.polars_adapter`, `r2x_core.json_adapter`, and `r2x_core.xml_adapter`: format readers
 - `r2x_core.units`: `HasUnits`, `HasPerUnit`, `UnitSystem`, `Unit`
 - `r2x_core.versioning`: version strategies and `VersionReader`
 - `r2x_core.utils`: `UpgradeStep`, `UpgradeType`, `run_upgrade_step`

@@ -3,10 +3,10 @@ title: "Architecture"
 description: "The r2x-core layers, adapter seams, and execution flows."
 ---
 
-r2x-core is three layers with one model each. The config layer describes inputs
-and rules as Pydantic models. The execution layer reads files, processes frames,
-and applies rules. The seams are the two abstract classes an application
-implements to plug in its own file formats or frame engine.
+r2x-core separates configuration models, adapter interfaces, and execution.
+The config layer describes inputs and rules as Pydantic models. The execution
+layer reads files, processes tabular or JSON data, and applies rules. File
+readers, tabular backends, and JSON processors are injectable adapter seams.
 
 ## Layers
 
@@ -14,9 +14,10 @@ implements to plug in its own file formats or frame engine.
 flowchart TB
     subgraph config["Config layer (pure Pydantic, no infrasys, no Polars)"]
         direction LR
-        types["types<br/>FileFormat markers<br/>EXTENSION_MAPPING<br/>PLACEHOLDER_PATTERN"]
-        datafile["datafile<br/>DataFile · FileInfo · ReaderConfig<br/>TabularProcessing · JSONProcessing"]
-        models["models<br/>MappingStep · Expression"]
+        vocabulary["type_vocabulary<br/>shared enums, constraints, formats<br/>StrictModel"]
+        types["types<br/>public aliases and processing union"]
+        datafile["datafile<br/>DataFile · FileInfo · ReaderConfig"]
+        models["models<br/>TabularProcessing · JSONProcessing<br/>MappingStep · Expression"]
         rules["rules<br/>Rule · RuleFilter<br/>SupplementalAttributeRule"]
         plugin_config["plugin_config<br/>PluginConfig<br/>active_versions · upgrade_handler"]
     end
@@ -33,7 +34,7 @@ flowchart TB
         polars["polars_adapter<br/>PolarsTabularFileReader<br/>PolarsTabularBackend<br/>(runtime dependency, lazy import)"]
         h5["h5_adapter<br/>H5PyFileReader → H5Result"]
         json["json_adapter<br/>JSONFileReader<br/>JSONProcessingBackend"]
-        xml["file_readers<br/>XMLFileReader"]
+        xml["xml_adapter<br/>XMLFileReader"]
     end
 
     subgraph exec["Execution layer"]
@@ -54,8 +55,9 @@ flowchart TB
         units["units<br/>HasUnits · HasPerUnit · Unit"]
     end
 
+    types --> vocabulary
     datafile --> types
-    models --> types
+    models --> vocabulary
     rules --> types
     file_reader --> datafile
     tabular_backend --> datafile
@@ -106,11 +108,11 @@ sequenceDiagram
     App->>DataStore: read_data("generators", placeholders=...)
     DataStore->>DataReader: read_data_file(DataFile, folder_path, placeholders)
     DataReader->>DataReader: substitute_path_placeholders · get_fpath
-    DataReader->>DataReader: select_file_reader(file_type)
+    DataReader->>DataReader: select_file_reader(file_format)
     Note over DataReader: first configured FileReader that supports the format,<br/>else the lazily created default Polars reader
-    DataReader->>FileReader: read_file(file_type, file_path, reader_config)
+    DataReader->>FileReader: read_file(file_format, file_path, reader_config)
     FileReader-->>DataReader: raw data (LazyFrame · JSONValue · Element)
-    DataReader->>apply_processing: (raw, data_file, proc_spec, placeholders, tabular_backend, json_processor)
+    DataReader->>apply_processing: (raw, data_file, proc_spec, placeholders, selected_processor)
     apply_processing->>apply_processing: substitute placeholders in proc_spec
     alt proc_spec is TabularProcessing
         apply_processing->>TabularBackend: process(frame, data_file, proc_spec)
@@ -210,9 +212,10 @@ Python, JSON, and `System` round trips do not normalize those values twice.
 
 | Module | Role | Root exports |
 | --- | --- | --- |
-| `types` | Format markers, extension map, shared regex and type aliases | `FileFormat`, `H5Format` |
-| `datafile` | Input file configuration and processing specs | `DataFile`, `FileInfo`, `ReaderConfig`, `TabularProcessing`, `JSONProcessing`, `SplitColumnSpec` |
-| `models` | Ordered mapping steps and expressions (future `proc_spec`) | none |
+| `type_vocabulary` | Shared enums, format markers, constraints, and strict base model | none |
+| `types` | Public aliases and discriminated processing union | `FileFormat`, `H5Format`, `FileProcessing` |
+| `datafile` | Input file configuration and metadata | `DataFile`, `FileInfo`, `ReaderConfig` |
+| `models` | Ordered processing specs, mapping steps, and expressions | `TabularProcessing`, `JSONProcessing`, `SplitColumnSpec` |
 | `rules` | Translation rule declarations | `Rule`, `RuleFilter`, `SupplementalAttributeRule` |
 | `plugin_config` | Typed plugin configuration and asset paths | `PluginConfig` |
 | `file_reader` | File-format seam and default tabular reader resolver | `FileReader` |
@@ -220,7 +223,7 @@ Python, JSON, and `System` round trips do not normalize those values twice.
 | `json_adapter` | JSON reader, `JSONProcessor` protocol, default processor | none at root |
 | `h5_adapter` | Configuration-driven HDF5 reader producing neutral columns | `H5Reader`, `H5PyFileReader` |
 | `polars_adapter` | Polars reader, backend, expressions, processing (runtime dependency, lazy import) | none at root |
-| `file_readers` | XML reader | none |
+| `xml_adapter` | XML reader | none |
 | `reader` | Read-then-process pipeline | `DataReader` |
 | `processors` | Placeholder substitution and spec-type dispatch | none at root |
 | `store` | Named `DataFile` collection, mapping JSON loading, upgrade retry | `DataStore` |
@@ -242,9 +245,8 @@ Python, JSON, and `System` round trips do not normalize those values twice.
 ## Design rules this layout enforces
 
 - One schema per concept. `DataFile` describes an input, `Rule` describes a
-  translation. The step-list `MappingStep` form replaces `TabularProcessing`
-  only when it reaches parity; see the
-  [Tabular Processing Roadmap](/r2x-core/explanations/tabular-processing-roadmap/).
+  translation, and `TabularProcessing` and `JSONProcessing` each contain an
+  ordered list of format-specific steps.
 - A seam needs two adapters. `FileReader` has four, `TabularBackend` has one
   with the contract exercised by tests. `JSONProcessor` is a single injection
   point, not a registry.

@@ -14,9 +14,10 @@ import orjson
 from loguru import logger
 from pydantic import ValidationError
 
-from .datafile import DataFile, FileProcessing
+from .datafile import DataFile
 from .plugin_config import PluginConfig
 from .reader import DataReader
+from .types import FileProcessing
 from .utils.upgrade import UpgradeCoordinator
 from .utils.validation import filter_kwargs_for
 

@@ -47,7 +47,7 @@ store.add_data(
         DataFile(
             name="generators",
             relative_fpath="generators.csv",
-            proc_spec=TabularProcessing(filter_by={"status": "active"}),
+            proc_spec=TabularProcessing(steps=[{"op": "filter_columns", "filter_by": {"status": "active"}}]),
         ),
     ]
 )

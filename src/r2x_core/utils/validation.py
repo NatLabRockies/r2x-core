@@ -3,12 +3,9 @@
 import inspect
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from ..types import EXTENSION_MAPPING
-
-if TYPE_CHECKING:
-    from pydantic import ValidationInfo
 
 
 def filter_kwargs_for(func: Callable[..., Any], *, kwargs: dict[str, Any]) -> dict[str, Any]:
@@ -78,49 +75,14 @@ def validate_glob_pattern(pattern: str | None) -> str | None:
     return pattern
 
 
-def validate_file_extension(path: Path, *, info: "ValidationInfo") -> Path:
-    """Validate that the file path has a supported extension.
-
-    This is a Pydantic validator that checks if the file extension from the
-    provided path exists as a key in the module-level `EXTENSION_MAPPING`.
-
-    Parameters
-    ----------
-    value : str
-        The file path string to validate, provided by Pydantic.
-    info : pydantic.ValidationInfo
-        Pydantic's validation context. Required by the validator signature
-        but not used in this function.
-
-    Returns
-    -------
-    Path
-        The original file path string if its extension is valid.
-
-    Raises
-    ------
-    AssertionError
-        If the input `value` is not a string.
-    ValueError
-        If the file path has no extension.
-    KeyError
-        If the file's extension is not found in `EXTENSION_MAPPING`.
-
-    Notes
-    -----
-    This function is intended for use as a Pydantic model validator (e.g.,
-    with `@field_validator` or `AfterValidator`) and should not be called directly.
-    """
-    if info is None:
-        msg = "Pydantic validation context is missing."
+def validate_file_extension(path: Path | None) -> Path | None:
+    """Return a path with a supported extension, or propagate a validation error."""
+    if path is None:
+        return None
+    extension = path.suffix.lower()
+    if extension not in EXTENSION_MAPPING:
+        msg = (
+            f"Unsupported file extension {extension!r}. Supported extensions: {', '.join(EXTENSION_MAPPING)}"
+        )
         raise ValueError(msg)
-    if not isinstance(path, Path):
-        msg = f"Expected Path, got {type(path).__name__}"
-        raise TypeError(msg)
-    ext = path.suffix.lower()
-    if ext not in EXTENSION_MAPPING:
-        msg = f"{ext=} not found on `EXTENSION_MAPPING`. "
-        msg += "Check spelling of file type or verify it is a supported `FileFormat`."
-        msg += f"List of supported `FileFormat`: {EXTENSION_MAPPING.keys()}"
-        raise KeyError(msg)
     return path

@@ -3,8 +3,21 @@
 import json
 
 import pytest
+from pydantic import ValidationError
 
-from r2x_core.datafile import FileInfo, JSONProcessing, ReaderConfig, SplitColumnSpec, TabularProcessing
+from r2x_core import DataFile
+from r2x_core.datafile import FileInfo, ReaderConfig
+from r2x_core.models import (
+    DropJSONKeysStep,
+    FilterJSONStep,
+    JSONProcessing,
+    RenameColumnsStep,
+    RenameJSONKeysStep,
+    SelectColumnsStep,
+    SplitColumnSpec,
+    TabularProcessing,
+)
+from r2x_core.types import FileRequirement, FileType
 
 
 def test_datafile_with_nested_structure(tmp_path):
@@ -17,31 +30,28 @@ def test_datafile_with_nested_structure(tmp_path):
     data_file = DataFile(
         name="test_data",
         fpath=csv_file,
-        info=FileInfo(
-            description="Test data file",
-            is_input=True,
-            is_optional=False,
-            units="MW",
-        ),
+        info=FileInfo(description="Test data file", units="MW"),
         reader=ReaderConfig(
             kwargs={"infer_schema_length": 1000},
             function=None,
         ),
         proc_spec=TabularProcessing(
-            column_mapping={"old_name": "new_name"},
-            select_columns=["new_name", "col2"],
+            steps=[
+                RenameColumnsStep(op="rename_columns", column_mapping={"old_name": "new_name"}),
+                SelectColumnsStep(op="select_columns", select_columns=["new_name", "col2"]),
+            ]
         ),
     )
 
     assert data_file.name == "test_data"
     assert data_file.fpath == csv_file
-    assert data_file.info is not None
     assert data_file.info.description == "Test data file"
+    assert data_file.reader.kwargs == {"infer_schema_length": 1000}
     assert data_file.reader is not None
     assert data_file.reader.kwargs == {"infer_schema_length": 1000}
     assert data_file.proc_spec is not None
     assert isinstance(data_file.proc_spec, TabularProcessing)
-    assert data_file.proc_spec.column_mapping == {"old_name": "new_name"}
+    assert [step.op for step in data_file.proc_spec.steps] == ["rename_columns", "select_columns"]
 
 
 def test_datafile_info_attributes(tmp_path):
@@ -56,18 +66,15 @@ def test_datafile_info_attributes(tmp_path):
         fpath=json_file,
         info=FileInfo(
             description="Generator parameters",
-            is_input=True,
-            is_optional=False,
-            is_timeseries=False,
+            file_type=FileType.STATIC,
+            requirement=FileRequirement.REQUIRED,
             units="MW",
         ),
     )
 
-    assert data_file.info is not None
     assert data_file.info.description == "Generator parameters"
-    assert data_file.info.is_input is True
-    assert data_file.info.is_optional is False
-    assert data_file.info.is_timeseries is False
+    assert data_file.info.file_type is FileType.STATIC
+    assert data_file.info.requirement is FileRequirement.REQUIRED
     assert data_file.info.units == "MW"
 
 
@@ -80,8 +87,8 @@ def test_datafile_deserialize_from_json_nested(tmp_path):
         "fpath": str(tmp_path / "data.json"),
         "info": {
             "description": "Generator parameters",
-            "is_input": True,
-            "is_optional": False,
+            "file_type": "static",
+            "requirement": "required",
             "units": "MW",
         },
         "reader": {
@@ -89,9 +96,12 @@ def test_datafile_deserialize_from_json_nested(tmp_path):
             "function": None,
         },
         "proc_spec": {
-            "key_mapping": {"forced_outage_rate": "outage_rate"},
-            "drop_keys": ["internal_id"],
-            "filter_by": {"status": "active"},
+            "kind": "json",
+            "steps": [
+                {"op": "rename_keys", "mapping": {"forced_outage_rate": "outage_rate"}},
+                {"op": "drop_keys", "keys": ["internal_id"]},
+                {"op": "filter", "where": {"status": "active"}},
+            ],
         },
     }
 
@@ -108,48 +118,38 @@ def test_datafile_deserialize_from_json_nested(tmp_path):
 
 
 def test_datafile_tabular_transformations(tmp_path):
-    """Test TabularProcessing with CSV file."""
-    from r2x_core.datafile import DataFile, TabularProcessing
-
+    """Tabular processing stores an ordered, discriminated operation list."""
     csv_file = tmp_path / "data.csv"
     csv_file.write_text("col1,col2,col3,col4\n1,2,3,a\n1,2,4,b")
 
-    data_file = DataFile(
-        name="complete",
-        fpath=csv_file,
-        proc_spec=TabularProcessing(
-            select_columns=["col1", "col2", "col3"],
-            drop_columns=["col4"],
-            column_mapping={"col1": "column_1", "col2": "column_2"},
-            column_schema={"column_1": "int", "column_2": "int"},
-            filter_by={"column_1": 1},
-            pivot_on="pivot_label",
-            unpivot_on=None,
-            group_by=["column_1"],
-            aggregate_on={"column_2": "sum", "column_3": "sum"},
-            sort_by={"column_1": "asc", "column_2": "desc"},
-            distinct_on=["column_1"],
-            replace_values={None: 0, "NaN": None},
-            fill_null={"column_2": 0},
-        ),
+    data_file = DataFile.model_validate(
+        {
+            "name": "complete",
+            "fpath": csv_file,
+            "proc_spec": {
+                "kind": "tabular",
+                "steps": [
+                    {"op": "select_columns", "select_columns": ["col1", "col2", "col3", "col4"]},
+                    {"op": "drop_columns", "drop_columns": ["col4"]},
+                    {"op": "rename_columns", "column_mapping": {"col1": "column_1", "col2": "column_2"}},
+                    {"op": "cast_columns", "column_schema": {"column_1": "int", "column_2": "int"}},
+                    {"op": "filter_columns", "filter_by": {"column_1": 1}},
+                    {"op": "sort", "by": {"column_1": "asc", "column_2": "desc"}},
+                ],
+            },
+        }
     )
 
-    assert data_file.proc_spec is not None
     assert isinstance(data_file.proc_spec, TabularProcessing)
-    proc_spec = data_file.proc_spec
-    assert proc_spec.select_columns == ["col1", "col2", "col3"]
-    assert proc_spec.drop_columns == ["col4"]
-    assert proc_spec.column_mapping == {"col1": "column_1", "col2": "column_2"}
-    assert proc_spec.column_schema == {"column_1": "int", "column_2": "int"}
-    assert proc_spec.filter_by == {"column_1": 1}
-    assert proc_spec.pivot_on == "pivot_label"
-    assert proc_spec.unpivot_on is None
-    assert proc_spec.group_by == ["column_1"]
-    assert proc_spec.aggregate_on == {"column_2": "sum", "column_3": "sum"}
-    assert proc_spec.sort_by == {"column_1": "asc", "column_2": "desc"}
-    assert proc_spec.distinct_on == ["column_1"]
-    assert proc_spec.replace_values == {None: 0, "NaN": None}
-    assert proc_spec.fill_null == {"column_2": 0}
+    assert [step.op for step in data_file.proc_spec.steps] == [
+        "select_columns",
+        "drop_columns",
+        "rename_columns",
+        "cast_columns",
+        "filter_columns",
+        "sort",
+    ]
+    assert data_file.proc_spec.steps[2].column_mapping == {"col1": "column_1", "col2": "column_2"}
 
 
 def test_datafile_json_transformations(tmp_path):
@@ -170,22 +170,21 @@ def test_datafile_json_transformations(tmp_path):
         name="generators",
         fpath=json_file,
         proc_spec=JSONProcessing(
-            key_mapping={"old_key": "new_key", "avg_capacity_MW": "capacity"},
-            rename_index="technology",
-            filter_by={"status": "active"},
-            drop_keys=["internal_id"],
-            replace_values={None: 0},
+            steps=[
+                RenameJSONKeysStep(
+                    op="rename_keys", mapping={"old_key": "new_key", "avg_capacity_MW": "capacity"}
+                ),
+                FilterJSONStep(op="filter", where={"status": "active"}),
+                DropJSONKeysStep(op="drop_keys", keys=["internal_id"]),
+            ]
         ),
     )
 
     assert data_file.proc_spec is not None
     assert isinstance(data_file.proc_spec, JSONProcessing)
     proc_spec = data_file.proc_spec
-    assert proc_spec.key_mapping == {"old_key": "new_key", "avg_capacity_MW": "capacity"}
-    assert proc_spec.rename_index == "technology"
-    assert proc_spec.filter_by == {"status": "active"}
-    assert proc_spec.drop_keys == ["internal_id"]
-    assert proc_spec.replace_values == {None: 0}
+    assert [step.op for step in proc_spec.steps] == ["rename_keys", "filter", "drop_keys"]
+    assert proc_spec.steps[0].mapping == {"old_key": "new_key", "avg_capacity_MW": "capacity"}
 
 
 def test_datafile_pcm_defaults_use_case(tmp_path):
@@ -218,25 +217,19 @@ def test_datafile_pcm_defaults_use_case(tmp_path):
     data_file = DataFile(
         name="pcm_defaults",
         fpath=json_file,
-        info=FileInfo(
-            description="Generator default parameters by technology",
-            is_input=True,
-            is_optional=False,
-            units="MW",
-        ),
+        info=FileInfo(description="Generator default parameters by technology", units="MW"),
         proc_spec=JSONProcessing(
-            key_mapping={"forced_outage_rate": "outage_rate"},
-            drop_keys=["internal_id"],
-            rename_index="tech",
+            steps=[
+                RenameJSONKeysStep(op="rename_keys", mapping={"forced_outage_rate": "outage_rate"}),
+                DropJSONKeysStep(op="drop_keys", keys=["internal_id"]),
+            ]
         ),
     )
 
     assert data_file.name == "pcm_defaults"
     assert data_file.proc_spec is not None
     assert isinstance(data_file.proc_spec, JSONProcessing)
-    assert data_file.proc_spec.key_mapping == {"forced_outage_rate": "outage_rate"}
-    assert data_file.proc_spec.drop_keys == ["internal_id"]
-    assert data_file.proc_spec.rename_index == "tech"
+    assert [step.op for step in data_file.proc_spec.steps] == ["rename_keys", "drop_keys"]
 
 
 def test_datafile_with_reader_config(tmp_path):
@@ -334,21 +327,10 @@ def test_datafile_file_not_found_error_non_optional(tmp_path):
         )
 
 
-def test_datafile_file_type_requires_path_or_glob():
-    """Test that file_type raises ValueError when no path or glob is set."""
-    from r2x_core import DataFile
+def test_extension_for_path_source_without_path():
+    from r2x_core.datafile import extension_for_path_source
 
-    df = DataFile.__new__(DataFile)
-    object.__setattr__(df, "name", "test")
-    object.__setattr__(df, "fpath", None)
-    object.__setattr__(df, "relative_fpath", None)
-    object.__setattr__(df, "glob", None)
-    object.__setattr__(df, "info", None)
-    object.__setattr__(df, "reader", None)
-    object.__setattr__(df, "proc_spec", None)
-
-    with pytest.raises(ValueError, match="Either fpath, relative_fpath, or glob must be set"):
-        _ = df.file_type
+    assert extension_for_path_source(None) is None
 
 
 def test_datafile_file_type_unknown_extension(tmp_path):
@@ -358,13 +340,13 @@ def test_datafile_file_type_unknown_extension(tmp_path):
     unknown_file = tmp_path / "data.xyz"
     unknown_file.write_text("content")
 
-    with pytest.raises(KeyError, match="not found on"):
+    with pytest.raises(ValidationError, match="Unsupported file extension"):
         DataFile(name="unknown", fpath=unknown_file)
 
 
 @pytest.mark.parametrize(
     ("into", "message"),
-    [(["year", " "], "cannot be empty"), (["year", "year"], "must be unique")],
+    [(["year", " "], "cannot be blank"), (["year", "year"], "must be unique")],
 )
 def test_split_column_requires_distinct_non_empty_output_names(into, message):
     with pytest.raises(ValueError, match=message):
@@ -372,124 +354,106 @@ def test_split_column_requires_distinct_non_empty_output_names(into, message):
 
 
 @pytest.mark.parametrize(
-    ("config", "message"),
+    ("step", "message"),
     [
-        ({"scale": {"value": float("inf")}}, "scale values must be finite"),
-        ({"strip_chars": {"value": [""]}}, "strip_chars values must be non-empty"),
+        ({"op": "scale_columns", "scale": {"value": float("inf")}}, "scale values must be finite"),
+        ({"op": "strip_characters", "strip_chars": {"value": [""]}}, "at least 1 character"),
     ],
 )
-def test_tabular_processing_rejects_invalid_cleanup_options(config, message):
-    with pytest.raises(ValueError, match=message):
-        TabularProcessing(**config)
+def test_tabular_processing_rejects_invalid_cleanup_options(step, message):
+    with pytest.raises(ValidationError, match=message):
+        TabularProcessing.model_validate({"steps": [step]})
 
 
 @pytest.mark.parametrize(
-    ("config", "message"),
+    "step",
     [
-        ({"aggregate_on": {"value": "sum{"}}, "Unsupported aggregation"),
-        (
-            {"pivot_on": "year", "aggregate_on": {"value": "sum{"}},
-            "pivot_on does not support",
-        ),
-        ({"sort_by": {"value": "descending{"}}, "Unsupported sort direction"),
+        {"op": "aggregate", "aggregate_on": {"value": "sum{"}},
+        {
+            "op": "pivot",
+            "pivot_on": "year",
+            "group_by": ["id"],
+            "aggregate_on": {"value": "sum{"},
+        },
+        {"op": "sort", "by": {"value": "descending{"}},
     ],
 )
-def test_tabular_processing_rejects_malformed_placeholders(config, message):
-    with pytest.raises(ValueError, match=message):
-        TabularProcessing(**config)
+def test_tabular_processing_rejects_malformed_placeholders(step):
+    with pytest.raises(ValidationError):
+        TabularProcessing.model_validate({"steps": [step]})
 
 
 def test_tabular_processing_accepts_valid_placeholders():
-    processing = TabularProcessing(
-        aggregate_on={"value": "{function}"},
-        sort_by={"value": "{direction}"},
+    processing = TabularProcessing.model_validate(
+        {
+            "steps": [
+                {"op": "aggregate", "aggregate_on": {"value": "{function}"}},
+                {"op": "sort", "by": {"value": "{direction}"}},
+            ]
+        }
     )
 
-    assert processing.aggregate_on == {"value": "{function}"}
-    assert processing.sort_by == {"value": "{direction}"}
+    assert processing.steps[0].aggregate_on == {"value": "{function}"}
+    assert processing.steps[1].by == {"value": "{direction}"}
 
 
 def test_datafile_rejects_processing_models_for_the_wrong_format():
-    from r2x_core import DataFile
-
-    with pytest.raises(ValueError, match="require TabularProcessing"):
+    with pytest.raises(ValueError, match="Tabular files require TabularProcessing"):
         DataFile.model_validate(
-            {
-                "name": "tabular",
-                "relative_fpath": "data.csv",
-                "proc_spec": JSONProcessing(rename_index="index"),
-            }
+            {"name": "tabular", "relative_fpath": "data.csv", "proc_spec": JSONProcessing()}
         )
-    with pytest.raises(ValueError, match="require JSONProcessing"):
+    with pytest.raises(ValueError, match="JSON files require JSONProcessing"):
         DataFile.model_validate(
-            {
-                "name": "json",
-                "relative_fpath": "data.json",
-                "proc_spec": TabularProcessing(column_mapping={"old": "new"}),
-            }
+            {"name": "json", "relative_fpath": "data.json", "proc_spec": TabularProcessing()}
         )
 
     json_filter = DataFile.model_validate(
         {
             "name": "json-filter",
             "relative_fpath": "data.json",
-            "proc_spec": {"filter_by": {"status": "active"}},
+            "proc_spec": {"kind": "json", "steps": [{"op": "filter", "where": {"status": "active"}}]},
         }
     )
     assert isinstance(json_filter.proc_spec, JSONProcessing)
 
+    tabular_record = {
+        "kind": "tabular",
+        "steps": [{"op": "filter_columns", "filter_by": {"status": "active"}}],
+    }
     tabular_filter = DataFile.model_validate(
-        {
-            "name": "tabular-filter",
-            "relative_fpath": "data.csv",
-            "proc_spec": {"filter_by": {"status": "active"}},
-        }
+        {"name": "tabular-filter", "relative_fpath": "data.csv", "proc_spec": tabular_record}
     )
     assert isinstance(tabular_filter.proc_spec, TabularProcessing)
 
     glob_filter = DataFile.model_validate(
-        {
-            "name": "glob-filter",
-            "glob": "data_*.csv",
-            "proc_spec": {"filter_by": {"status": "active"}},
-        }
+        {"name": "glob-filter", "glob": "data_*.csv", "proc_spec": tabular_record}
     )
     assert isinstance(glob_filter.proc_spec, TabularProcessing)
 
     with pytest.raises(ValueError, match="do not support processing specifications"):
-        DataFile.model_validate(
-            {
-                "name": "xml",
-                "relative_fpath": "data.xml",
-                "proc_spec": {"rename_index": "index"},
-            }
-        )
+        DataFile.model_validate({"name": "xml", "relative_fpath": "data.xml", "proc_spec": JSONProcessing()})
 
 
 def test_datafile_processing_format_parser_defers_invalid_paths():
-    from r2x_core import DataFile
-
     with pytest.raises(ValueError, match=r"[Ee]xactly one of"):
-        DataFile.model_validate({"name": "missing-path", "proc_spec": {"filter_by": {}}})
-    with pytest.raises(ValueError, match="not found on EXTENSION_MAPPING"):
+        DataFile.model_validate({"name": "missing-path", "proc_spec": {"kind": "tabular", "steps": []}})
+    with pytest.raises(ValueError, match="Unsupported file extension"):
         DataFile.model_validate(
             {
                 "name": "unknown-extension",
                 "relative_fpath": "data.xyz",
-                "proc_spec": {"filter_by": {}},
+                "proc_spec": {"kind": "tabular", "steps": []},
             }
         )
 
 
 def test_datafile_rejects_unknown_processing_fields():
-    from r2x_core import DataFile
-
-    with pytest.raises(ValueError, match="extra_forbidden"):
+    with pytest.raises(ValidationError, match="extra_forbidden"):
         DataFile.model_validate(
             {
                 "name": "unknown-option",
                 "relative_fpath": "data.json",
-                "proc_spec": {"set_index": "id"},
+                "proc_spec": {"kind": "json", "steps": [], "set_index": "id"},
             }
         )
 

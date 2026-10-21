@@ -22,7 +22,8 @@ The separation lets a parser request only the inputs it needs.
 ...     root = Path(directory)
 ...     _ = (root / "generators.csv").write_text("name,capacity_mw,status\nAlpha,100,active\nRetired,25,retired\n", encoding="utf-8")
 ...     store = DataStore(root)
-...     store.add_data([DataFile(name="generators", relative_fpath="generators.csv", proc_spec=TabularProcessing(filter_by={"status": "active"}))])
+...     processing = TabularProcessing(steps=[{"op": "filter_columns", "filter_by": {"status": "active"}}])
+...     store.add_data([DataFile(name="generators", relative_fpath="generators.csv", proc_spec=processing)])
 ...     names = store.list_data()
 ...     records = store.read_data("generators").collect().to_dicts()
 >>> # Expected: registration exposes a logical name, while reading applies the filter.

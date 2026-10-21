@@ -10,11 +10,21 @@ import pytest
 from pydantic import BaseModel, TypeAdapter, ValidationError
 from rust_ok import Err, Ok
 
-from r2x_core.datafile import DataFile, TabularProcessing
-from r2x_core.models import ExpressionOperation, LiteralExpression, MappingStep, SelectStep
+from r2x_core import DataFile, TabularProcessing
+from r2x_core.models import (
+    AggregateStep,
+    ExpressionOperation,
+    FilterColumnsStep,
+    LiteralExpression,
+    LowercaseStep,
+    MappingStep,
+    PivotStep,
+    RenameColumnsStep,
+    SelectStep,
+)
 from r2x_core.polars_adapter import PolarsTabularBackend, compile_polars_expression
 from r2x_core.tabular_backend import apply_mapping_steps
-from r2x_core.types import MappingExpressionOperator
+from r2x_core.types import AggregationFunction, MappingExpressionOperator
 
 
 @pytest.mark.parametrize("json_input", [False, True])
@@ -32,7 +42,7 @@ def test_expression_operators_are_enums_with_string_json_values(json_input: bool
     assert isinstance(expression.op, StrEnum)
     assert expression.op is MappingExpressionOperator.DIVIDE
     assert isinstance(expression.args[0], ExpressionOperation)
-    assert expression.args[0].op is MappingExpressionOperator.SUM
+    assert expression.args[0].op is AggregationFunction.SUM
     assert expression.model_dump(mode="json") == payload
     assert json.loads(expression.model_dump_json()) == payload
     assert ExpressionOperation.model_validate_json(expression.model_dump_json()) == expression
@@ -67,6 +77,30 @@ def test_expression_schema_rejects_unknown_operators(operator: str) -> None:
 def test_binary_expression_operators_require_two_arguments(operator: MappingExpressionOperator) -> None:
     with pytest.raises(ValidationError, match=f"{operator.value} expects exactly two arguments"):
         ExpressionOperation(op=operator, args=[LiteralExpression(literal=1)])
+
+
+@pytest.mark.parametrize(
+    ("operator", "arguments", "message"),
+    [
+        (
+            AggregationFunction.SUM,
+            [LiteralExpression(literal=1), LiteralExpression(literal=2)],
+            "sum expects exactly one argument",
+        ),
+        (
+            MappingExpressionOperator.DATETIME,
+            [LiteralExpression(literal=2024), LiteralExpression(literal=1)],
+            "datetime expects year, month, day",
+        ),
+    ],
+)
+def test_unary_and_datetime_expressions_reject_invalid_argument_counts(
+    operator: AggregationFunction | MappingExpressionOperator,
+    arguments: list[LiteralExpression],
+    message: str,
+) -> None:
+    with pytest.raises(ValidationError, match=message):
+        ExpressionOperation(op=operator, args=arguments)
 
 
 @pytest.mark.parametrize(
@@ -351,7 +385,7 @@ def test_polars_backend_executes_assert_group_sort_unique_and_unpivot_steps() ->
                 "by": ["category"],
                 "agg": {"total": {"op": "sum", "args": [{"column": "value"}]}},
             },
-            {"op": "sort", "by": ["category"]},
+            {"op": "sort", "by": {"category": "asc"}},
             {"op": "unique", "subset": ["category"]},
         ]
     )
@@ -397,7 +431,8 @@ def test_unique_steps_keep_the_first_row_for_each_key(
         }
     )
     steps = TypeAdapter(list[MappingStep]).validate_python(
-        ([{"op": "sort", "by": ["priority"]}] if sort_first else []) + [{"op": "unique", "subset": ["key"]}]
+        ([{"op": "sort", "by": {"priority": "asc"}}] if sort_first else [])
+        + [{"op": "unique", "subset": ["key"]}]
     )
 
     result = apply_mapping_steps(frame, steps, backend=PolarsTabularBackend())
@@ -433,6 +468,97 @@ def test_polars_backend_delegates_custom_steps_to_app_handlers() -> None:
 
 
 @pytest.mark.parametrize(
+    ("input_type", "output_type", "output", "message"),
+    [
+        (pl.DataFrame, pl.LazyFrame, pl.LazyFrame({"value": [1]}), "expects DataFrame"),
+        (
+            pl.LazyFrame,
+            pl.DataFrame,
+            pl.LazyFrame({"value": [1]}),
+            "declared DataFrame but returned LazyFrame",
+        ),
+        (pl.LazyFrame, object, {"value": [1]}, "must return a Polars LazyFrame"),
+    ],
+)
+def test_custom_handlers_must_respect_their_polars_type_contract(
+    input_type: type[object], output_type: type[object], output: object, message: str
+) -> None:
+    class EmptyOptions(BaseModel):
+        pass
+
+    class InvalidHandler:
+        options_model = EmptyOptions
+
+        def __init__(self) -> None:
+            self.input_type = input_type
+            self.output_type = output_type
+
+        def apply(self, value: object, *, options: EmptyOptions) -> object:
+            return output
+
+    steps = TypeAdapter(list[MappingStep]).validate_python([{"op": "custom", "handler": "invalid"}])
+    result = apply_mapping_steps(
+        pl.LazyFrame({"value": [1]}),
+        steps,
+        backend=PolarsTabularBackend(step_handlers={"invalid": InvalidHandler()}),
+    )
+
+    assert isinstance(result, Err)
+    assert message in str(result.err())
+
+
+def test_lowercase_and_empty_column_filters_have_defined_behavior() -> None:
+    unchanged = pl.LazyFrame({"Name": ["ALICE"]})
+    lowercase_disabled = apply_mapping_steps(
+        unchanged,
+        [LowercaseStep(op="lowercase", lowercase=False)],
+        backend=PolarsTabularBackend(),
+    )
+    empty_filter = apply_mapping_steps(
+        unchanged,
+        [FilterColumnsStep(op="filter_columns", filter_by={})],
+        backend=PolarsTabularBackend(),
+    )
+    duplicate_columns = apply_mapping_steps(
+        pl.LazyFrame({"Name": ["ALICE"], "name": ["alice"]}),
+        [LowercaseStep(op="lowercase")],
+        backend=PolarsTabularBackend(),
+    )
+
+    assert lowercase_disabled.unwrap().collect().to_dicts() == [{"Name": "ALICE"}]
+    assert empty_filter.unwrap().collect().to_dicts() == [{"Name": "ALICE"}]
+    assert isinstance(duplicate_columns, Err)
+    assert "lowercase creates duplicate column names" in str(duplicate_columns.err())
+
+
+def test_polars_processing_rejects_unresolved_aggregation_placeholders() -> None:
+    frame = pl.LazyFrame({"amount": [2, 3], "year": [2024, 2025], "region": ["north", "south"]})
+    backend = PolarsTabularBackend()
+    aggregate = apply_mapping_steps(
+        frame,
+        [AggregateStep(op="aggregate", aggregate_on={"amount": "{function}"})],
+        backend=backend,
+    )
+    pivot = apply_mapping_steps(
+        frame,
+        [
+            PivotStep(
+                op="pivot",
+                pivot_on="year",
+                group_by=["region"],
+                aggregate_on={"amount": "{function}"},
+            )
+        ],
+        backend=backend,
+    )
+
+    assert isinstance(aggregate, Err)
+    assert "Unresolved aggregation placeholder" in str(aggregate.err())
+    assert isinstance(pivot, Err)
+    assert "Unresolved pivot aggregation placeholder" in str(pivot.err())
+
+
+@pytest.mark.parametrize(
     ("step", "message"),
     [
         (
@@ -449,7 +575,7 @@ def test_polars_backend_delegates_custom_steps_to_app_handlers() -> None:
         ),
         (
             {"op": "unpivot", "index": ["missing"], "variable_name": "field", "value_name": "amount"},
-            "unpivot index columns not found",
+            "unpivot index references missing column(s)",
         ),
         (
             {"op": "unpivot", "index": ["id", "value"], "variable_name": "field", "value_name": "amount"},
@@ -511,7 +637,9 @@ def test_polars_backend_processes_existing_tabular_configuration(tmp_path: Path)
     result = backend.process(
         frame,
         data_file=data_file,
-        proc_spec=TabularProcessing(column_mapping={"old_name": "name"}),
+        proc_spec=TabularProcessing(
+            steps=[RenameColumnsStep(op="rename_columns", column_mapping={"old_name": "name"})]
+        ),
     )
 
     assert isinstance(result, Ok)

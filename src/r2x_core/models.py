@@ -2,17 +2,29 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal, TypeAlias
+from math import isfinite
+from typing import Annotated, Any, ClassVar, Literal, TypeAlias
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import ConfigDict, Field, model_validator
 
-from .types import ColumnNames, JSONScalar, JSONValue, MappingExpressionOperator, NonEmptyString
+from .type_vocabulary import (
+    AggregationFunction,
+    ColumnNames,
+    ExpressionOperator,
+    JSONScalar,
+    JSONValue,
+    MappingExpressionOperator,
+    NonEmptyString,
+    ProcessingPlaceholder,
+    Separator,
+    StrictModel,
+)
 
 
-class StrictConfigModel(BaseModel):
-    """Base for configuration models that reject undeclared fields."""
+class StrictConfigModel(StrictModel):
+    """Base for immutable mapping configuration models."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True, populate_by_name=True)
 
 
 class ColumnExpression(StrictConfigModel):
@@ -30,7 +42,7 @@ class LiteralExpression(StrictConfigModel):
 class ExpressionOperation(StrictConfigModel):
     """Apply a core table operation to one or more expressions."""
 
-    op: MappingExpressionOperator
+    op: ExpressionOperator
     args: Annotated[list[Expression], Field(min_length=1)]
 
     @model_validator(mode="after")
@@ -51,10 +63,10 @@ class ExpressionOperation(StrictConfigModel):
             MappingExpressionOperator.IS_NULL,
             MappingExpressionOperator.LIST_SORT,
             MappingExpressionOperator.LOWERCASE,
-            MappingExpressionOperator.MAX,
-            MappingExpressionOperator.MEAN,
+            AggregationFunction.MAX,
+            AggregationFunction.MEAN,
             MappingExpressionOperator.STRIP_CHARS,
-            MappingExpressionOperator.SUM,
+            AggregationFunction.SUM,
             MappingExpressionOperator.YEAR,
         }
 
@@ -102,10 +114,17 @@ class AssertStep(StrictConfigModel):
 
 
 class FilterStep(StrictConfigModel):
-    """Retain input rows that satisfy a predicate."""
+    """Retain input rows that satisfy an expression predicate."""
 
     op: Literal["filter"]
     predicate: Expression
+
+
+class FilterColumnsStep(StrictConfigModel):
+    """Retain rows matching all configured exact column values."""
+
+    op: Literal["filter_columns"]
+    filter_by: dict[NonEmptyString, JSONValue]
 
 
 class SelectStep(StrictConfigModel):
@@ -113,6 +132,13 @@ class SelectStep(StrictConfigModel):
 
     op: Literal["select"]
     columns: dict[NonEmptyString, Expression]
+
+
+class SelectColumnsStep(StrictConfigModel):
+    """Keep the named columns without changing their names."""
+
+    op: Literal["select_columns"]
+    select_columns: ColumnNames
 
 
 class WithColumnsStep(StrictConfigModel):
@@ -126,9 +152,166 @@ class UnpivotStep(StrictConfigModel):
     """Convert selected value columns into rows."""
 
     op: Literal["unpivot"]
-    index: ColumnNames
+    index: list[NonEmptyString]
     value_name: NonEmptyString
     variable_name: NonEmptyString
+
+
+class LowercaseStep(StrictConfigModel):
+    """Lowercase column names and string values when enabled."""
+
+    op: Literal["lowercase"]
+    lowercase: bool | ProcessingPlaceholder = True
+
+
+class DropColumnsStep(StrictConfigModel):
+    """Remove named columns."""
+
+    op: Literal["drop_columns"]
+    drop_columns: ColumnNames
+
+
+class RenameColumnsStep(StrictConfigModel):
+    """Rename columns by mapping source names to destination names."""
+
+    op: Literal["rename_columns"]
+    column_mapping: dict[NonEmptyString, NonEmptyString]
+
+
+class SplitColumnSpec(StrictConfigModel):
+    """Split one string column into the declared output columns."""
+
+    separator: Separator
+    into: Annotated[list[NonEmptyString], Field(min_length=2)]
+
+    @model_validator(mode="after")
+    def validate_output_columns(self) -> SplitColumnSpec:
+        """Require non-blank, distinct output names."""
+        if any(not name.strip() for name in self.into):
+            msg = "split output names cannot be blank"
+            raise ValueError(msg)
+        if len(set(self.into)) != len(self.into):
+            msg = "split output names must be unique"
+            raise ValueError(msg)
+        return self
+
+
+class SplitColumnsStep(StrictConfigModel):
+    """Split named columns into multiple output columns."""
+
+    op: Literal["split_columns"]
+    split_column: dict[NonEmptyString, SplitColumnSpec]
+
+
+class UnpivotColumnsStep(StrictConfigModel):
+    """Unpivot selected value columns, retaining all other columns as identifiers."""
+
+    op: Literal["unpivot_columns"]
+    columns: ColumnNames
+    value_name: NonEmptyString = "value"
+    variable_name: NonEmptyString = "variable"
+
+
+class ReplaceValuesStep(StrictConfigModel):
+    """Replace exact values in compatible columns."""
+
+    op: Literal["replace_values"]
+    replace_values: dict[Any, Any]
+
+
+class StripCharactersStep(StrictConfigModel):
+    """Remove configured literal substrings from string columns."""
+
+    op: Literal["strip_characters"]
+    strip_chars: dict[NonEmptyString, Annotated[list[NonEmptyString], Field(min_length=1)]]
+
+
+class CastColumnsStep(StrictConfigModel):
+    """Cast columns to Polars dtype names."""
+
+    op: Literal["cast_columns"]
+    column_schema: dict[NonEmptyString, NonEmptyString]
+
+
+class ScaleColumnsStep(StrictConfigModel):
+    """Multiply numeric columns by configured factors."""
+
+    op: Literal["scale_columns"]
+    scale: dict[NonEmptyString, float | ProcessingPlaceholder]
+
+    @model_validator(mode="after")
+    def validate_finite_factors(self) -> ScaleColumnsStep:
+        """Reject invalid scale factors before execution."""
+        invalid = [
+            factor for factor in self.scale.values() if isinstance(factor, float) and not isfinite(factor)
+        ]
+        if invalid:
+            msg = "scale values must be finite numbers"
+            raise ValueError(msg)
+        return self
+
+
+class FillNullStep(StrictConfigModel):
+    """Fill null values in configured columns."""
+
+    op: Literal["fill_null"]
+    fill_null: dict[NonEmptyString, JSONValue]
+
+
+class AggregateStep(StrictConfigModel):
+    """Aggregate named columns, optionally grouping rows first."""
+
+    op: Literal["aggregate"]
+    aggregate_on: Annotated[
+        dict[NonEmptyString, AggregationFunction | ProcessingPlaceholder], Field(min_length=1)
+    ]
+    group_by: list[NonEmptyString] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_group_columns(self) -> AggregateStep:
+        """Keep grouping keys out of the aggregate mapping."""
+        overlap = sorted(set(self.group_by) & set(self.aggregate_on))
+        if overlap:
+            msg = f"aggregate_on cannot aggregate group_by column(s): {overlap}"
+            raise ValueError(msg)
+        return self
+
+
+class PivotStep(StrictConfigModel):
+    """Pivot a long table using explicit index, key, values, and aggregation."""
+
+    op: Literal["pivot"]
+    pivot_on: NonEmptyString
+    group_by: list[NonEmptyString]
+    aggregate_on: Annotated[
+        dict[NonEmptyString, AggregationFunction | ProcessingPlaceholder], Field(min_length=1)
+    ]
+
+    @model_validator(mode="after")
+    def validate_aggregation_functions(self) -> PivotStep:
+        """Require a shared aggregation because Polars pivots all value columns together."""
+        functions = set(self.aggregate_on.values())
+        if len(functions) > 1 and not any(
+            isinstance(function, str) and function.startswith("{") for function in functions
+        ):
+            msg = "pivot requires one aggregation function for all value columns"
+            raise ValueError(msg)
+        unsupported = {
+            function
+            for function in self.aggregate_on.values()
+            if function in {AggregationFunction.N_UNIQUE, AggregationFunction.STD, AggregationFunction.VAR}
+        }
+        if unsupported:
+            unsupported_names = sorted(
+                function.value if isinstance(function, AggregationFunction) else str(function)
+                for function in unsupported
+            )
+            msg = f"pivot does not support aggregation function(s): {unsupported_names}"
+            raise ValueError(msg)
+        if self.pivot_on in self.group_by or self.pivot_on in self.aggregate_on:
+            msg = "pivot_on cannot also be a group_by or aggregate_on column"
+            raise ValueError(msg)
+        return self
 
 
 class GroupByStep(StrictConfigModel):
@@ -150,10 +333,10 @@ class JoinStep(StrictConfigModel):
 
 
 class SortStep(StrictConfigModel):
-    """Sort rows by the named columns."""
+    """Sort rows by columns and their explicit directions."""
 
     op: Literal["sort"]
-    by: ColumnNames
+    by: dict[NonEmptyString, Literal["asc", "desc"] | ProcessingPlaceholder]
 
 
 class UniqueStep(StrictConfigModel):
@@ -174,9 +357,23 @@ class CustomStep(StrictConfigModel):
 MappingStep: TypeAlias = Annotated[
     AssertStep
     | FilterStep
+    | FilterColumnsStep
     | SelectStep
+    | SelectColumnsStep
     | WithColumnsStep
     | UnpivotStep
+    | UnpivotColumnsStep
+    | LowercaseStep
+    | DropColumnsStep
+    | RenameColumnsStep
+    | SplitColumnsStep
+    | ReplaceValuesStep
+    | StripCharactersStep
+    | CastColumnsStep
+    | ScaleColumnsStep
+    | FillNullStep
+    | AggregateStep
+    | PivotStep
     | GroupByStep
     | JoinStep
     | SortStep
@@ -184,3 +381,58 @@ MappingStep: TypeAlias = Annotated[
     | CustomStep,
     Field(discriminator="op"),
 ]
+
+
+class TabularProcessing(StrictConfigModel):
+    """Ordered tabular processing operations."""
+
+    kind: Literal["tabular"] = "tabular"
+    steps: list[MappingStep] = Field(default_factory=list)
+
+
+class RenameJSONKeysStep(StrictConfigModel):
+    """Recursively rename JSON object keys."""
+
+    op: Literal["rename_keys"]
+    mapping: dict[NonEmptyString, NonEmptyString]
+
+
+class DropJSONKeysStep(StrictConfigModel):
+    """Recursively remove JSON object keys."""
+
+    op: Literal["drop_keys"]
+    keys: ColumnNames
+
+
+class FilterJSONStep(StrictConfigModel):
+    """Filter JSON records by exact field values."""
+
+    op: Literal["filter"]
+    where: dict[NonEmptyString, JSONValue]
+
+
+class ReplaceJSONValuesStep(StrictConfigModel):
+    """Recursively replace exact JSON scalar values."""
+
+    op: Literal["replace_values"]
+    mapping: dict[JSONScalar, JSONValue]
+
+
+class SelectJSONKeysStep(StrictConfigModel):
+    """Keep only selected keys in JSON objects."""
+
+    op: Literal["select_keys"]
+    keys: ColumnNames
+
+
+JSONProcessingStep: TypeAlias = Annotated[
+    RenameJSONKeysStep | DropJSONKeysStep | FilterJSONStep | ReplaceJSONValuesStep | SelectJSONKeysStep,
+    Field(discriminator="op"),
+]
+
+
+class JSONProcessing(StrictConfigModel):
+    """Ordered transformations for JSON-compatible values."""
+
+    kind: Literal["json"] = "json"
+    steps: list[JSONProcessingStep] = Field(default_factory=list)

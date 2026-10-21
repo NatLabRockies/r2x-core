@@ -103,7 +103,8 @@ For ReEDS inputs, start with [r2x-reeds](https://github.com/NatLabRockies/r2x-re
 ...     root = Path(directory)
 ...     _ = (root / "generators.csv").write_text("name,capacity_mw,status\nAlpha,100,active\nBravo,50,active\nRetired,25,retired\n", encoding="utf-8")
 ...     store = DataStore(root)
-...     store.add_data([DataFile(name="generators", relative_fpath="generators.csv", proc_spec=TabularProcessing(filter_by={"status": "active"}))])
+...     processing = TabularProcessing(steps=[{"op": "filter_columns", "filter_by": {"status": "active"}}])
+...     store.add_data([DataFile(name="generators", relative_fpath="generators.csv", proc_spec=processing)])
 ...     rows = store.read_data("generators").collect().to_dicts()
 ...
 >>> # Expected: this boundary produces the tutorial's named components or capacity.

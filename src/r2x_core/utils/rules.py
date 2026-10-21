@@ -25,7 +25,7 @@ class RuleOutputs:
 
 if TYPE_CHECKING:
     from ..plugin_context import PluginContext
-    from ..rules import Rule, RuleFilter, RuleGetter, RuleLike
+    from ..rules import Rule, RuleFilterBase, RuleGetter, RuleLike
 
 
 COMPONENT_TYPE_CACHE: dict[tuple[tuple[str, ...], str], type] = {}
@@ -234,73 +234,72 @@ def create_rule_outputs(
 
 
 def evaluate_rule_filter(
-    component: Any, *, rule_filter: RuleFilter, context: PluginContext | None = None
+    component: Any, *, rule_filter: RuleFilterBase, context: PluginContext | None = None
 ) -> bool:
-    """Return True if the component satisfies the rule filter."""
-    if rule_filter.any_of is not None:
+    """Return whether the component satisfies a tagged filter expression."""
+    from ..rules import AllOfFilter, AnyOfFilter, FieldFilter, GetterFilter, LeafFilter
+
+    if isinstance(rule_filter, AnyOfFilter):
         return any(
             evaluate_rule_filter(component, rule_filter=child, context=context)
-            for child in rule_filter.any_of
+            for child in rule_filter.filters
         )
-    if rule_filter.all_of is not None:
+    if isinstance(rule_filter, AllOfFilter):
         return all(
             evaluate_rule_filter(component, rule_filter=child, context=context)
-            for child in rule_filter.all_of
+            for child in rule_filter.filters
         )
 
-    if rule_filter.op is None or rule_filter.values is None:
-        msg = "RuleFilter must have field, op, and values for leaf filters"
-        raise ValueError(msg)
-
-    candidate: Any
-    if rule_filter.getter is not None:
+    if not isinstance(rule_filter, LeafFilter):
+        msg = f"Unsupported filter node: {type(rule_filter).__name__}"
+        raise TypeError(msg)
+    if isinstance(rule_filter, GetterFilter):
         if context is None:
-            msg = "RuleFilter getter-backed filters require PluginContext"
+            msg = "Getter-backed filters require PluginContext"
             raise ValueError(msg)
-        result = rule_filter.getter(component, context=context)
+        getter = rule_filter.getter
+        if not callable(getter):
+            msg = "Filter getter reference was not resolved"
+            raise ValueError(msg)
+        result = getter(component, context=context)
         match result:
             case Ok(value):
                 candidate = value
-            case Err(e):
-                msg = f"Getter for RuleFilter failed: {e}"
+            case Err(error):
+                msg = f"Filter getter failed: {error}"
                 raise ValueError(msg)
-        if candidate is None:
-            return rule_filter.on_missing == "include"
+    elif isinstance(rule_filter, FieldFilter):
+        candidate = getattr(component, rule_filter.field, None)
     else:
-        if rule_filter.field is None:
-            msg = "RuleFilter must have field or getter for leaf filters"
-            raise ValueError(msg)
-        attr = getattr(component, rule_filter.field, None)
-        if attr is None:
-            return rule_filter.on_missing == "include"
-        candidate = attr
+        msg = f"Unsupported filter node: {type(rule_filter).__name__}"
+        raise TypeError(msg)
 
-    candidate = (
-        str(candidate).casefold() if rule_filter.casefold and isinstance(candidate, str) else candidate
-    )
-    values = rule_filter.normalized_values
+    leaf_filter = rule_filter
+    if candidate is None:
+        return leaf_filter.on_missing == "include"
+    if leaf_filter.casefold and isinstance(candidate, str):
+        candidate = candidate.casefold()
+    values = leaf_filter.normalized_values
 
-    if rule_filter.op == "eq":
+    if leaf_filter.op == "eq":
         return candidate == values[0]
-    if rule_filter.op == "neq":
+    if leaf_filter.op == "neq":
         return candidate != values[0]
-    if rule_filter.op == "in":
+    if leaf_filter.op == "in":
         return candidate in values
-    if rule_filter.op == "not_in":
+    if leaf_filter.op == "not_in":
         return candidate not in values
-    if rule_filter.op == "geq":
+    if leaf_filter.op == "geq":
         try:
-            cand_num = float(candidate)
-            threshold = float(values[0])
+            return float(candidate) >= float(values[0])
         except (TypeError, ValueError):
             return False
-        return cand_num >= threshold
-    if rule_filter.op == "startswith":
-        return any(str(candidate).startswith(val) for val in values)
-    if rule_filter.op == "not_startswith":
-        return all(not str(candidate).startswith(val) for val in values)
-    if rule_filter.op == "endswith":
-        return any(str(candidate).endswith(val) for val in values)
+    if leaf_filter.op == "startswith":
+        return any(str(candidate).startswith(value) for value in values)
+    if leaf_filter.op == "not_startswith":
+        return all(not str(candidate).startswith(value) for value in values)
+    if leaf_filter.op == "endswith":
+        return any(str(candidate).endswith(value) for value in values)
     return False
 
 

@@ -3,9 +3,9 @@
 from pathlib import Path
 from xml.etree import ElementTree
 
-from .datafile import ReaderConfig
-from .file_reader import FileReader
-from .types import FileFormat, XMLFormat
+from ..datafile import ReaderConfig
+from ..file_reader import FileReader
+from ..types import FileFormat, XMLFormat
 
 
 class XMLFileReader(FileReader[ElementTree.Element]):

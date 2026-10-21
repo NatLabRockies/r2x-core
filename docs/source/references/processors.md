@@ -2,218 +2,118 @@
 
 <span id="multi-row-csvtsv-headers"></span>
 
-`DataReader` dispatches by processing-spec type. Tabular processing uses a
-configured or default `TabularBackend`; JSON processing uses a configured or
-default `JSONProcessor`. The default Polars backend operates on `LazyFrame`
-values and keeps operations lazy where Polars supports lazy execution. A
-long-to-wide `pivot_on` performs a small discovery collection of distinct pivot
-keys because Polars needs those output column names before constructing its lazy
-pivot plan. `DataFile` validates processing settings against the file format:
-tabular formats require `TabularProcessing`, JSON requires `JSONProcessing`,
-and unknown fields are rejected. XML files do not support declarative processing.
+`DataFile.proc_spec` is a discriminated union of `TabularProcessing` and
+`JSONProcessing`. Each model contains an ordered `steps` list. The `kind` field
+is set by the model and serialized as `"tabular"` or `"json"` so file mappings
+can validate the union directly.
 
-Configuration snippets below validate the declared settings, not the presence of external files.
-The placeholder read example creates its own CSV fixture and checks the filtered records.
+A tabular backend receives a `TabularProcessing` instance and executes each
+step in list order. The default Polars backend operates on `LazyFrame` values.
+JSON processing uses the injected `JSONProcessor`. A file format must match the
+processing kind: table formats use tabular processing, and JSON uses JSON
+processing. XML does not support declarative processing.
 
-## Case handling and operation order
+## Tabular processing
 
-Column names and string values retain their original case by default. Set
-`lowercase=True` to lowercase both before applying other operations. When enabled,
-configuration column names and string values must use lowercase too.
+Create a step list with the operation-specific fields:
 
-The pipeline starts with optional lowercasing and `drop_columns`. The remaining
-order depends on the reshape:
+```python
+from r2x_core import TabularProcessing
 
-- With `unpivot_on`: unpivot, split columns, replace values, strip strings,
-  rename columns, cast, scale, fill nulls, filter, aggregate, deduplicate, sort,
-  select.
-- Without `unpivot_on`: split columns, rename, replace values, strip strings,
-  cast, scale, fill nulls, filter, optional `pivot_on`, aggregate, deduplicate,
-  sort, select.
-
-References are validated against the columns available at each step. Processing
-validation errors are returned as `Err` by `apply_processing`; `DataReader`
-raises a `ReaderError` with the processing failure.
-
-## Wide-to-long and long-to-wide
-
-`unpivot_on` is the explicit wide-to-long operation. Listed columns become
-values, remaining columns stay as identifiers, and the generated columns are
-named `variable` and `value`:
-
-```python doctest
->>> from r2x_core import DataFile, TabularProcessing, ReaderConfig, JSONProcessing
->>> from r2x_core import DataFile, TabularProcessing
->>> processing = TabularProcessing(
-...     unpivot_on=["2025", "2030"],
-...     column_mapping={"variable": "year", "value": "capacity_mw"},
-...     column_schema={"year": "int"},
-...     filter_by={"year": "{solve_year}"},
-... )
->>> file_spec = DataFile(name="capacity", relative_fpath="capacity.csv", proc_spec=processing)
->>> # Expected: the declared configuration validates, or the created fixture filters to the requested year.
->>> file_spec.name
-'capacity'
+processing = TabularProcessing(
+    steps=[
+        {"op": "rename_columns", "column_mapping": {"old_name": "name"}},
+        {"op": "filter_columns", "filter_by": {"region": "North"}},
+        {"op": "sort", "by": {"year": "asc"}},
+    ]
+)
 ```
 
-For generated compound labels, `split_column` splits a column on a literal
-separator before rename, cast, and filter operations:
+Operations can also be expressed with model classes from `r2x_core.models`.
+The tagged dictionaries are useful in JSON file mappings. Unknown fields and
+invalid operation fields are rejected during model validation.
 
-```python doctest
->>> from r2x_core import DataFile, TabularProcessing, ReaderConfig, JSONProcessing
->>> processing = TabularProcessing(
-...     unpivot_on=["2025|NYISO_A", "2030|NYISO_A"],
-...     split_column={"variable": {"separator": "|", "into": ["year", "zone"]}},
-...     column_schema={"year": "int"},
-...     filter_by={"year": "{solve_year}"},
-... )
->>> # Expected: the declared configuration validates, or the created fixture filters to the requested year.
->>> type(processing).__name__
-'TabularProcessing'
+### Common operations
+
+- `filter_columns` retains rows that match every exact column-value condition.
+- `filter` retains rows matching a mapping-expression predicate.
+- `select_columns` keeps named columns; `select` derives columns from expressions.
+- `rename_columns` renames columns, and `drop_columns` removes them.
+- `with_columns` adds or replaces columns using expressions.
+- `lowercase` lowercases column names and string values when enabled.
+- `unpivot` names identifier columns explicitly. `unpivot_columns` names value
+  columns and keeps all other columns as identifiers. Both default output names
+  are `variable` and `value`.
+- `split_columns` splits strings using a one-character separator and distinct
+  output column names.
+- `replace_values`, `strip_characters`, `cast_columns`, `scale_columns`, and
+  `fill_null` clean or convert values.
+- `aggregate` groups optionally and applies aggregation functions to columns.
+  Aggregation without `group_by` returns one row.
+- `pivot` uses `pivot_on` as the output-column key, `group_by` as identifiers,
+  and `aggregate_on` as value columns. All value columns use one aggregation.
+  Pivot supports `count`, `first`, `last`, `max`, `mean`, `median`, `min`, and
+  `sum`. Null pivot keys are rejected.
+- `group_by` computes named aggregate expressions.
+- `sort` maps each column to `asc` or `desc`; `unique` removes duplicate rows
+  based on its `subset`.
+- `assert`, `join`, and `custom` provide predicate checks, named-frame joins,
+  and application-registered handlers through the mapping-step backend.
+
+Aggregation functions are `count`, `first`, `last`, `max`, `mean`, `median`,
+`min`, `n_unique`, `std`, `sum`, and `var`. Pivot does not support `n_unique`,
+`std`, or `var`. `scale_columns` requires numeric columns and finite factors.
+Placeholders are substituted before execution and the resulting spec is
+validated again.
+
+### Ordered reshape example
+
+```python
+from r2x_core import TabularProcessing
+
+processing = TabularProcessing(
+    steps=[
+        {"op": "unpivot_columns", "columns": ["2025", "2030"]},
+        {"op": "rename_columns", "column_mapping": {"variable": "year"}},
+        {"op": "cast_columns", "column_schema": {"year": "int"}},
+        {"op": "filter_columns", "filter_by": {"year": "{solve_year}"}},
+    ]
+)
 ```
-
-`pivot_on` is the explicit long-to-wide operation. Its value must name an input
-column; a missing column is an error. `group_by` supplies identifier columns,
-`aggregate_on` supplies value columns and their aggregation function, and
-missing `group_by` infers identifiers from remaining columns. Pivoting rejects
-null keys. Pivot aggregations support `count`, `first`, `last`, `max`, `mean`,
-`median`, `min`, and `sum`. Configurations that used `pivot_on` to stack wide
-columns must instead set `unpivot_on` to the value columns.
-
-`group_by` requires `aggregate_on`. Aggregation without `group_by` produces one
-aggregate row. General aggregation functions are `count`, `first`, `last`,
-`max`, `mean`, `median`, `min`, `n_unique`, `std`, `sum`, and `var`.
-
-## Cleaning formatted numeric strings
-
-Use `replace_values` for exact tokens, `strip_chars` for literal strings to
-remove, `column_schema` to cast, and `scale` for unit conversion. `strip_chars`
-also trims surrounding whitespace.
-
-```python doctest
->>> from r2x_core import DataFile, TabularProcessing, ReaderConfig, JSONProcessing
->>> processing = TabularProcessing(
-...     replace_values={"-": "0"},
-...     strip_chars={"limit": [","], "price": ["$"], "share": ["%"]},
-...     column_schema={
-...         "limit": "float",
-...         "price": "float",
-...         "share": "float",
-...         "count": "float",
-...     },
-...     scale={"share": 0.01},
-... )
->>> # Expected: the declared configuration validates, or the created fixture filters to the requested year.
->>> type(processing).__name__
-'TabularProcessing'
-```
-
-This converts values such as `2,450`, `$4.99 `, `171.20%`, and `-` to numeric
-values, with the percent column scaled to a fraction. `scale` is applied after
-casting and requires numeric columns.
-
-## Multi-row CSV/TSV headers
-
-The built-in CSV/TSV reader can combine multiple header rows. The default
-separator is `|`:
-
-```python doctest
->>> from r2x_core import DataFile, ReaderConfig
->>> file_spec = DataFile(
-...     name="profiles",
-...     relative_fpath="load_profiles.csv",
-...     reader=ReaderConfig(kwargs={"header_rows": 2, "header_separator": "|"}),
-... )
->>> file_spec.reader.kwargs
-{'header_rows': 2, 'header_separator': '|'}
-```
-
-For example, the headers `2025` and `NYISO_A` become `2025|NYISO_A`. Use
-`unpivot_on` and `split_column` to separate the combined label into fields.
-The built-in Polars CSV/TSV reader validates these options. Custom readers
-receive them as kwargs and define their own behavior.
-
-## Placeholders
-
-Placeholders can appear as whole values or inside strings in processing
-settings and file paths. Whole-value placeholders preserve their type; embedded
-placeholders are converted to strings. `lowercase` accepts a boolean placeholder,
-and `scale` accepts numeric placeholders. Substituted values are validated
-before processing. Unknown names return an error.
-
-```python doctest
->>> from pathlib import Path
->>> from tempfile import TemporaryDirectory
->>> from r2x_core import DataFile, DataStore, TabularProcessing
->>> with TemporaryDirectory() as directory:
-...     root = Path(directory)
-...     _ = (root / "Reference - New Transmission.csv").write_text("year,capacity\n2030,10\n2040,20\n", encoding="utf-8")
-...     file_spec = DataFile(name="transmission", relative_fpath="{scenario} - New Transmission.csv", proc_spec=TabularProcessing(filter_by={"year": "{solve_year}"}))
-...     store = DataStore(root)
-...     store.add_data([file_spec])
-...     records = store.read_data("transmission", placeholders={"scenario": "Reference", "solve_year": 2030}).collect().to_dicts()
-...
->>> # Expected: the declared configuration validates, or the created fixture filters to the requested year.
->>> records
-[{'year': 2030, 'capacity': 10}]
-```
-
-`fpath`, `relative_fpath`, and `glob` path sources support placeholders. JSON
-file mappings accept exactly one of those three path sources; `relative_fpath`
-records are resolved against the configured data folder.
-
-## Value, null, sort, and distinct operations
-
-```python doctest
->>> from r2x_core import DataFile, TabularProcessing, ReaderConfig, JSONProcessing
->>> processing = TabularProcessing(
-...     replace_values={"n/a": None, "west": "western"},
-...     fill_null={"capacity": 0},
-...     distinct_on=["region", "technology"],
-...     sort_by={"region": "asc", "capacity": "desc"},
-... )
->>> # Expected: the declared configuration validates, or the created fixture filters to the requested year.
->>> type(processing).__name__
-'TabularProcessing'
-```
-
-Sort directions are `asc`, `ascending`, `desc`, and `descending`.
-`replace_values` applies only when both values match a column's logical type
-family, and casts that lose precision are skipped. Integer values may widen to
-floating-point columns only when exactly representable. A `None` on either side
-is allowed, but the other value must still match the column family. For example,
-a boolean replacement does not become an integer replacement in numeric
-columns, and string replacements skip unrelated numeric columns.
-
-Pandas-style `set_index`, `reset_index`, and `rename_index` fields are not
-supported for tabular data. Supplying these fields is rejected during
-configuration validation. When updating an existing mapping, remove
-`set_index` and `reset_index` because Polars treats every field as a column;
-replace tabular `rename_index` with `column_mapping`. `JSONProcessing`
-continues to support `rename_index` for JSON object keys.
 
 ## JSON processing
 
-JSON processing defaults to `JSONProcessingBackend` in `r2x_core.json_adapter`,
-which implements the `JSONProcessor` protocol. Applications can provide a
-custom processor through `DataReader(json_processor=...)`:
+JSON specs have their own ordered operations:
 
-```python doctest
->>> from r2x_core import DataFile, TabularProcessing, ReaderConfig, JSONProcessing
->>> from r2x_core import JSONProcessing
->>> processing = JSONProcessing(
-...     key_mapping={"old_name": "name"},
-...     drop_keys=["internal_id"],
-...     filter_by={"status": "active"},
-...     select_keys=["name", "status"],
-... )
->>> # Expected: the declared configuration validates, or the created fixture filters to the requested year.
->>> type(processing).__name__
-'JSONProcessing'
+```python
+from r2x_core import JSONProcessing
+
+processing = JSONProcessing(
+    steps=[
+        {"op": "rename_keys", "mapping": {"old_name": "name"}},
+        {"op": "drop_keys", "keys": ["internal_id"]},
+        {"op": "filter", "where": {"status": "active"}},
+        {"op": "select_keys", "keys": ["name", "status"]},
+    ]
+)
 ```
 
-See {py:class}`~r2x_core.json_adapter.JSONProcessor`,
-{py:class}`~r2x_core.json_adapter.JSONProcessingBackend`,
-{py:class}`~r2x_core.TabularBackend`,
-{py:class}`~r2x_core.TabularProcessing`, and
-{py:class}`~r2x_core.JSONProcessing` for the public API.
+JSON operations recursively rename and drop keys, filter records by exact
+values, replace scalar values, or select object keys. The concrete step model
+rejects fields that do not belong to that operation.
+
+## Backend interfaces
+
+`TabularBackend` processes an application-defined frame type. A custom backend
+implements `supports_data` and `process`. Implement the separate
+`MappingStepBackend` protocol when it also needs to support the public
+`apply_mapping_steps` runner.
+
+A custom `JSONProcessor` implements `process` and receives JSON-compatible
+values. `DataReader(json_processor=...)` injects it without requiring the
+Polars backend.
+
+See {py:class}`~r2x_core.TabularProcessing`,
+{py:class}`~r2x_core.JSONProcessing`,
+{py:class}`~r2x_core.TabularBackend`, and
+{py:class}`~r2x_core.json_adapter.JSONProcessor` for API contracts.

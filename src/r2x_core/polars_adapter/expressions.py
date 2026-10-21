@@ -8,7 +8,7 @@ import polars as pl
 from polars.datatypes.classes import DataTypeClass
 
 from ..models import ColumnExpression, Expression, ExpressionOperation, LiteralExpression
-from ..types import MappingExpressionOperator
+from ..types import AggregationFunction, MappingExpressionOperator
 
 POLARS_DTYPES: dict[str, DataTypeClass] = {
     "bool": pl.Boolean,
@@ -106,9 +106,9 @@ def compile_polars_expression(expression: Expression, *, column_names: Sequence[
             return arguments[0].list.sort()
         case MappingExpressionOperator.LOWERCASE:
             return arguments[0].str.to_lowercase()
-        case MappingExpressionOperator.MAX:
+        case AggregationFunction.MAX:
             return arguments[0].max()
-        case MappingExpressionOperator.MEAN:
+        case AggregationFunction.MEAN:
             return arguments[0].mean()
         case MappingExpressionOperator.MULTIPLY:
             return arguments[0] * arguments[1]
@@ -126,7 +126,7 @@ def compile_polars_expression(expression: Expression, *, column_names: Sequence[
             return pl.struct(arguments)
         case MappingExpressionOperator.SUBTRACT:
             return arguments[0] - arguments[1]
-        case MappingExpressionOperator.SUM:
+        case AggregationFunction.SUM:
             return arguments[0].sum()
         case MappingExpressionOperator.WHEN:
             return pl.when(arguments[0]).then(arguments[1]).otherwise(arguments[2])

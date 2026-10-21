@@ -9,13 +9,12 @@ and `DataStore`.
 - `DataFile(name, *, fpath=None, relative_fpath=None, glob=None, info=None, reader=None, proc_spec=None)`
 - `DataFile` must set exactly one path source: `fpath`, `relative_fpath`, or
   `glob`.
-- `FileInfo(description=None, is_input=True, is_optional=False, is_timeseries=False, units=None)`
+- `FileInfo(description=None, file_type=FileType.STATIC, requirement=FileRequirement.REQUIRED, units=None)`
 - `ReaderConfig(kwargs: dict[str, Any] = ..., function: Callable[..., Any] | None = None)`
-- `TabularProcessing(...)` preserves case by default and executes lazy reshape,
-  split, replacement, string cleaning, rename, cast, scale, null filling,
-  filtering, aggregation, deduplication, sorting, and selection operations.
-- `JSONProcessing(...)` supports key mapping, key selection/drop, filtering, and
-  value replacement specs.
+- `TabularProcessing(kind="tabular", steps=[...])` executes typed tabular
+  operations in their declared order.
+- `JSONProcessing(kind="json", steps=[...])` executes JSON-specific operations
+  in their declared order.
 - `DataReader.read_data_file(data_file, *, folder_path, placeholders=None) -> Any`
 - `DataReader.get_supported_file_types() -> list[str]`
 - `DataStore(path=None, *, reader=None)`
@@ -33,7 +32,8 @@ and `DataStore`.
 - Use `glob` only when one matching file is expected.
 - Put parser options in `ReaderConfig(kwargs=...)`.
 - Put declarative transformations in `proc_spec`, not in ad-hoc plugin code.
-- Use `FileInfo` for metadata, optional files, time-series hints, and units.
+- Use `FileInfo` for descriptive metadata, static/time-series semantics,
+  availability requirements, and units.
 - Pass a sequence to `DataStore.add_data([...])`, even for one file.
 - Use `DataReader` directly for low-level reads and `DataStore` for translator
   workflows with multiple named inputs.
@@ -62,14 +62,14 @@ file_spec = DataFile(
     fpath=Path("/data/reeds/generators.csv"),
     info=FileInfo(
         description="Generator capacity data",
-        is_input=True,
         units="MW",
     ),
 )
 ```
 
-`DataFile.file_type` is computed from the path extension. Supported extensions
-come from `DataReader.get_supported_file_types()`.
+`DataFile.file_format` is computed from the path extension. `FileInfo.file_type`
+separately describes static versus time-series data. Supported extensions come
+from `DataReader.get_supported_file_types()`.
 
 ```python
 from r2x_core import DataReader
@@ -106,7 +106,9 @@ from r2x_core import DataStore, TabularProcessing
 
 data = DataStore.load_file(
     "/data/reeds/gen.csv",
-    proc_spec=TabularProcessing(drop_columns=["scratch_column"]),
+    proc_spec=TabularProcessing(
+        steps=[{"op": "drop_columns", "drop_columns": ["scratch_column"]}]
+    ),
 )
 ```
 
@@ -181,10 +183,12 @@ payloads after reading.
 from r2x_core import DataFile, TabularProcessing
 
 processing = TabularProcessing(
-    filter_by={"region": "north"},
-    column_mapping={"old_name": "new_name"},
-    drop_columns=["unused"],
-    column_schema={"capacity": "float"},
+    steps=[
+        {"op": "filter_columns", "filter_by": {"region": "north"}},
+        {"op": "rename_columns", "column_mapping": {"old_name": "new_name"}},
+        {"op": "drop_columns", "drop_columns": ["unused"]},
+        {"op": "cast_columns", "column_schema": {"capacity": "float"}},
+    ]
 )
 
 data_file = DataFile(
@@ -194,22 +198,9 @@ data_file = DataFile(
 )
 ```
 
-Input case is preserved by default. Set `lowercase=True` to lowercase column
-names and string values before processing.
-
-With `unpivot_on`, operations run after optional lowercasing and dropping in
-this order: unpivot, split, replace, strip, rename, cast, scale, fill, filter,
-aggregate, distinct, sort, and select. Without `unpivot_on`, split, rename,
-replace, strip, cast, scale, fill, and filter run before optional `pivot_on`;
-aggregation, distinct, sort, and select follow. `pivot_on` requires an existing
-input column and performs a long-to-wide pivot. Use `unpivot_on` for
-wide-to-long processing. Referenced columns and aggregation functions are
-validated with explicit errors. The pandas-style `set_index`, `reset_index`,
-and `rename_index` options are unsupported and rejected.
-
-Use `strip_chars` to remove literal characters from formatted numeric strings,
-`column_schema` to cast them, and `scale` for conversion factors. Use
-`split_column` to split a column into named fields. For CSV/TSV files,
+Input case is preserved by default. Add a `lowercase` step where it belongs in
+the declared order. See the processor reference for all operation schemas,
+validation rules, and placeholder behavior. For CSV/TSV files,
 `ReaderConfig(kwargs={"header_rows": 2, "header_separator": "|"})` combines two header rows.
 
 ## JSONProcessing
@@ -221,15 +212,17 @@ json_file = DataFile(
     name="metadata",
     relative_fpath="metadata.json",
     proc_spec=JSONProcessing(
-        key_mapping={"old_key": "new_key"},
-        select_keys=["new_key", "scenario"],
+        steps=[
+            {"op": "rename_keys", "mapping": {"old_key": "new_key"}},
+            {"op": "select_keys", "keys": ["new_key", "scenario"]},
+        ]
     ),
 )
 ```
 
-Common fields: `key_mapping`, `rename_index`, `drop_keys`, `filter_by`,
-`replace_values`, `select_keys`. Do not use `drop_columns` for JSON configs;
-the public field is `drop_keys`.
+JSON step operations are `rename_keys`, `drop_keys`, `filter`,
+`replace_values`, and `select_keys`. Each step uses an `op` discriminator and
+has only the fields relevant to that operation.
 
 ## HDF5 files
 
@@ -257,12 +250,12 @@ config can express it.
 ## Optional files
 
 ```python
-from r2x_core import DataFile, FileInfo
+from r2x_core import DataFile, FileInfo, FileRequirement
 
 optional = DataFile(
     name="optional_overrides",
     relative_fpath="overrides.csv",
-    info=FileInfo(is_optional=True, description="Optional override file"),
+    info=FileInfo(requirement=FileRequirement.OPTIONAL, description="Optional override file"),
 )
 ```
 
@@ -320,7 +313,9 @@ internals.
 
 ## JSON mapping files
 
-`DataStore.from_json(...)` loads a JSON array of `DataFile` records.
+`DataStore.from_json(...)` loads a JSON array of `DataFile` records. Metadata
+belongs in `info`, and processing specs include the `kind` tag and ordered
+`steps` list.
 
 ```json
 [
@@ -332,7 +327,12 @@ internals.
   {
     "name": "loads",
     "fpath": "load_data.csv",
-    "proc_spec": { "filter_by": { "year": 2030 } }
+    "proc_spec": {
+      "kind": "tabular",
+      "steps": [
+        { "op": "filter_columns", "filter_by": { "year": 2030 } }
+      ]
+    }
   }
 ]
 ```
@@ -361,7 +361,7 @@ JSON unless you need a stable external config artifact.
   - Check `store.list_data()` and spelling.
 - File not found:
   - Inspect `store.folder` and the configured `DataFile` path source.
-  - For optional files, confirm `info=FileInfo(is_optional=True)`.
+  - For optional files, confirm `info=FileInfo(requirement=FileRequirement.OPTIONAL)`.
 - File type cannot be determined:
   - Ensure the filename or glob has a supported extension.
   - Check `DataReader().get_supported_file_types()`.

@@ -476,7 +476,7 @@ def test_create_rule_outputs_reports_primary_validation_error(context_example):
 
 def test_evaluate_rule_filter_missing_getter_candidate(context_example):
     """Getter-backed filters honor on_missing when a getter returns None."""
-    from r2x_core import RuleFilter
+    from r2x_core import GetterFilter
     from r2x_core.utils import evaluate_rule_filter
 
     def none_getter(source, *, context):
@@ -484,60 +484,25 @@ def test_evaluate_rule_filter_missing_getter_candidate(context_example):
         return Ok(None)
 
     component = object()
-    included = RuleFilter(getter=none_getter, op="eq", values=["gas"], on_missing="include")
-    excluded = RuleFilter(getter=none_getter, op="eq", values=["gas"], on_missing="exclude")
+    included = GetterFilter(getter=none_getter, op="eq", values=["gas"], on_missing="include")
+    excluded = GetterFilter(getter=none_getter, op="eq", values=["gas"], on_missing="exclude")
     assert evaluate_rule_filter(component, rule_filter=included, context=context_example)
     assert not evaluate_rule_filter(component, rule_filter=excluded, context=context_example)
 
 
-def test_evaluate_rule_filter_missing_field_requires_field():
-    """Malformed leaf filters report a missing field or getter."""
-    from r2x_core import RuleFilter
-    from r2x_core.utils import evaluate_rule_filter
-
-    filt = RuleFilter.__new__(RuleFilter)
-    object.__setattr__(filt, "any_of", None)
-    object.__setattr__(filt, "all_of", None)
-    object.__setattr__(filt, "field", None)
-    object.__setattr__(filt, "getter", None)
-    object.__setattr__(filt, "op", "eq")
-    object.__setattr__(filt, "values", ["gas"])
-    object.__setattr__(filt, "normalized_values", ["gas"])
-    with pytest.raises(ValueError, match="field or getter"):
-        evaluate_rule_filter(object(), rule_filter=filt)
-
-
-def test_evaluate_rule_filter_unknown_operation_returns_false():
-    """Unsupported filter operations do not match."""
-    from r2x_core import RuleFilter
-    from r2x_core.utils import evaluate_rule_filter
-
-    filt = RuleFilter.__new__(RuleFilter)
-    object.__setattr__(filt, "any_of", None)
-    object.__setattr__(filt, "all_of", None)
-    object.__setattr__(filt, "field", "name")
-    object.__setattr__(filt, "getter", None)
-    object.__setattr__(filt, "op", "unknown")
-    object.__setattr__(filt, "values", ["gas"])
-    object.__setattr__(filt, "normalized_values", ["gas"])
-    object.__setattr__(filt, "casefold", True)
-    object.__setattr__(filt, "on_missing", "exclude")
-    assert not evaluate_rule_filter(type("Component", (), {"name": "gas"})(), rule_filter=filt)
-
-
 def test_evaluate_rule_filter_all_of():
-    """Test evaluate_rule_filter with all_of composite filter."""
-    from r2x_core import RuleFilter
+    """Evaluate a conjunction of field-backed filters."""
+    from r2x_core import AllOfFilter, FieldFilter
     from r2x_core.utils import evaluate_rule_filter
 
     class Component:
         kind = "gas"
         capacity = 500
 
-    filt = RuleFilter(
-        all_of=[
-            RuleFilter(field="kind", op="eq", values=["gas"]),
-            RuleFilter(field="capacity", op="geq", values=[400]),
+    filt = AllOfFilter(
+        filters=[
+            FieldFilter(field="kind", op="eq", values=["gas"]),
+            FieldFilter(field="capacity", op="geq", values=[400]),
         ]
     )
 
@@ -554,7 +519,7 @@ def test_evaluate_rule_filter_getter_uses_context(context_example):
     """Getter-backed filters can use PluginContext-derived values."""
     from rust_ok import Ok
 
-    from r2x_core import RuleFilter
+    from r2x_core import GetterFilter
     from r2x_core.utils import evaluate_rule_filter
 
     class Component:
@@ -566,7 +531,7 @@ def test_evaluate_rule_filter_getter_uses_context(context_example):
             return Ok("coal")
         return Ok(context.metadata["selected_fuel"])
 
-    filt = RuleFilter(getter=select_fuel, op="eq", values=["gas"])
+    filt = GetterFilter(getter=select_fuel, op="eq", values=["gas"])
     ctx = context_example.evolve(metadata={"selected_name": "plant_alpha", "selected_fuel": "gas"})
     other = Component()
     other.name = "plant_beta"
@@ -579,7 +544,7 @@ def test_evaluate_rule_filter_getter_failure_raises(context_example):
     """Getter-backed filters surface failures instead of matching silently."""
     from rust_ok import Err
 
-    from r2x_core import RuleFilter
+    from r2x_core import GetterFilter
     from r2x_core.utils import evaluate_rule_filter
 
     class Component:
@@ -589,58 +554,47 @@ def test_evaluate_rule_filter_getter_failure_raises(context_example):
         _ = context
         return Err(ValueError("boom"))
 
-    filt = RuleFilter(getter=faulty_getter, op="eq", values=["gas"])
+    filt = GetterFilter(getter=faulty_getter, op="eq", values=["gas"])
 
-    with pytest.raises(ValueError, match="Getter for RuleFilter failed: boom"):
+    with pytest.raises(ValueError, match="Filter getter failed: boom"):
         evaluate_rule_filter(Component(), rule_filter=filt, context=context_example)
 
 
 def test_evaluate_rule_filter_getter_requires_context():
     """Getter-backed filters reject evaluation without context."""
-    import pytest
-
-    from r2x_core import RuleFilter
+    from r2x_core import GetterFilter
     from r2x_core.utils import evaluate_rule_filter
 
     class Component:
         name = "plant_alpha"
 
-    filt = RuleFilter(getter=lambda src, *, context: "gas", op="eq", values=["gas"])
+    filt = GetterFilter(getter=lambda src, *, context: Ok("gas"), op="eq", values=["gas"])
 
-    with pytest.raises(ValueError, match="getter-backed filters require PluginContext"):
+    with pytest.raises(ValueError, match="Getter-backed filters require PluginContext"):
         evaluate_rule_filter(Component(), rule_filter=filt)
 
 
-def test_evaluate_rule_filter_incomplete_raises():
-    """Test evaluate_rule_filter raises on incomplete leaf filter."""
+def test_filter_model_rejects_incomplete_and_unknown_operations():
+    """Invalid filter states fail during model validation, before evaluation."""
+    from pydantic import TypeAdapter, ValidationError
+
     from r2x_core import RuleFilter
-    from r2x_core.utils import evaluate_rule_filter
 
-    class Component:
-        kind = "gas"
-
-    filt = RuleFilter.__new__(RuleFilter)
-    object.__setattr__(filt, "any_of", None)
-    object.__setattr__(filt, "all_of", None)
-    object.__setattr__(filt, "field", None)
-    object.__setattr__(filt, "op", None)
-    object.__setattr__(filt, "values", None)
-    object.__setattr__(filt, "prefixes", None)
-    object.__setattr__(filt, "casefold", True)
-    object.__setattr__(filt, "on_missing", "exclude")
-
-    with pytest.raises(ValueError, match="must have field, op, and values"):
-        evaluate_rule_filter(Component(), rule_filter=filt)
+    adapter = TypeAdapter(RuleFilter)
+    with pytest.raises(ValidationError):
+        adapter.validate_python({"kind": "field", "op": "eq", "values": ["gas"]})
+    with pytest.raises(ValidationError):
+        adapter.validate_python({"kind": "field", "field": "name", "op": "unknown", "values": ["gas"]})
 
 
 def test_evaluate_rule_filter_geq_non_numeric():
-    """Test evaluate_rule_filter geq returns False for non-numeric values."""
-    from r2x_core import RuleFilter
+    """A nonnumeric candidate does not satisfy a numeric comparison."""
+    from r2x_core import FieldFilter
     from r2x_core.utils import evaluate_rule_filter
 
     class Component:
         capacity = "not_a_number"
 
-    filt = RuleFilter(field="capacity", op="geq", values=[100])
+    filt = FieldFilter(field="capacity", op="geq", values=[100])
 
     assert not evaluate_rule_filter(Component(), rule_filter=filt)

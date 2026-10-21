@@ -40,7 +40,7 @@ def test_datastore_from_json_with_reader_kwargs():
             {
                 "name": "load",
                 "fpath": str(h5_file),
-                "file_type": "H5Format",
+                "info": {"description": "Hourly load data", "file_type": "time_series"},
                 "reader": {
                     "kwargs": {
                         "data_key": "data",
@@ -49,7 +49,6 @@ def test_datastore_from_json_with_reader_kwargs():
                         "additional_keys": ["index_year"],
                     }
                 },
-                "description": "Hourly load data",
             }
         ]
 
@@ -124,7 +123,6 @@ def test_datastore_from_json_with_multiple_h5_files():
             {
                 "name": "load",
                 "fpath": str(load_file),
-                "file_type": "H5Format",
                 "reader": {
                     "kwargs": {
                         "data_key": "data",
@@ -136,7 +134,6 @@ def test_datastore_from_json_with_multiple_h5_files():
             {
                 "name": "cf",
                 "fpath": str(custom_file),
-                "file_type": "H5Format",
                 "reader": {
                     "kwargs": {
                         "data_key": "cf_values",
@@ -148,7 +145,6 @@ def test_datastore_from_json_with_multiple_h5_files():
             {
                 "name": "simple",
                 "fpath": str(simple_file),
-                "file_type": "H5Format",
             },
         ]
 

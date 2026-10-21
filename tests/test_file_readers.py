@@ -8,7 +8,6 @@ import polars as pl
 import pytest
 
 from r2x_core.datafile import DataFile, ReaderConfig
-from r2x_core.file_readers import XMLFileReader
 from r2x_core.json_adapter import JSONFileReader
 from r2x_core.polars_adapter import PolarsTabularFileReader
 from r2x_core.reader import DataReader
@@ -20,6 +19,7 @@ from r2x_core.types import (
     TableFormat,
     XMLFormat,
 )
+from r2x_core.xml_adapter import XMLFileReader
 
 
 def read_polars_file(
@@ -130,6 +130,33 @@ def test_read_json_file(json_file):
     assert result["key1"] == "value1"
     assert result["key2"] == [1, 2, 3]
     assert result["nested"]["a"] == 1
+
+
+def test_json_reader_rejects_other_file_formats(json_file):
+    with pytest.raises(ValueError, match="JSON reader does not support XMLFormat"):
+        JSONFileReader().read_file(XMLFormat(), file_path=json_file, reader_config=ReaderConfig())
+
+
+def test_data_reader_defaults_to_stdlib_json_reader_and_allows_custom_override():
+    assert isinstance(DataReader().select_file_reader(JSONFormat()), JSONFileReader)
+
+    custom_reader = JSONFileReader()
+    configured_reader = DataReader(file_readers=(custom_reader,))
+    assert configured_reader.select_file_reader(JSONFormat()) is custom_reader
+
+
+def test_data_reader_propagates_json_decode_errors(tmp_path):
+    json_path = tmp_path / "invalid.json"
+    json_path.write_text('{"invalid":', encoding="utf-8")
+    data_file = DataFile(name="invalid", fpath=json_path)
+
+    with pytest.raises(json.JSONDecodeError):
+        DataReader().read_data_file(data_file, folder_path=tmp_path)
+
+
+def test_xml_reader_rejects_other_file_formats(xml_file):
+    with pytest.raises(ValueError, match="XML reader does not support JSONFormat"):
+        XMLFileReader().read_file(JSONFormat(), file_path=xml_file, reader_config=ReaderConfig())
 
 
 def test_read_xml_file(xml_file):

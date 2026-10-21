@@ -19,7 +19,7 @@ See Also
 :class:`~r2x_core.tabular_backend.TabularBackend` : Tabular processing interface.
 :class:`~r2x_core.json_adapter.JSONProcessor` : JSON processing interface.
 :class:`~r2x_core.json_adapter.JSONFileReader` : Built-in JSON reader.
-:class:`~r2x_core.file_readers.XMLFileReader` : Built-in XML reader.
+:class:`~r2x_core.xml_adapter.XMLFileReader` : Built-in XML reader.
 :func:`~r2x_core.processors.apply_processing` : Transformation pipeline.
 :func:`~r2x_core.utils.files.get_fpath` : Path resolution and validation.
 """
@@ -32,15 +32,16 @@ from typing import Any
 from loguru import logger
 from rust_ok import is_err, is_ok
 
-from .datafile import DataFile, ReaderConfig, TabularProcessing
+from .datafile import DataFile, ReaderConfig
 from .exceptions import ConfiguredGroupNotFoundError, ReaderError
 from .file_reader import FileReader, default_tabular_file_reader
-from .file_readers import XMLFileReader
 from .json_adapter import JSONFileReader, JSONProcessor, default_json_processor
+from .models import JSONProcessing, TabularProcessing
 from .processors import apply_processing, substitute_placeholders
 from .tabular_backend import TabularBackend, default_tabular_backend
-from .types import EXTENSION_MAPPING, FileFormat, TableDataFormat
+from .types import EXTENSION_MAPPING, FileFormat, FileRequirement, TableDataFormat
 from .utils.files import get_fpath
+from .xml_adapter import XMLFileReader
 
 
 class DataReader:
@@ -65,8 +66,8 @@ class DataReader:
     ) -> None:
         """Initialize with optional file readers and processing adapters.
 
-        Custom readers take precedence over built-ins. The default Polars reader
-        and tabular backend are loaded only when requested.
+        Custom readers take precedence over built-ins. The default Polars
+        reader and tabular backend are loaded only when requested.
         """
         configured_file_readers = () if file_readers is None else tuple(file_readers)
         self.file_readers: tuple[FileReader[Any], ...] = (
@@ -161,7 +162,7 @@ class DataReader:
         """
         logger.debug("Starting reading for data_file={}", data_file.name)
         data_file = self.substitute_path_placeholders(data_file, placeholders=placeholders)
-        is_optional = data_file.info.is_optional if data_file.info else False  # By default files are no-opt
+        is_optional = data_file.info.requirement is FileRequirement.OPTIONAL
 
         fpath_result = get_fpath(data_file, folder_path=folder_path)
         if is_ok(fpath_result):
@@ -183,7 +184,7 @@ class DataReader:
             )
             raw_data = reader.function(fpath, **reader_kwargs)
         else:
-            file_type_instance = data_file.file_type
+            file_type_instance = data_file.file_format
             logger.trace(
                 "Attempting to read data_file={} with {}", data_file.name, type(file_type_instance).__name__
             )
@@ -200,15 +201,17 @@ class DataReader:
                     return None
                 raise
 
+        processor = None
+        if isinstance(data_file.proc_spec, TabularProcessing):
+            processor = self.tabular_backend
+        elif isinstance(data_file.proc_spec, JSONProcessing):
+            processor = self.json_processor
         processed_data = apply_processing(
             raw_data,
             data_file=data_file,
             proc_spec=data_file.proc_spec,
             placeholders=placeholders,
-            tabular_backend=(
-                self.tabular_backend if isinstance(data_file.proc_spec, TabularProcessing) else None
-            ),
-            json_processor=self.json_processor,
+            processor=processor,
         )
         if is_err(processed_data):
             raise ReaderError(processed_data.err())

@@ -2,6 +2,7 @@ import pytest
 
 from r2x_core.datafile import DataFile, FileInfo, validate_glob_pattern
 from r2x_core.reader import DataReader
+from r2x_core.types import FileRequirement, FileType, XMLFormat
 
 
 @pytest.fixture
@@ -127,7 +128,7 @@ def test_glob_ignores_directories(tmp_path, data_reader):
 
 
 def test_glob_optional_file_not_found(data_reader, empty_dir):
-    data_file = DataFile(name="test_xml", glob="*.xml", info=FileInfo(is_optional=True))
+    data_file = DataFile(name="test_xml", glob="*.xml", info=FileInfo(requirement=FileRequirement.OPTIONAL))
 
     assert data_reader.read_data_file(data_file, folder_path=empty_dir) is None
 
@@ -183,11 +184,10 @@ def test_glob_with_reader_function(data_reader, single_xml_dir):
     assert "<root>" in result
 
 
-def test_glob_file_type_inferred_correctly(single_xml_dir):
+def test_glob_file_format_inferred_correctly(single_xml_dir):
     data_file = DataFile(name="test_xml", glob="*.xml")
 
-    assert data_file.file_type is not None
-    assert "xml" in str(type(data_file.file_type)).lower()
+    assert isinstance(data_file.file_format, XMLFormat)
 
 
 def test_glob_with_json_file(data_reader, tmp_path):
@@ -248,21 +248,21 @@ def test_glob_without_extension_raises():
     """Test that glob patterns without extensions raise ValueError."""
 
     data_file = DataFile(name="test", glob="*")
-    with pytest.raises(ValueError, match="Cannot determine file type from glob pattern"):
-        _ = data_file.file_type
+    with pytest.raises(ValueError, match="Cannot determine file format from glob pattern"):
+        _ = data_file.file_format
 
 
 def test_glob_timeseries_validation():
     """Test that glob patterns validate timeseries support."""
 
-    data_file = DataFile(name="test", glob="*.xml", info=FileInfo(is_timeseries=True))
-    with pytest.raises(ValueError, match="does not support time series"):
-        _ = data_file.file_type
+    data_file = DataFile(name="test", glob="*.xml", info=FileInfo(file_type=FileType.TIME_SERIES))
+    with pytest.raises(ValueError, match="does not support time-series data"):
+        _ = data_file.file_format
 
 
 def test_glob_required_file_not_found(data_reader, empty_dir):
     """Test that missing required files raise FileNotFoundError."""
-    data_file = DataFile(name="test", glob="*.xml", info=FileInfo(is_optional=False))
+    data_file = DataFile(name="test", glob="*.xml", info=FileInfo(requirement=FileRequirement.REQUIRED))
 
     with pytest.raises(FileNotFoundError, match="No files found matching pattern"):
         data_reader.read_data_file(data_file, folder_path=empty_dir)
@@ -283,16 +283,14 @@ def test_glob_model_validator_neither_fpath_nor_glob():
         DataFile(name="test")
 
 
-def test_file_type_with_fpath(tmp_path):
-    """Test that file_type property works with fpath."""
+def test_file_format_with_fpath(tmp_path):
+    """Test that file_format property works with fpath."""
     xml_file = tmp_path / "model.xml"
     xml_file.write_text("<root/>")
 
     data_file = DataFile(name="test", fpath=xml_file)
 
-    file_type = data_file.file_type
-    assert file_type is not None
-    assert "xml" in str(type(file_type)).lower()
+    assert isinstance(data_file.file_format, XMLFormat)
 
 
 def test_validate_glob_pattern_none():

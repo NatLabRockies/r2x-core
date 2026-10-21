@@ -1,126 +1,71 @@
-"""Shared aliases, operation vocabularies, and file-format types."""
+"""Shared aliases, operation vocabularies, and model unions."""
 
-import re
-from dataclasses import dataclass
-from enum import StrEnum
-from typing import Annotated, Any, ClassVar, Literal, TypeAlias, TypeVar
+from typing import Annotated, TypeAlias
 
-from pydantic import Field, JsonValue, StringConstraints
-from pydantic_core import core_schema
+from pydantic import Field
 
-PLACEHOLDER_PATTERN: re.Pattern[str] = re.compile(r"\{([^{}]+)\}")
+from .models import JSONProcessing, MappingStep, TabularProcessing
+from .type_vocabulary import (
+    EXTENSION_MAPPING,
+    PLACEHOLDER_PATTERN,
+    AggregationFunction,
+    ColumnNames,
+    ExpressionOperator,
+    FileFormat,
+    FileOutputT,
+    FileRequirement,
+    FileType,
+    FilterOperator,
+    FrameT,
+    H5Format,
+    JSONFormat,
+    JSONScalar,
+    JSONValue,
+    MappingExpressionOperator,
+    NonEmptyString,
+    ParquetFormat,
+    PositiveInteger,
+    ProcessingPlaceholder,
+    Separator,
+    StrictModel,
+    TableDataFormat,
+    TableFormat,
+    XMLFormat,
+)
 
-JSONScalar: TypeAlias = str | int | float | bool | None
-JSONValue: TypeAlias = JsonValue
-NonEmptyString = Annotated[str, StringConstraints(min_length=1)]
-PositiveInteger = Annotated[int, Field(gt=0)]
-ColumnNames = Annotated[list[NonEmptyString], Field(min_length=1)]
-FieldSource: TypeAlias = NonEmptyString | Annotated[list[NonEmptyString], Field(min_length=1)]
-
-FileOutputT = TypeVar("FileOutputT")
-FrameT = TypeVar("FrameT")
-
-
-@dataclass(slots=True)
-class FileFormat:
-    """Lightweight marker for a supported file format."""
-
-    supports_timeseries: ClassVar[bool] = False
-
-    @classmethod
-    def __get_pydantic_core_schema__(cls, source_type: Any, handler: Any) -> core_schema.CoreSchema:
-        """Serialize format markers by their class name."""
-        python_schema = core_schema.is_instance_schema(cls)
-        return core_schema.no_info_after_validator_function(
-            lambda value: value,
-            python_schema,
-            serialization=core_schema.plain_serializer_function_ser_schema(
-                lambda instance: instance.__class__.__name__,
-                return_schema=core_schema.str_schema(),
-            ),
-        )
-
-
-@dataclass(slots=True)
-class TableFormat(FileFormat):
-    """CSV, TSV, and other delimited tabular formats."""
-
-    supports_timeseries: ClassVar[bool] = True
-
-
-@dataclass(slots=True)
-class H5Format(FileFormat):
-    """Hierarchical HDF5 data files."""
-
-    supports_timeseries: ClassVar[bool] = True
-
-
-@dataclass(slots=True)
-class ParquetFormat(FileFormat):
-    """Apache Parquet columnar data files."""
-
-    supports_timeseries: ClassVar[bool] = True
-
-
-@dataclass(slots=True)
-class JSONFormat(FileFormat):
-    """JSON data files."""
-
-
-@dataclass(slots=True)
-class XMLFormat(FileFormat):
-    """XML data files."""
-
-
-EXTENSION_MAPPING: dict[str, type[FileFormat]] = {
-    ".csv": TableFormat,
-    ".tsv": TableFormat,
-    ".h5": H5Format,
-    ".hdf5": H5Format,
-    ".parquet": ParquetFormat,
-    ".json": JSONFormat,
-    ".xml": XMLFormat,
-}
-
-TableDataFormat: TypeAlias = TableFormat | H5Format | ParquetFormat
-
-FilterOperator: TypeAlias = Literal[
-    "eq",
-    "neq",
-    "in",
-    "not_in",
-    "geq",
-    "startswith",
-    "not_startswith",
-    "endswith",
+FileProcessing: TypeAlias = Annotated[
+    TabularProcessing | JSONProcessing,
+    Field(discriminator="kind"),
 ]
 
-
-class MappingExpressionOperator(StrEnum):
-    """Supported mapping expression operators with stable JSON string values."""
-
-    AND = "and"
-    ANY = "any"
-    CAST = "cast"
-    COALESCE = "coalesce"
-    CONCAT_LIST = "concat_list"
-    CONCAT_STR = "concat_str"
-    DATETIME = "datetime"
-    DIVIDE = "divide"
-    EQ = "eq"
-    GT = "gt"
-    IS_NULL = "is_null"
-    LE = "le"
-    LIST_GET = "list_get"
-    LIST_SORT = "list_sort"
-    LOWERCASE = "lowercase"
-    MAX = "max"
-    MEAN = "mean"
-    MULTIPLY = "multiply"
-    SPLIT = "split"
-    STRIP_CHARS = "strip_chars"
-    STRUCT = "struct"
-    SUBTRACT = "subtract"
-    SUM = "sum"
-    WHEN = "when"
-    YEAR = "year"
+__all__ = [
+    "EXTENSION_MAPPING",
+    "PLACEHOLDER_PATTERN",
+    "AggregationFunction",
+    "ColumnNames",
+    "ExpressionOperator",
+    "FileFormat",
+    "FileOutputT",
+    "FileProcessing",
+    "FileRequirement",
+    "FileType",
+    "FilterOperator",
+    "FrameT",
+    "H5Format",
+    "JSONFormat",
+    "JSONProcessing",
+    "JSONScalar",
+    "JSONValue",
+    "MappingExpressionOperator",
+    "MappingStep",
+    "NonEmptyString",
+    "ParquetFormat",
+    "PositiveInteger",
+    "ProcessingPlaceholder",
+    "Separator",
+    "StrictModel",
+    "TableDataFormat",
+    "TableFormat",
+    "TabularProcessing",
+    "XMLFormat",
+]

@@ -7,14 +7,14 @@ it does not register an installed translator plugin. Start with [development set
 
 ## Inspect the supported types
 
-The current registry lives in [file_types.py](https://github.com/NatLabRockies/r2x-core/blob/main/src/r2x_core/file_types.py).
+The current registry is defined in [type_vocabulary.py](https://github.com/NatLabRockies/r2x-core/blob/main/src/r2x_core/type_vocabulary.py) and exposed through [types.py](https://github.com/NatLabRockies/r2x-core/blob/main/src/r2x_core/types.py).
 Use the [file type reference](/r2x-core/references/file-types/) to check whether the extension already has a supported type before adding one.
 
 ## Extend the registry and reader together
 
 Add a `FileFormat` subclass with the appropriate `supports_timeseries` value, map its extensions in `EXTENSION_MAPPING`, and update `TableDataFormat` if the format is tabular.
 These are edits to core's source definitions, not a public runtime registration API.
-Implement the matching reading path in [file_readers.py](https://github.com/NatLabRockies/r2x-core/blob/main/src/r2x_core/file_readers.py).
+Implement the matching reading path in a format-specific adapter package, such as [xml_adapter/readers.py](https://github.com/NatLabRockies/r2x-core/blob/main/src/r2x_core/xml_adapter/readers.py).
 A recognized extension alone does not make a file readable.
 
 Check `DataFile`'s format-specific validation and processing constraints as well.

@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
+from processing_spec_fixtures import json_processing, tabular_processing
 
 if TYPE_CHECKING:
     from r2x_core import DataStore
@@ -75,7 +76,7 @@ def test_optional_file_missing_in_mapping(tmp_path):
                 {
                     "name": "optional",
                     "fpath": "inputs/optional.csv",
-                    "info": {"is_optional": True},
+                    "info": {"requirement": "optional"},
                 },
             ]
         )
@@ -265,7 +266,6 @@ def test_from_plugin_config_missing_file_mapping(tmp_path, caplog):
 def test_load_file_with_json_transform_rename_keys(tmp_path):
     """Test load_file with JSONProcessing to rename keys in JSON."""
     from r2x_core import DataStore
-    from r2x_core.datafile import JSONProcessing
 
     json_file = tmp_path / "generators.json"
     json_file.write_text(
@@ -277,7 +277,7 @@ def test_load_file_with_json_transform_rename_keys(tmp_path):
         )
     )
 
-    proc_spec = JSONProcessing(key_mapping={"forced_outage_rate": "outage_rate"})
+    proc_spec = json_processing(key_mapping={"forced_outage_rate": "outage_rate"})
     result = DataStore.load_file(json_file, proc_spec=proc_spec)
 
     assert "battery" in result
@@ -289,7 +289,6 @@ def test_load_file_with_json_transform_rename_keys(tmp_path):
 def test_load_file_with_json_transform_drop_columns(tmp_path):
     """Test load_file with JSONProcessing to drop keys in JSON."""
     from r2x_core import DataStore
-    from r2x_core.datafile import JSONProcessing
 
     json_file = tmp_path / "generators.json"
     json_file.write_text(
@@ -309,7 +308,7 @@ def test_load_file_with_json_transform_drop_columns(tmp_path):
         )
     )
 
-    proc_spec = JSONProcessing(drop_keys=["internal_id"])
+    proc_spec = json_processing(drop_keys=["internal_id"])
     result = DataStore.load_file(json_file, proc_spec=proc_spec)
 
     assert "battery" in result
@@ -319,19 +318,17 @@ def test_load_file_with_json_transform_drop_columns(tmp_path):
 
 def test_load_file_accepts_tabular_processing_model(tmp_path):
     from r2x_core import DataStore
-    from r2x_core.datafile import TabularProcessing
 
     csv_file = tmp_path / "data.csv"
     csv_file.write_text("c1,c2\n1,2\n3,4\n")
 
-    lazy = DataStore.load_file(csv_file, proc_spec=TabularProcessing(drop_columns=["c2"]))
+    lazy = DataStore.load_file(csv_file, proc_spec=tabular_processing(drop_columns=["c2"]))
     assert "c2" not in lazy.collect().columns
 
 
 def test_load_file_with_json_transform_filter_by(tmp_path):
     """Test load_file with JSONProcessing to filter JSON dict."""
     from r2x_core import DataStore
-    from r2x_core.datafile import JSONProcessing
 
     json_file = tmp_path / "generators.json"
     json_file.write_text(
@@ -344,7 +341,7 @@ def test_load_file_with_json_transform_filter_by(tmp_path):
         )
     )
 
-    proc_spec = JSONProcessing(filter_by={"status": "active"})
+    proc_spec = json_processing(filter_by={"status": "active"})
     result = DataStore.load_file(json_file, proc_spec=proc_spec)
 
     assert "battery" in result
@@ -356,7 +353,7 @@ def test_load_file_with_json_transform_filter_by(tmp_path):
     ("proc_spec", "expected"),
     [
         pytest.param(
-            {},
+            None,
             {
                 "battery": {"status": "active", "internal_id": 1},
                 "solar": {"status": "inactive", "internal_id": 2},
@@ -364,14 +361,17 @@ def test_load_file_with_json_transform_filter_by(tmp_path):
             id="empty-spec",
         ),
         pytest.param(
-            {"filter_by": {"status": "active"}},
+            {
+                "kind": "json",
+                "steps": [{"op": "filter", "where": {"status": "active"}}],
+            },
             {"battery": {"status": "active", "internal_id": 1}},
-            id="shared-filter-field",
+            id="filter-step",
         ),
         pytest.param(
-            {"drop_keys": ["internal_id"]},
+            {"kind": "json", "steps": [{"op": "drop_keys", "keys": ["internal_id"]}]},
             {"battery": {"status": "active"}, "solar": {"status": "inactive"}},
-            id="json-specific-field",
+            id="drop-step",
         ),
     ],
 )
@@ -397,7 +397,10 @@ def test_load_file_parses_processing_dict_for_csv(tmp_path):
     csv_file = tmp_path / "data.csv"
     csv_file.write_text("c1,c2\n1,2\n")
 
-    result = DataStore.load_file(csv_file, proc_spec={"drop_columns": ["c2"]})
+    result = DataStore.load_file(
+        csv_file,
+        proc_spec={"kind": "tabular", "steps": [{"op": "drop_columns", "drop_columns": ["c2"]}]},
+    )
 
     assert result.collect().to_dicts() == [{"c1": 1}]
 
@@ -405,12 +408,11 @@ def test_load_file_parses_processing_dict_for_csv(tmp_path):
 def test_load_file_with_csv_transform_rename_and_select(tmp_path):
     """Test load_file with TabularProcessing on CSV file."""
     from r2x_core import DataStore
-    from r2x_core.datafile import TabularProcessing
 
     csv_file = tmp_path / "data.csv"
     csv_file.write_text("old_name,col2,col3\nvalue1,value2,value3\nvalue4,value5,value6")
 
-    proc_spec = TabularProcessing(
+    proc_spec = tabular_processing(
         column_mapping={"old_name": "new_name"}, select_columns=["new_name", "col2"]
     )
     result = DataStore.load_file(csv_file, proc_spec=proc_spec).collect()
@@ -424,7 +426,6 @@ def test_load_file_with_csv_transform_rename_and_select(tmp_path):
 def test_load_file_with_json_processing_model(tmp_path):
     """Apply a JSONProcessing model through DataStore.load_file."""
     from r2x_core import DataStore
-    from r2x_core.datafile import JSONProcessing
 
     json_file = tmp_path / "generators.json"
     json_file.write_text(
@@ -436,7 +437,7 @@ def test_load_file_with_json_processing_model(tmp_path):
         )
     )
 
-    result = DataStore.load_file(json_file, proc_spec=JSONProcessing(drop_keys=["old_key"]))
+    result = DataStore.load_file(json_file, proc_spec=json_processing(drop_keys=["old_key"]))
 
     assert "battery" in result
     assert "old_key" not in result["battery"]
@@ -446,7 +447,6 @@ def test_load_file_with_json_processing_model(tmp_path):
 def test_load_file_with_combined_transforms(tmp_path):
     """Test load_file with multiple transformations chained together."""
     from r2x_core import DataStore
-    from r2x_core.datafile import JSONProcessing
 
     json_file = tmp_path / "generators.json"
     json_file.write_text(
@@ -468,7 +468,7 @@ def test_load_file_with_combined_transforms(tmp_path):
         )
     )
 
-    proc_spec = JSONProcessing(
+    proc_spec = json_processing(
         key_mapping={"avg_capacity_MW": "capacity"},
         drop_keys=["temp_id"],
         filter_by={"status": "active"},
@@ -499,12 +499,12 @@ def test_load_file_mapping_validation_error(tmp_path):
 
 
 def test_store_load_file_csv_with_processing(tmp_path):
-    from r2x_core import DataStore, TabularProcessing
+    from r2x_core import DataStore
 
     csv_file = tmp_path / "data.csv"
     csv_file.write_text("name,value,status\nitem1,100,active\nitem2,50,inactive\n")
 
-    proc_spec = TabularProcessing(
+    proc_spec = tabular_processing(
         filter_by={"status": "active"},
         column_mapping={"value": "amount"},
     )
@@ -628,4 +628,4 @@ def test_to_json_accepts_scalar_model_dump_options(data_store_example: "DataStor
 
     data = json.loads(json_path.read_text())
     assert [item["name"] for item in data] == ["test1", "test2"]
-    assert all("reader" not in item and "proc_spec" not in item for item in data)
+    assert all(item["reader"] == {"kwargs": {}} and "proc_spec" not in item for item in data)

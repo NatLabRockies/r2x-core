@@ -22,14 +22,7 @@ __version__ = version("r2x_core")
 
 # ── Eager for IDEs / type checkers (dead code at runtime) ──────────
 if TYPE_CHECKING:
-    from .datafile import (
-        DataFile,
-        FileInfo,
-        JSONProcessing,
-        ReaderConfig,
-        SplitColumnSpec,
-        TabularProcessing,
-    )
+    from .datafile import DataFile, FileInfo, ReaderConfig
     from .exceptions import (
         CLIError,
         ComponentCreationError,
@@ -40,13 +33,22 @@ if TYPE_CHECKING:
     from .file_reader import FileReader
     from .getters import getter, resolve_getter
     from .h5_adapter import H5PyFileReader, H5Reader
+    from .models import JSONProcessing, SplitColumnSpec, TabularProcessing
     from .plugin_base import Plugin
     from .plugin_config import PluginConfig
     from .plugin_context import PluginContext
     from .plugin_expose import expose_plugin
     from .reader import DataReader
     from .result import RuleResult, TranslationResult
-    from .rules import Rule, RuleFilter, SupplementalAttributeRule
+    from .rules import (
+        AllOfFilter,
+        AnyOfFilter,
+        FieldFilter,
+        GetterFilter,
+        Rule,
+        RuleFilter,
+        SupplementalAttributeRule,
+    )
     from .rules_executor import (
         apply_rules_to_context,
         apply_single_rule,
@@ -57,7 +59,7 @@ if TYPE_CHECKING:
     from .system import System
     from .tabular_backend import TabularBackend
     from .time_series import replace_single_time_series, transfer_time_series_metadata
-    from .types import FileFormat, H5Format
+    from .types import FileFormat, FileProcessing, FileRequirement, FileType, H5Format
     from .units import HasPerUnit, HasUnits, Unit, UnitSystem, get_unit_system, set_unit_system
     from .utils.export import components_to_records, export_components_to_csv
     from .utils.parser import create_component
@@ -73,10 +75,13 @@ if TYPE_CHECKING:
 LAZY_IMPORTS: dict[str, str] = {
     "DataFile": ".datafile",
     "FileInfo": ".datafile",
-    "JSONProcessing": ".datafile",
+    "JSONProcessing": ".models",
     "ReaderConfig": ".datafile",
-    "SplitColumnSpec": ".datafile",
-    "TabularProcessing": ".datafile",
+    "SplitColumnSpec": ".models",
+    "TabularProcessing": ".models",
+    "FileProcessing": ".types",
+    "FileRequirement": ".types",
+    "FileType": ".types",
     "CLIError": ".exceptions",
     "ComponentCreationError": ".exceptions",
     "PluginError": ".exceptions",
@@ -102,6 +107,10 @@ LAZY_IMPORTS: dict[str, str] = {
     "TranslationResult": ".result",
     "Rule": ".rules",
     "RuleFilter": ".rules",
+    "FieldFilter": ".rules",
+    "GetterFilter": ".rules",
+    "AnyOfFilter": ".rules",
+    "AllOfFilter": ".rules",
     "SupplementalAttributeRule": ".rules",
     "apply_rules_to_context": ".rules_executor",
     "apply_single_rule": ".rules_executor",
@@ -149,15 +158,22 @@ def __getattr__(name: str) -> object:
 
 # ── Public API ──────────────────────────────────────────────────────
 __all__ = [
+    "AllOfFilter",
+    "AnyOfFilter",
     "CLIError",
     "ComponentCreationError",
     "DataFile",
     "DataReader",
     "DataStore",
     "Err",
+    "FieldFilter",
     "FileFormat",
     "FileInfo",
+    "FileProcessing",
     "FileReader",
+    "FileRequirement",
+    "FileType",
+    "GetterFilter",
     "GitVersioningStrategy",
     "H5Format",
     "H5PyFileReader",

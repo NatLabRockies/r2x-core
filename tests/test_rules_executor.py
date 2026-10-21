@@ -11,10 +11,10 @@ from pydantic import Field
 from rust_ok import Ok
 
 from r2x_core import (
+    GetterFilter,
     PluginConfig,
     PluginContext,
     Rule,
-    RuleFilter,
     SupplementalAttributeRule,
     System,
     apply_rules_to_context,
@@ -146,7 +146,7 @@ def test_apply_single_rule_getter_filter_uses_context(source_system, target_syst
         target_type="StationComponent",
         version=1,
         field_map={"name": "name", "uuid": "uuid"},
-        filter=RuleFilter(getter=selected_fuel_type, op="eq", values=["gas"]),
+        filter=GetterFilter(getter=selected_fuel_type, op="eq", values=["gas"]),
     )
     context = build_context(
         rules=[rule],
@@ -172,7 +172,7 @@ def test_apply_single_rule_getter_filter_failure(source_system, target_system):
         target_type="StationComponent",
         version=1,
         field_map={"name": "name", "uuid": "uuid"},
-        filter=RuleFilter(getter=faulty_filter, op="eq", values=["gas"]),
+        filter=GetterFilter(getter=faulty_filter, op="eq", values=["gas"]),
     )
     context = build_context(
         rules=[rule],

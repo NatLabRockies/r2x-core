@@ -9,8 +9,8 @@ from typing import Any, Generic, Protocol, TypeGuard, TypeVar
 from pydantic import BaseModel
 from rust_ok import Ok, Result, is_ok
 
-from .datafile import DataFile, TabularProcessing
-from .models import MappingStep
+from .datafile import DataFile
+from .models import MappingStep, TabularProcessing
 from .types import FrameT
 
 HandlerOptionsT = TypeVar("HandlerOptionsT", bound=BaseModel)
@@ -70,6 +70,7 @@ class MappingStepBackend(Protocol[FrameT]):
         frame: FrameT,
         *,
         source_frames: Mapping[str, FrameT],
+        data_file: DataFile | None = None,
     ) -> Result[FrameT, ValueError]:
         """Apply one mapping operation to a frame."""
         ...
@@ -88,12 +89,15 @@ def apply_mapping_steps(
     *,
     backend: MappingStepBackend[FrameT],
     source_frames: Mapping[str, FrameT] | None = None,
+    data_file: DataFile | None = None,
 ) -> Result[FrameT, ValueError]:
     """Run ordered mapping steps through the selected tabular backend."""
     if source_frames is None:
         source_frames = {}
     for step in steps:
-        result = backend.apply_mapping_operation(step, frame, source_frames=source_frames)
+        result = backend.apply_mapping_operation(
+            step, frame, source_frames=source_frames, data_file=data_file
+        )
         if is_ok(result):
             frame = result.value
         else:

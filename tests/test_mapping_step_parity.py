@@ -1,15 +1,13 @@
-"""Track mapping-step features required to replace TabularProcessing."""
+"""Verify the ordered processing schema covers file transformations."""
 
 from typing import get_args
 
-import pytest
-
 from r2x_core.models import MappingStep, SortStep
-from r2x_core.types import MappingExpressionOperator
+from r2x_core.types import AggregationFunction, MappingExpressionOperator
 
 
 def mapping_step_operations() -> set[str]:
-    """Return the operation literals in the discriminated MappingStep union."""
+    """Return operation literals from the discriminated MappingStep union."""
     step_union = get_args(MappingStep)[0]
     return {
         str(operation)
@@ -18,22 +16,25 @@ def mapping_step_operations() -> set[str]:
     }
 
 
-@pytest.mark.xfail(strict=True, reason="parity item 1: add a pivot mapping step")
-def test_mapping_steps_include_pivot() -> None:
-    assert "pivot" in mapping_step_operations()
-
-
-@pytest.mark.xfail(strict=True, reason="parity item 2: add a drop-columns mapping step")
-def test_mapping_steps_include_drop_columns() -> None:
-    assert {"drop", "drop_columns"} & mapping_step_operations()
-
-
-@pytest.mark.xfail(strict=True, reason="parity item 3: add sort direction to SortStep")
-def test_sort_step_includes_direction() -> None:
-    assert {"direction", "directions", "ascending", "descending"} & set(SortStep.model_fields)
-
-
-@pytest.mark.xfail(strict=True, reason="parity item 4: add replace-values expression or step")
-def test_mapping_steps_include_replace_values() -> None:
+def test_mapping_steps_cover_processing_operations() -> None:
     operations = mapping_step_operations() | {op.value for op in MappingExpressionOperator}
-    assert {"replace", "replace_values"} & operations
+
+    assert {
+        "pivot",
+        "drop_columns",
+        "replace_values",
+        "split_columns",
+        "scale_columns",
+        "filter_columns",
+        "select_columns",
+    } <= operations
+
+
+def test_sort_step_requires_direction_per_column() -> None:
+    step = SortStep.model_validate({"op": "sort", "by": {"name": "asc", "count": "desc"}})
+
+    assert step.by == {"name": "asc", "count": "desc"}
+
+
+def test_aggregation_operators_share_the_common_aggregation_vocabulary() -> None:
+    assert {"max", "mean", "sum"} <= {operation.value for operation in AggregationFunction}

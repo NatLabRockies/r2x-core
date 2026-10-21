@@ -1,59 +1,40 @@
-"""Tests for declarative rule filters and executor integration."""
+"""Tests for tagged component filters and their executor integration."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING
 
+import pytest
 from fixtures.context import FIXTURE_MODEL_MODULES
 from fixtures.target_system import StationComponent
+from pydantic import TypeAdapter, ValidationError
+from rust_ok import Ok
+
+from r2x_core import (
+    AllOfFilter,
+    AnyOfFilter,
+    FieldFilter,
+    GetterFilter,
+    PluginConfig,
+    PluginContext,
+    Rule,
+    RuleFilter,
+    System,
+    apply_rules_to_context,
+)
 
 if TYPE_CHECKING:
-    from r2x_core import RuleFilter, System
+    from r2x_core import RuleFilter as RuleFilterType
 
 
 class Dummy:
-    def __init__(self, **attrs):
+    def __init__(self, **attrs: object) -> None:
         for key, value in attrs.items():
             setattr(self, key, value)
 
 
-def test_rule_filter_matches_leaf_casefold():
-    """Leaf filters respect casefolded string comparisons."""
-    from r2x_core import RuleFilter
-    from r2x_core.utils import evaluate_rule_filter
-
-    filt = RuleFilter(field="kind", op="eq", values=["gas"])
-    assert evaluate_rule_filter(Dummy(kind="GAS"), rule_filter=filt)
-
-
-def test_rule_filter_matches_any_of():
-    """Composite any_of evaluates to True when any child matches."""
-    from r2x_core import RuleFilter
-    from r2x_core.utils import evaluate_rule_filter
-
-    filt = RuleFilter(
-        any_of=[
-            RuleFilter(field="kind", op="eq", values=["coal"]),
-            RuleFilter(field="kind", op="eq", values=["gas"]),
-        ]
-    )
-    assert evaluate_rule_filter(Dummy(kind="gas"), rule_filter=filt)
-
-
-def test_rule_filter_matches_geq_numeric():
-    """Numeric geq comparison works for thresholds."""
-    from r2x_core import RuleFilter
-    from r2x_core.utils import evaluate_rule_filter
-
-    filt = RuleFilter(field="capacity", op="geq", values=[400])
-    assert evaluate_rule_filter(Dummy(capacity=500.0), rule_filter=filt)
-    assert not evaluate_rule_filter(Dummy(capacity=300), rule_filter=filt)
-
-
-def run_rule_with_filter(filter_spec: RuleFilter, source_system: System) -> tuple[int, System]:
-    """Apply a single filtered rule and return conversion count and target system."""
-    from r2x_core import PluginConfig, PluginContext, Rule, System, apply_rules_to_context
-
+def run_rule_with_filter(filter_spec: RuleFilterType, source_system: System) -> tuple[int, System]:
+    """Apply a filtered rule and return conversion count and target system."""
     config = PluginConfig(models=FIXTURE_MODEL_MODULES)
     rule = Rule(
         source_type="PlantComponent",
@@ -74,281 +55,113 @@ def run_rule_with_filter(filter_spec: RuleFilter, source_system: System) -> tupl
     return result.total_converted, target_system
 
 
-def test_apply_rules_respects_filter_include(source_system):
-    """Inclusive filters allow matching components to convert."""
+def test_field_filter_casefold_and_missing_values() -> None:
+    filt = FieldFilter(field="kind", op="eq", values=["gas"])
 
-    from r2x_core import RuleFilter
+    assert filt.matches(Dummy(kind="GAS"))
+    assert not filt.matches(Dummy(kind="coal"))
+    assert not FieldFilter(field="missing", op="eq", values=["gas"]).matches(Dummy())
+    assert FieldFilter(field="missing", op="eq", values=["gas"], on_missing="include").matches(Dummy())
 
-    converted, target_system = run_rule_with_filter(
-        RuleFilter(field="fuel_type", op="eq", values=["gas"]),
-        source_system,
+
+@pytest.mark.parametrize(
+    ("op", "candidate", "values", "expected"),
+    [
+        ("eq", "alpha", ["alpha"], True),
+        ("neq", "alpha", ["beta"], True),
+        ("in", "alpha", ["alpha", "beta"], True),
+        ("not_in", "alpha", ["beta"], True),
+        ("geq", 500, [400], True),
+        ("startswith", "plant_alpha", ["plant_"], True),
+        ("not_startswith", "station_alpha", ["plant_"], True),
+        ("endswith", "plant_alpha", ["alpha"], True),
+        ("endswith", "plant_beta", ["alpha"], False),
+    ],
+)
+def test_field_filter_operators(op: str, candidate: object, values: list[object], expected: bool) -> None:
+    filt = FieldFilter(field="value", op=op, values=values)
+
+    assert filt.matches(Dummy(value=candidate)) is expected
+
+
+def test_composite_filters_compose_tagged_children() -> None:
+    filt = AnyOfFilter(
+        filters=[
+            FieldFilter(field="kind", op="eq", values=["coal"]),
+            FieldFilter(field="kind", op="eq", values=["gas"]),
+        ]
     )
-    stations = list(target_system.get_components(StationComponent))
-    assert converted == 1
-    assert stations and stations[0].name == "plant_alpha"
-
-
-def test_apply_rules_respects_filter_exclude(source_system):
-    """Exclusive filters prevent matching components from converting."""
-    from r2x_core import RuleFilter
-
-    converted, target_system = run_rule_with_filter(
-        RuleFilter(field="fuel_type", op="neq", values=["gas"]),
-        source_system,
+    all_filter = AllOfFilter(
+        filters=[
+            FieldFilter(field="kind", op="eq", values=["gas"]),
+            FieldFilter(field="capacity", op="geq", values=[400]),
+        ]
     )
-    stations = list(target_system.get_components(StationComponent))
-    assert converted == 0
-    assert not stations
+
+    assert filt.matches(Dummy(kind="gas"))
+    assert all_filter.matches(Dummy(kind="gas", capacity=500))
+    assert not all_filter.matches(Dummy(kind="gas", capacity=300))
 
 
-def test_rule_filter_startswith():
-    """Test that 'startswith' operator works for RuleFilter."""
-    from r2x_core import RuleFilter
-    from r2x_core.utils import evaluate_rule_filter
-
-    filt = RuleFilter(field="kind", op="startswith", values=["ga"])
-    assert evaluate_rule_filter(Dummy(kind="gas"), rule_filter=filt)
-    assert not evaluate_rule_filter(Dummy(kind="coal"), rule_filter=filt)
-
-
-def test_rule_filter_not_startswith():
-    """Test that 'not_startswith' operator works for RuleFilter."""
-    from r2x_core import RuleFilter
-    from r2x_core.utils import evaluate_rule_filter
-
-    filt = RuleFilter(field="kind", op="not_startswith", values=["ga"])
-    assert evaluate_rule_filter(Dummy(kind="coal"), rule_filter=filt)
-    assert not evaluate_rule_filter(Dummy(kind="gas"), rule_filter=filt)
-
-
-def test_apply_rules_respects_filter_prefix(source_system):
-    """Rule filters with prefixes control conversion in the executor."""
-    from r2x_core import RuleFilter
-
-    converted, target_system = run_rule_with_filter(
-        RuleFilter(field="name", op="startswith", prefixes=["plant_"]),
-        source_system,
+def test_rule_filter_round_trips_tagged_records() -> None:
+    adapter = TypeAdapter(RuleFilter)
+    filter_spec = adapter.validate_python(
+        {
+            "kind": "any_of",
+            "filters": [
+                {"kind": "field", "field": "kind", "op": "eq", "values": ["coal"]},
+                {"kind": "field", "field": "status", "op": "eq", "values": ["active"]},
+            ],
+        }
     )
-    stations = list(target_system.get_components(StationComponent))
-    assert converted == 1
-    assert stations and stations[0].name == "plant_alpha"
+
+    assert adapter.validate_python(filter_spec.model_dump()) == filter_spec
+    assert filter_spec.model_dump()["kind"] == "any_of"
 
 
-def test_apply_rules_respects_filter_not_prefix(source_system):
-    """Negative prefix filters block matching components."""
-    from r2x_core import RuleFilter
-
-    converted, _ = run_rule_with_filter(
-        RuleFilter(field="name", op="not_startswith", prefixes=["plant_"]),
-        source_system,
-    )
-    assert converted == 0
-
-
-def test_rule_filter_matches_endswith():
-    """Leaf filters with endswith operator work as expected, including casefold."""
-    from r2x_core import RuleFilter
-    from r2x_core.utils import evaluate_rule_filter
-
-    # Standard case
-    filt = RuleFilter(field="name", op="endswith", values=["alpha"])
-    assert evaluate_rule_filter(Dummy(name="plant_alpha"), rule_filter=filt)
-    assert not evaluate_rule_filter(Dummy(name="plant_beta"), rule_filter=filt)
-
-    # Casefolded match
-    filt_casefold = RuleFilter(field="name", op="endswith", values=["ALPHA"])
-    assert evaluate_rule_filter(Dummy(name="plant_alpha"), rule_filter=filt_casefold)
-
-    # Casefold disabled
-    filt_nocase = RuleFilter(field="name", op="endswith", values=["ALPHA"], casefold=False)
-    assert not evaluate_rule_filter(Dummy(name="plant_alpha"), rule_filter=filt_nocase)
-
-
-def test_rule_filter_matches_startswith():
-    """Leaf filters with startswith operator work as expected."""
-    from r2x_core import RuleFilter
-    from r2x_core.utils import evaluate_rule_filter
-
-    filt = RuleFilter(field="name", op="startswith", values=["plant_"])
-    assert evaluate_rule_filter(Dummy(name="plant_alpha"), rule_filter=filt)
-    assert evaluate_rule_filter(Dummy(name="plant_beta"), rule_filter=filt)
-    assert not evaluate_rule_filter(Dummy(name="station_alpha"), rule_filter=filt)
-
-
-def test_rule_filter_matches_not_startswith():
-    """Leaf filters with not_startswith operator work as expected."""
-    from r2x_core import RuleFilter
-    from r2x_core.utils import evaluate_rule_filter
-
-    filt = RuleFilter(field="name", op="not_startswith", values=["plant_"])
-    assert evaluate_rule_filter(Dummy(name="station_alpha"), rule_filter=filt)
-    assert not evaluate_rule_filter(Dummy(name="plant_alpha"), rule_filter=filt)
-    assert not evaluate_rule_filter(Dummy(name="plant_beta"), rule_filter=filt)
-
-
-def test_rulefilter_model_validator_leaf_and_children_error():
-    """RuleFilter cannot mix leaf and composition."""
-    import pytest
-
-    from r2x_core import RuleFilter
-
-    with pytest.raises(ValueError, match="cannot mix field/op/values with any_of/all_of"):
-        RuleFilter(
-            field="kind", op="eq", values=["gas"], any_of=[RuleFilter(field="kind", op="eq", values=["coal"])]
-        )
-
-
-def test_rulefilter_model_validator_requires_leaf_or_composition():
-    """RuleFilter requires either leaf or composition."""
-    import pytest
-
-    from r2x_core import RuleFilter
-
-    with pytest.raises(ValueError, match="requires field/op/values or any_of/all_of"):
-        RuleFilter()
-
-
-def test_rulefilter_model_validator_both_any_of_and_all_of_error():
-    """RuleFilter cannot set both any_of and all_of."""
-    import pytest
-
-    from r2x_core import RuleFilter
-
-    with pytest.raises(ValueError, match="cannot set both any_of and all_of"):
-        RuleFilter(
-            any_of=[RuleFilter(field="kind", op="eq", values=["coal"])],
-            all_of=[RuleFilter(field="kind", op="eq", values=["gas"])],
-        )
-
-
-def test_rulefilter_model_validator_leaf_field_required():
-    """RuleFilter.field required for field-backed leaf filters."""
-    import pytest
-
-    from r2x_core import RuleFilter
-
-    with pytest.raises(ValueError, match="field is required for leaf filters"):
-        RuleFilter(op="eq", values=["gas"])
-
-
-def test_rulefilter_model_validator_getter_leaf():
-    """RuleFilter accepts getter-backed leaf filters."""
-    from rust_ok import Ok
-
-    from r2x_core import RuleFilter
-
-    def resolve_fuel_type(src: object, *, context: object):
-        _ = context
-        return Ok("gas")
-
-    filt = RuleFilter(getter=resolve_fuel_type, op="eq", values=["gas"])
-
-    assert filt.getter is resolve_fuel_type
-
-
-def test_rulefilter_model_validator_string_getter_resolves_registry_name():
-    """RuleFilter resolves registered getter names to callables."""
-    from rust_ok import Ok
-
-    from r2x_core import RuleFilter
+def test_getter_filter_uses_registered_getters_and_context() -> None:
     from r2x_core.getters import GETTER_REGISTRY, getter
 
-    getter_name = "rulefilter_string_getter"
+    getter_name = "rule_filter_selected_fuel"
     if getter_name not in GETTER_REGISTRY:
 
         @getter(name=getter_name)
-        def rulefilter_string_getter(src, *, context):
-            _ = context
-            return Ok("gas")
+        def selected_fuel(source: object, *, context: PluginContext):
+            return Ok(context.metadata["selected_fuel"])
 
-    filt = RuleFilter(getter=getter_name, op="eq", values=["gas"])
+    filt = GetterFilter(getter=getter_name, op="eq", values=["GAS"])
+    context = PluginContext(
+        config=PluginConfig(models=FIXTURE_MODEL_MODULES),
+        metadata={"selected_fuel": "gas"},
+    )
 
-    assert callable(filt.getter)
-
-
-def test_rulefilter_model_validator_rejects_field_and_getter():
-    """RuleFilter cannot specify both field and getter on a leaf."""
-    import pytest
-
-    from r2x_core import RuleFilter
-
-    with pytest.raises(ValueError, match="cannot set both field and getter"):
-        RuleFilter(field="kind", getter=lambda *args, **kwargs: None, op="eq", values=["gas"])
+    assert filt.matches(Dummy(), context=context)
 
 
-def test_rulefilter_model_validator_rejects_non_string_non_callable_getter():
-    """RuleFilter getter accepts only callables or strings."""
-    import pytest
+def test_rule_executor_honors_field_filters(source_system: System) -> None:
+    converted, target_system = run_rule_with_filter(
+        FieldFilter(field="fuel_type", op="eq", values=["gas"]), source_system
+    )
 
-    from r2x_core import RuleFilter
-
-    with pytest.raises(TypeError, match="callable or str"):
-        RuleFilter(getter=123, op="eq", values=["gas"])
-
-
-def test_rulefilter_model_validator_leaf_op_required():
-    """RuleFilter.op required for leaf filters."""
-    import pytest
-
-    from r2x_core import RuleFilter
-
-    with pytest.raises(ValueError, match="op is required for leaf filters"):
-        RuleFilter(field="kind", values=["gas"])
+    stations = list(target_system.get_components(StationComponent))
+    assert converted == 1
+    assert stations and stations[0].name == "plant_alpha"
 
 
-def test_rulefilter_model_validator_leaf_values_required():
-    """RuleFilter.values or prefixes required for leaf filters."""
-    import pytest
+def test_rule_filter_models_reject_invalid_shapes() -> None:
+    adapter = TypeAdapter(RuleFilter)
 
-    from r2x_core import RuleFilter
-
-    with pytest.raises(ValueError, match="must contain at least one value"):
-        RuleFilter(field="kind", op="eq")
-
-
-def test_rulefilter_model_validator_geq_one_value():
-    """RuleFilter.geq expects exactly one comparison value."""
-    import pytest
-
-    from r2x_core import RuleFilter
-
-    with pytest.raises(ValueError, match="expects exactly one comparison value"):
-        RuleFilter(field="capacity", op="geq", values=[1, 2])
-
-
-def test_rulefilter_model_validator_prefixes_type():
-    """RuleFilter.prefixes entries must be strings."""
-    import pytest
-
-    from r2x_core import RuleFilter
-
-    with pytest.raises(ValueError) as _:
-        RuleFilter(field="name", op="startswith", prefixes=cast(Any, [123]))
-
-
-def test_filter_normalization_does_not_change_serialized_configuration() -> None:
-    from r2x_core import RuleFilter
-
-    filt = RuleFilter(field="kind", op="eq", values=["GAS"])
-    before = filt.model_dump()
-
-    assert filt.matches(Dummy(kind="gas"))
-    assert filt.model_dump() == before
-    assert filt.values == ["GAS"]
-    assert "normalized_values" not in filt.model_dump_json()
-
-
-def test_rulefilter_normalized_values_casefold():
-    """Comparison values are casefolded when enabled."""
-    from r2x_core import RuleFilter
-
-    filt = RuleFilter(field="name", op="startswith", values=["Plant_A"], casefold=True)
-    assert filt.normalized_values == ["plant_a"]
-
-
-def test_rulefilter_normalized_values_no_casefold():
-    """Comparison values retain their case when casefolding is disabled."""
-    from r2x_core import RuleFilter
-
-    filt = RuleFilter(field="name", op="startswith", values=["Plant_A"], casefold=False)
-    assert filt.normalized_values == ["Plant_A"]
+    with pytest.raises(ValidationError):
+        adapter.validate_python({"field": "kind", "op": "eq", "values": ["gas"]})
+    with pytest.raises(ValidationError):
+        adapter.validate_python(
+            {"kind": "field", "field": "kind", "getter": "selected_fuel_type", "op": "eq", "values": ["gas"]}
+        )
+    with pytest.raises(ValidationError):
+        FieldFilter(field="kind", op="geq", values=[1, 2])
+    with pytest.raises(ValidationError):
+        FieldFilter(field="name", op="startswith", values=[123])
+    with pytest.raises(ValidationError):
+        GetterFilter(getter=123, op="eq", values=["gas"])
+    with pytest.raises(ValidationError):
+        AnyOfFilter(filters=[])

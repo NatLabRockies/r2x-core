@@ -76,8 +76,8 @@ reader_kwargs = {
 ### Parsing Datetime Fields
 
 The `datetime_key` parameter identifies a dataset containing datetime strings.
-The reader parses these strings, stripping timezone information by default, and
-converts them to numpy `datetime64[us]` format for compatibility with Polars.
+The reader parses these strings, strips timezone information by default, and
+converts them to NumPy `datetime64[us]` values for tabular backends.
 The resulting column is named `datetime` by default, though this can be
 customized with `datetime_column_name`.
 
@@ -89,9 +89,8 @@ reader_kwargs = {
 ```
 
 Timezone stripping handles the common case where energy models use a single
-reference timezone. Most datetime parsing in numpy and Polars is simpler without
-timezone information. Users who need to preserve the original timezone strings
-can set `strip_timezone=False`.
+reference timezone. `strip_timezone=False` converts offset-aware values to UTC
+before removing timezone information.
 
 ### Including Additional Metadata
 

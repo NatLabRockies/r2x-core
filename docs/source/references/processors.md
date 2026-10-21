@@ -1,7 +1,9 @@
 # Data Processors
 
-`DataReader` applies `TabularProcessing` to Polars `LazyFrame` inputs after a
-file is read. Operations remain lazy where Polars supports lazy execution. A
+`DataReader` dispatches by processing-spec type. Tabular processing uses a
+configured or default `TabularBackend`; JSON processing uses a configured or
+default `JSONProcessor`. The default Polars backend operates on `LazyFrame`
+values and keeps operations lazy where Polars supports lazy execution. A
 long-to-wide `pivot_on` performs a small discovery collection of distinct pivot
 keys because Polars needs those output column names before constructing its lazy
 pivot plan. `DataFile` validates processing settings against the file format:
@@ -105,14 +107,14 @@ from r2x_core import DataFile, ReaderConfig
 file_spec = DataFile(
     name="profiles",
     relative_fpath="load_profiles.csv",
-    reader=ReaderConfig(header_rows=2, header_separator="|"),
+    reader=ReaderConfig(kwargs={"header_rows": 2, "header_separator": "|"}),
 )
 ```
 
 For example, the headers `2025` and `NYISO_A` become `2025|NYISO_A`. Use
 `unpivot_on` and `split_column` to separate the combined label into fields.
-`header_rows` applies to the built-in CSV/TSV reader, not custom reader
-functions or other file formats.
+The built-in Polars CSV/TSV reader validates these options. Custom readers
+receive them as kwargs and define their own behavior.
 
 ## Placeholders
 
@@ -170,7 +172,9 @@ continues to support `rename_index` for JSON object keys.
 
 ## JSON processing
 
-JSON processing has a separate pipeline for nested JSON values:
+JSON processing defaults to `JSONProcessingBackend` in `r2x_core.json_adapter`,
+which implements the `JSONProcessor` protocol. Applications can provide a
+custom processor through `DataReader(json_processor=...)`:
 
 ```python
 from r2x_core import JSONProcessing
@@ -183,6 +187,8 @@ processing = JSONProcessing(
 )
 ```
 
-See {py:class}`~r2x_core.TabularProcessing`,
-{py:class}`~r2x_core.JSONProcessing`, and
-{py:func}`~r2x_core.processors.process_tabular_data` for the public API.
+See {py:class}`~r2x_core.json_adapter.JSONProcessor`,
+{py:class}`~r2x_core.json_adapter.JSONProcessingBackend`,
+{py:class}`~r2x_core.TabularBackend`,
+{py:class}`~r2x_core.TabularProcessing`, and
+{py:class}`~r2x_core.JSONProcessing` for the public API.

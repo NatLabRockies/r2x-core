@@ -35,6 +35,35 @@ Complete API documentation for all r2x-core classes and functions.
 ```
 
 ```{eval-rst}
+.. autoclass:: r2x_core.FileReader
+   :members:
+   :show-inheritance:
+```
+
+```{eval-rst}
+.. autoclass:: r2x_core.H5Reader
+   :members:
+   :show-inheritance:
+```
+
+```{eval-rst}
+.. autoclass:: r2x_core.H5PyFileReader
+   :members:
+   :show-inheritance:
+```
+
+```{eval-rst}
+.. autoclass:: r2x_core.json_adapter.JSONProcessor
+   :members:
+```
+
+```{eval-rst}
+.. autoclass:: r2x_core.TabularBackend
+   :members:
+   :show-inheritance:
+```
+
+```{eval-rst}
 .. autopydantic_model:: r2x_core.DataFile
    :model-show-json: False
    :model-show-config-summary: False

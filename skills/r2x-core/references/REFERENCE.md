@@ -27,14 +27,15 @@ Use root imports when exported by `src/r2x_core/__init__.py`:
 ```python
 from r2x_core import (
     CLIError, ComponentCreationError, DataFile, DataReader, DataStore, Err,
-    FileInfo, FileFormat, GitVersioningStrategy, H5Format, HasPerUnit,
-    HasUnits, JSONProcessing, Ok, Plugin, PluginConfig, PluginContext,
-    PluginError, ReaderConfig, Result, Rule, RuleFilter, RuleResult,
-    SemanticVersioningStrategy, System, TabularProcessing, TranslationResult,
-    Unit, UnitSystem, UpgradeError, UpgradeStep, UpgradeType, ValidationError,
-    VersionReader, VersionStrategy, apply_rules_to_context, apply_single_rule,
+    FileInfo, FileFormat, FileReader, GitVersioningStrategy, H5Format,
+    H5PyFileReader, H5Reader, HasPerUnit, HasUnits, JSONProcessing, Ok,
+    Plugin, PluginConfig, PluginContext, PluginError, ReaderConfig, Result,
+    Rule, RuleFilter, RuleResult, SemanticVersioningStrategy, System,
+    TabularBackend, TabularProcessing, TranslationResult, Unit, UnitSystem,
+    UpgradeError, UpgradeStep, UpgradeType, ValidationError, VersionReader,
+    VersionStrategy, apply_rules_to_context, apply_single_rule,
     components_to_records, create_component, export_components_to_csv,
-    expose_plugin, get_unit_system, getter, h5_readers, is_err, is_ok,
+    expose_plugin, get_unit_system, getter, is_err, is_ok,
     run_upgrade_step, set_unit_system,
 )
 ```

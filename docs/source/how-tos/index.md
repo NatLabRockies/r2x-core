@@ -12,6 +12,7 @@ Learn how to configure and manage data in R2X Core.
 configure-data-settings
 configure-data-files
 read-data-files
+custom-readers-and-backends
 read-hdf5-files
 manage-datastores
 process-file-data

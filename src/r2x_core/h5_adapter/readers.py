@@ -2,21 +2,56 @@
 
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from pathlib import Path
 
 import h5py
 import numpy as np
+from loguru import logger
 
-from .exceptions import HDF5GroupNotFoundError
+from ..datafile import ReaderConfig
+from ..exceptions import ConfiguredGroupNotFoundError
+from ..file_reader import FileReader
+from ..types import FileFormat, H5Format
+from .type_alias import H5Label, H5Result
 
-H5Label = str | bytes
-H5Value = np.ndarray | list[str] | list[bytes]
-H5Result = dict[str, H5Value]
 DEFAULT_DATETIME_COLUMN_NAME = "datetime"
 DEFAULT_INDEX_NAMES_KEY = "index_names"
 HDF5_STRING_KINDS = frozenset({"S", "O"})
 INDEX_COLUMN_PREFIX = "index_"
 SOLVE_YEAR_COLUMN_NAME = "solve_year"
 YEAR_COLUMN_NAME = "year"
+
+
+class H5Reader(FileReader[H5Result]):
+    """Base interface for HDF5 readers that return backend-neutral columns."""
+
+    def supports_file_type(self, file_type: FileFormat, /) -> bool:
+        """Return whether this reader accepts an HDF5 format marker."""
+        return isinstance(file_type, H5Format)
+
+
+def read_h5_file(*, file_path: Path, **reader_kwargs: object) -> H5Result:
+    """Read an HDF5 file into column data using the configured reader options."""
+    logger.debug("Reading HDF5 file: {}", file_path)
+    with h5py.File(str(file_path), "r") as h5_file:
+        return configurable_h5_reader(h5_file, **reader_kwargs)
+
+
+class H5PyFileReader(H5Reader):
+    """Read HDF5 files with h5py into backend-neutral column data."""
+
+    def read_file(
+        self,
+        file_type: FileFormat,
+        /,
+        *,
+        file_path: Path,
+        reader_config: ReaderConfig,
+    ) -> H5Result:
+        """Read one HDF5 file using the selected HDF5 implementation."""
+        if not self.supports_file_type(file_type):
+            raise ValueError(f"HDF5 reader does not support {type(file_type).__name__}")
+        return read_h5_file(file_path=file_path, **reader_config.kwargs)
 
 
 def configurable_h5_reader(h5_file: h5py.File, **reader_kwargs: object) -> H5Result:
@@ -35,7 +70,7 @@ def configurable_h5_reader(h5_file: h5py.File, **reader_kwargs: object) -> H5Res
     if isinstance(group_key, str):
         selected = h5_file.get(group_key)
         if selected is None:
-            raise HDF5GroupNotFoundError(f"HDF5 group '{group_key}' not found")
+            raise ConfiguredGroupNotFoundError(f"HDF5 group '{group_key}' not found")
         if not isinstance(selected, h5py.Group):
             raise TypeError(f"HDF5 path '{group_key}' is not a group")
         scope = selected
@@ -83,8 +118,9 @@ def configurable_h5_reader(h5_file: h5py.File, **reader_kwargs: object) -> H5Res
     if columns_key is not None and not isinstance(columns_key, str):
         raise ValueError("columns_key must be a string")
 
+    result: H5Result = {}
     if columns_as_datasets:
-        result: H5Result = read_columnar_group(
+        result = read_columnar_group(
             scope,
             columns_key=columns_key,
             decode_bytes=decode_bytes,
@@ -96,7 +132,6 @@ def configurable_h5_reader(h5_file: h5py.File, **reader_kwargs: object) -> H5Res
         if data_dataset is None:
             raise KeyError(f"HDF5 dataset '{data_key}' not found")
         data = np.asarray(data_dataset[()])
-        result = {}
         columns = get_h5_dataset(scope, file_data, columns_key) if isinstance(columns_key, str) else None
         if isinstance(columns, h5py.Dataset):
             column_names = read_h5_labels(columns, decode_bytes=decode_bytes)

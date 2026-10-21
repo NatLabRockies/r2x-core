@@ -21,7 +21,7 @@ unfamiliar symbol, or docs and runtime behavior disagree.
 - `r2x_core.rules_executor`: `apply_rules_to_context`, `apply_single_rule`
 - `r2x_core.store`: `DataStore`
 - `r2x_core.datafile`: `DataFile`, `ReaderConfig`, processing specs
-- `r2x_core.h5_readers` / `r2x_core.file_readers`: file readers
+- `r2x_core.h5_adapter`, `r2x_core.polars_adapter`, and `r2x_core.file_readers`: format readers
 - `r2x_core.units`: `HasUnits`, `HasPerUnit`, `UnitSystem`, `Unit`
 - `r2x_core.versioning`: version strategies and `VersionReader`
 - `r2x_core.utils`: `UpgradeStep`, `UpgradeType`, `run_upgrade_step`

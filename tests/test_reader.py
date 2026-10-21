@@ -24,6 +24,104 @@ def reader_example():
     return DataReader()
 
 
+def test_read_parquet_data_file(reader_example, tmp_path):
+    import polars as pl
+
+    from r2x_core.datafile import DataFile
+
+    parquet_path = tmp_path / "data.parquet"
+    pl.DataFrame({"value": [1, 2]}).write_parquet(parquet_path)
+
+    result = reader_example.read_data_file(DataFile(name="parquet", fpath=parquet_path), folder_path=tmp_path)
+
+    assert result.collect().to_dicts() == [{"value": 1}, {"value": 2}]
+
+
+def test_reader_uses_injected_file_reader_and_non_polars_backend(tmp_path):
+    import csv
+    from collections.abc import Mapping
+    from dataclasses import dataclass
+    from pathlib import Path
+    from typing import TypeGuard
+
+    from rust_ok import Err, Ok, Result
+
+    from r2x_core.datafile import DataFile, ReaderConfig, TabularProcessing
+    from r2x_core.file_reader import FileReader
+    from r2x_core.models import MappingStep
+    from r2x_core.reader import DataReader
+    from r2x_core.tabular_backend import TabularBackend
+    from r2x_core.types import FileFormat, TableFormat
+
+    @dataclass
+    class CsvRows:
+        rows: list[dict[str, str]]
+
+    class CsvFileReader(FileReader[CsvRows]):
+        def supports_file_type(self, file_type: FileFormat, /) -> bool:
+            return isinstance(file_type, TableFormat)
+
+        def read_file(
+            self,
+            file_type: FileFormat,
+            /,
+            *,
+            file_path: Path,
+            reader_config: ReaderConfig,
+        ) -> CsvRows:
+            if reader_config.kwargs.get("header_rows", 1) != 1:
+                raise ValueError("This reader supports one header row")
+            separator = str(reader_config.kwargs.get("separator", ","))
+            with file_path.open(encoding="utf-8", newline="") as file:
+                return CsvRows(list(csv.DictReader(file, delimiter=separator)))
+
+    class CsvBackend(TabularBackend[CsvRows]):
+        def supports_data(self, value: object, /) -> TypeGuard[CsvRows]:
+            return isinstance(value, CsvRows)
+
+        def process(
+            self,
+            frame: CsvRows,
+            *,
+            data_file: DataFile,
+            proc_spec: TabularProcessing,
+        ) -> Result[CsvRows, ValueError]:
+            column_mapping = proc_spec.column_mapping or {}
+            return Ok(
+                CsvRows(
+                    [
+                        {column_mapping.get(name, name): value for name, value in row.items()}
+                        for row in frame.rows
+                    ]
+                )
+            )
+
+        def apply_mapping_operation(
+            self,
+            step: MappingStep,
+            frame: CsvRows,
+            *,
+            source_frames: Mapping[str, CsvRows],
+        ) -> Result[CsvRows, ValueError]:
+            return Err(ValueError("This backend does not implement mapping steps"))
+
+    csv_path = tmp_path / "backend.csv"
+    csv_path.write_text("old_name,value\na,1\n", encoding="utf-8")
+    backend: TabularBackend[CsvRows] = CsvBackend()
+    file_reader: FileReader[CsvRows] = CsvFileReader()
+    reader = DataReader(tabular_backend=backend, file_readers=[file_reader])
+    data_file = DataFile(
+        name="alternate-backend",
+        fpath=csv_path,
+        proc_spec=TabularProcessing(column_mapping={"old_name": "name"}),
+    )
+
+    result = reader.read_data_file(data_file, folder_path=tmp_path)
+
+    assert isinstance(result, CsvRows)
+    assert result.rows == [{"name": "a", "value": "1"}]
+
+
 def test_read_data_file_basic(reader_example, sample_csv, tmp_path):
     from r2x_core.datafile import DataFile
 
@@ -91,11 +189,92 @@ def test_get_supported_file_types(reader_example):
     assert ".h5" in file_types
 
 
-def test_register_custom_transformation(reader_example):
-    def custom_transform(data_file, data):
-        return data
+def test_default_file_reader_is_cached_per_reader_instance():
+    pytest.importorskip("polars")
 
-    reader_example.register_custom_transformation(str, transform_func=custom_transform)
+    from r2x_core.reader import DataReader
+    from r2x_core.types import TableFormat
+
+    first_reader = DataReader()
+    second_reader = DataReader()
+    first_default = first_reader.select_file_reader(TableFormat())
+
+    assert first_reader.select_file_reader(TableFormat()) is first_default
+    assert second_reader.select_file_reader(TableFormat()) is not first_default
+
+
+def test_default_json_processor_is_cached_per_reader_instance():
+    from r2x_core.reader import DataReader
+
+    first_reader = DataReader()
+    second_reader = DataReader()
+    first_default = first_reader.json_processor
+
+    assert first_reader.json_processor is first_default
+    assert second_reader.json_processor is not first_default
+
+
+def test_json_processing_does_not_import_polars(tmp_path: Path) -> None:
+    import os
+    import subprocess
+    import sys
+
+    pytest.importorskip("polars")
+    code = """
+import sys
+from pathlib import Path
+from r2x_core.datafile import DataFile, JSONProcessing
+from r2x_core.reader import DataReader
+
+path = Path(sys.argv[1])
+path.write_text('{"old":"value"}', encoding="utf-8")
+data_file = DataFile(
+    name="lazy-json",
+    fpath=path,
+    proc_spec=JSONProcessing(key_mapping={"old": "new"}),
+)
+assert DataReader().read_data_file(data_file, folder_path=path.parent) == {"new": "value"}
+assert "polars" not in sys.modules
+"""
+    env = os.environ | {"PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")}
+
+    subprocess.run(
+        [sys.executable, "-c", code, str(tmp_path / "lazy.json")],
+        check=True,
+        timeout=30,
+        env=env,
+    )
+
+
+def test_reader_uses_an_injected_json_processor(tmp_path):
+    from rust_ok import Err, Ok, Result
+
+    from r2x_core.datafile import DataFile, JSONProcessing
+    from r2x_core.json_adapter import JSONProcessor
+    from r2x_core.reader import DataReader
+    from r2x_core.types import JSONValue
+
+    class UppercaseKeys:
+        def process(
+            self,
+            data: JSONValue,
+            *,
+            data_file: DataFile,
+            proc_spec: JSONProcessing,
+        ) -> Result[JSONValue, ValueError]:
+            if not isinstance(data, dict):
+                return Err(ValueError("Expected a JSON object"))
+            return Ok({key.upper(): value for key, value in data.items()})
+
+    processor: JSONProcessor = UppercaseKeys()
+    path = tmp_path / "payload.json"
+    path.write_text('{"name":"grid","capacity":4}', encoding="utf-8")
+    reader = DataReader(json_processor=processor)
+    data_file = DataFile(name="custom-transform", fpath=path, proc_spec=JSONProcessing())
+
+    result = reader.read_data_file(data_file, folder_path=tmp_path)
+
+    assert result == {"NAME": "grid", "CAPACITY": 4}
 
 
 def test_read_with_reader_kwargs(reader_example, sample_csv, tmp_path):
@@ -212,7 +391,7 @@ def test_read_data_file_combines_multiple_header_rows_and_processes_them(reader_
     data_file = DataFile(
         name="profiles",
         fpath=csv_path,
-        reader=ReaderConfig(header_rows=2),
+        reader=ReaderConfig(kwargs={"header_rows": 2}),
         proc_spec=TabularProcessing(
             unpivot_on=["2025|NYISO_A", "2025|NYISO_B", "2030|NYISO_A"],
             split_column={"variable": {"separator": "|", "into": ["year", "zone"]}},
@@ -273,6 +452,29 @@ def test_read_optional_data_file_missing_h5_group(reader_example, tmp_path):
     )
 
     assert reader_example.read_data_file(data_file, folder_path=tmp_path) is None
+
+
+def test_read_required_data_file_missing_h5_group_raises(reader_example, tmp_path):
+    """Required HDF5 files report absent configured groups."""
+    import h5py
+
+    from r2x_core import DataFile
+    from r2x_core.datafile import FileInfo, ReaderConfig
+    from r2x_core.exceptions import ConfiguredGroupNotFoundError
+
+    h5_path = tmp_path / "outputs.h5"
+    with h5py.File(h5_path, "w"):
+        pass
+
+    data_file = DataFile(
+        name="fuel_price",
+        fpath=h5_path,
+        info=FileInfo(is_optional=False),
+        reader=ReaderConfig(kwargs={"group_key": "fuel_price"}),
+    )
+
+    with pytest.raises(ConfiguredGroupNotFoundError, match="fuel_price"):
+        reader_example.read_data_file(data_file, folder_path=tmp_path)
 
 
 def test_read_data_file_h5_group(reader_example, tmp_path):
@@ -337,32 +539,6 @@ def test_custom_reader_processing_errors_are_reader_errors(reader_example, sampl
     )
 
     with pytest.raises(ReaderError, match="filter_by"):
-        reader_example.read_data_file(data_file, folder_path=tmp_path)
-
-
-def test_custom_reader_rejects_multiple_header_rows(reader_example, sample_csv, tmp_path):
-    from r2x_core.datafile import DataFile, ReaderConfig
-
-    data_file = DataFile(
-        name="custom-headers",
-        fpath=sample_csv,
-        reader=ReaderConfig(function=lambda path: None, header_rows=2),
-    )
-
-    with pytest.raises(ValueError, match="built-in CSV/TSV reader"):
-        reader_example.read_data_file(data_file, folder_path=tmp_path)
-
-
-def test_non_csv_reader_rejects_multiple_header_rows(reader_example, sample_json, tmp_path):
-    from r2x_core.datafile import DataFile, ReaderConfig
-
-    data_file = DataFile(
-        name="json-headers",
-        fpath=sample_json,
-        reader=ReaderConfig(header_rows=2),
-    )
-
-    with pytest.raises(ValueError, match="only supported for CSV/TSV"):
         reader_example.read_data_file(data_file, folder_path=tmp_path)
 
 

@@ -32,6 +32,16 @@ pip install r2x-core
 python -m pip install r2x-core
 ```
 
+## Built-in Polars backend
+
+The default tabular reader and processor use the optional Polars backend. Install the `polars` extra to use them:
+
+```console
+uv add "r2x-core[polars]"
+```
+
+With pip, install the same extra using `python -m pip install "r2x-core[polars]"`. Applications can provide custom readers, tabular backends, or JSON processors through `DataReader(file_readers=[...], tabular_backend=..., json_processor=...)`.
+
 ## Upgrading options
 
 ### Upgrading with uv

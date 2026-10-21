@@ -8,3 +8,5 @@ extend-exclude = ["tests/*"]
 packageid = "packageid"
 # Pydantic core schema function name (not a typo)
 ser = "ser"
+# Fixed operations and maintenance cost column in power-systems inputs
+fom = "fom"

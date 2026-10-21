@@ -3,19 +3,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Generic
 
 if TYPE_CHECKING:
-    import polars as pl
-
     from .rules import Rule
+
+from .types import FrameT
 
 
 @dataclass
-class TabularTransformResult:
-    """Lazy tabular frame and its ordered output column names."""
+class TabularTransformResult(Generic[FrameT]):
+    """A transformed tabular frame and its ordered output column names."""
 
-    data_frame: pl.LazyFrame
+    data_frame: FrameT
     schema_names: list[str]
 
 

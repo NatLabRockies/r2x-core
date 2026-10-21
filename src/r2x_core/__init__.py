@@ -1,9 +1,9 @@
 """R2X Core public API with lazy imports for fast CLI/import startup.
 
-Eager imports are kept under ``if TYPE_CHECKING`` so IDEs (pyright, mypy)
+Eager imports are kept under ``if TYPE_CHECKING`` so IDEs and the type checker
 see the full API surface for autocompletion and type checking. At runtime,
 attributes are imported on first access via ``__getattr__`` and cached in
-the module globals, dropping cold-import from ~1.4 s to ~0.17 s.
+module globals.
 """
 
 from __future__ import annotations
@@ -22,7 +22,6 @@ __version__ = version("r2x_core")
 
 # ── Eager for IDEs / type checkers (dead code at runtime) ──────────
 if TYPE_CHECKING:
-    from . import h5_readers
     from .datafile import (
         DataFile,
         FileInfo,
@@ -38,14 +37,15 @@ if TYPE_CHECKING:
         UpgradeError,
         ValidationError,
     )
-    from .file_types import FileFormat, H5Format
+    from .file_reader import FileReader
     from .getters import getter, resolve_getter
+    from .h5_adapter import H5PyFileReader, H5Reader
     from .plugin_base import Plugin
     from .plugin_config import PluginConfig
     from .plugin_context import PluginContext
     from .plugin_expose import expose_plugin
     from .reader import DataReader
-    from .result import RuleResult, TabularTransformResult, TranslationResult
+    from .result import RuleResult, TranslationResult
     from .rules import Rule, RuleFilter, SupplementalAttributeRule
     from .rules_executor import (
         apply_rules_to_context,
@@ -55,16 +55,13 @@ if TYPE_CHECKING:
     )
     from .store import DataStore
     from .system import System
+    from .tabular_backend import TabularBackend
     from .time_series import replace_single_time_series, transfer_time_series_metadata
+    from .types import FileFormat, H5Format
     from .units import HasPerUnit, HasUnits, Unit, UnitSystem, get_unit_system, set_unit_system
-    from .utils import (
-        UpgradeStep,
-        UpgradeType,
-        components_to_records,
-        create_component,
-        export_components_to_csv,
-        run_upgrade_step,
-    )
+    from .utils.export import components_to_records, export_components_to_csv
+    from .utils.parser import create_component
+    from .utils.upgrade import UpgradeStep, UpgradeType, run_upgrade_step
     from .versioning import (
         GitVersioningStrategy,
         SemanticVersioningStrategy,
@@ -74,7 +71,6 @@ if TYPE_CHECKING:
 
 # ── Lazy at runtime ─────────────────────────────────────────────────
 _LAZY_IMPORTS: dict[str, str] = {
-    "h5_readers": ".h5_readers",
     "DataFile": ".datafile",
     "FileInfo": ".datafile",
     "JSONProcessing": ".datafile",
@@ -86,8 +82,12 @@ _LAZY_IMPORTS: dict[str, str] = {
     "PluginError": ".exceptions",
     "UpgradeError": ".exceptions",
     "ValidationError": ".exceptions",
-    "FileFormat": ".file_types",
-    "H5Format": ".file_types",
+    "FileFormat": ".types",
+    "H5Format": ".types",
+    "H5PyFileReader": ".h5_adapter",
+    "H5Reader": ".h5_adapter",
+    "FileReader": ".file_reader",
+    "TabularBackend": ".tabular_backend",
     "getter": ".getters",
     "resolve_getter": ".getters",
     "Plugin": ".plugin_base",
@@ -99,7 +99,6 @@ _LAZY_IMPORTS: dict[str, str] = {
     "SourceProvenance": ".provenance",
     "DataReader": ".reader",
     "RuleResult": ".result",
-    "TabularTransformResult": ".result",
     "TranslationResult": ".result",
     "Rule": ".rules",
     "RuleFilter": ".rules",
@@ -142,7 +141,7 @@ def __getattr__(name: str) -> object:
     import importlib
 
     mod = importlib.import_module(module_path, __package__)
-    attr = mod if name == "h5_readers" else getattr(mod, name)
+    attr = getattr(mod, name)
     # Cache in module globals so subsequent accesses are O(1)
     globals()[name] = attr
     return attr
@@ -158,8 +157,11 @@ __all__ = [
     "Err",
     "FileFormat",
     "FileInfo",
+    "FileReader",
     "GitVersioningStrategy",
     "H5Format",
+    "H5PyFileReader",
+    "H5Reader",
     "HasPerUnit",
     "HasUnits",
     "JSONProcessing",
@@ -177,8 +179,8 @@ __all__ = [
     "SplitColumnSpec",
     "SupplementalAttributeRule",
     "System",
+    "TabularBackend",
     "TabularProcessing",
-    "TabularTransformResult",
     "TranslationResult",
     "Unit",
     "UnitSystem",
@@ -197,7 +199,6 @@ __all__ = [
     "expose_plugin",
     "get_unit_system",
     "getter",
-    "h5_readers",
     "is_err",
     "is_ok",
     "replace_single_time_series",

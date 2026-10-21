@@ -7,7 +7,9 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from r2x_core.file_types import H5Format
+from r2x_core.datafile import ReaderConfig
+from r2x_core.polars_adapter import PolarsTabularFileReader
+from r2x_core.types import H5Format
 
 
 def test_h5format_serialization_default():
@@ -54,13 +56,19 @@ def test_json_config_workflow_with_reader_kwargs():
         }
 
         # Simulate reading with reader_kwargs
-        from r2x_core.file_readers import read_file_by_type
-
         h5_format = H5Format()
         reader_kwargs = config.get("reader_kwargs", {})
         assert isinstance(reader_kwargs, dict)
 
-        df = read_file_by_type(h5_format, file_path=Path(h5_file), **reader_kwargs).collect()
+        df = (
+            PolarsTabularFileReader()
+            .read_file(
+                h5_format,
+                file_path=Path(h5_file),
+                reader_config=ReaderConfig(kwargs=reader_kwargs),
+            )
+            .collect()
+        )
 
         # Check data was read correctly
         assert "region1" in df.columns
@@ -98,13 +106,19 @@ def test_json_config_workflow_with_tabular_schema():
         }
 
         # Read with reader_kwargs
-        from r2x_core.file_readers import read_file_by_type
-
         h5_format = H5Format()
         reader_kwargs = config.get("reader_kwargs", {})
         assert isinstance(reader_kwargs, dict)
 
-        df = read_file_by_type(h5_format, file_path=Path(h5_file), **reader_kwargs).collect()
+        df = (
+            PolarsTabularFileReader()
+            .read_file(
+                h5_format,
+                file_path=Path(h5_file),
+                reader_config=ReaderConfig(kwargs=reader_kwargs),
+            )
+            .collect()
+        )
 
         # Check data was read correctly
         assert "col_a" in df.columns

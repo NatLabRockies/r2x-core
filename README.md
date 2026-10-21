@@ -37,11 +37,19 @@ PLEXOS, SWITCH, Sienna, or other infrasys-backed power-system workflows.
 pip install r2x-core
 ```
 
+Install the optional Polars backend when using the built-in tabular reader and processor:
+
+```console
+pip install "r2x-core[polars]"
+```
+
 Or with [uv](https://docs.astral.sh/uv/):
 
 ```console
-uv add r2x-core
+uv add "r2x-core[polars]"
 ```
+
+Applications using another `TabularBackend` can install `r2x-core` without the Polars extra and pass their backend to `DataReader`.
 
 R2X Core supports Python 3.11, 3.12, and 3.13.
 

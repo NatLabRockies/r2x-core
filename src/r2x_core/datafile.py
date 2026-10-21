@@ -1,7 +1,6 @@
 """Data Model for datafiles (refactored to nested models)."""
 
 import math
-import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, Any
@@ -18,12 +17,13 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from pydantic_core import InitErrorDetails
+from rust_ok import is_err
 
-from .file_types import EXTENSION_MAPPING, FileFormat, JSONFormat, TableDataFormat
-from .utils import validate_file_extension, validate_glob_pattern
+from .types import EXTENSION_MAPPING, PLACEHOLDER_PATTERN, FileFormat, JSONFormat, TableDataFormat
 from .utils.files import resolve_path
+from .utils.validation import validate_file_extension, validate_glob_pattern
 
-_PLACEHOLDER_PATTERN = re.compile(r"\{[^{}]+\}")
 _ProcessingPlaceholder = Annotated[str, StringConstraints(pattern=r"^\{[^{}]+\}$")]
 _SUPPORTED_AGGREGATIONS = frozenset(
     {"count", "first", "last", "max", "mean", "median", "min", "n_unique", "std", "sum", "var"}
@@ -31,7 +31,22 @@ _SUPPORTED_AGGREGATIONS = frozenset(
 _PIVOT_AGGREGATIONS = _SUPPORTED_AGGREGATIONS - {"n_unique", "std", "var"}
 
 
-def _validate_optional_file_extension(path: Path | None, info: ValidationInfo) -> Path | None:
+def extension_for_path_source(
+    fpath: Path | None,
+    relative_fpath: Path | str | None,
+    glob: str | None,
+) -> str | None:
+    """Return the extension encoded by one DataFile path source."""
+    if fpath is not None:
+        return fpath.suffix.lower()
+    if relative_fpath is not None:
+        return Path(relative_fpath).suffix.lower()
+    if glob is not None and "." in glob:
+        return "." + glob.rsplit(".", 1)[-1].rstrip("*?[]")
+    return None
+
+
+def validate_optional_file_extension(path: Path | None, info: ValidationInfo) -> Path | None:
     """Run validate_file_extension when a path is provided."""
     if path is None:
         return None
@@ -69,6 +84,8 @@ class FileInfo(BaseModel):
     is_timeseries: Annotated[bool, Field(description="Whether file contains time series data")] = False
     units: Annotated[str | None, Field(description="Units for single-column data")] = None
 
+    model_config = ConfigDict(extra="forbid")
+
 
 class ReaderConfig(BaseModel):
     """Reader configuration for file loading.
@@ -85,10 +102,6 @@ class ReaderConfig(BaseModel):
         If None, uses the default reader for the file type. Default is None.
     kwargs : dict[str, Any]
         Keyword arguments passed to the reader function. Default is empty.
-    header_rows : int
-        Number of CSV/TSV header rows to combine. Default is 1.
-    header_separator : str
-        Separator between combined header cells. Default is ``|``.
 
     See Also
     --------
@@ -98,10 +111,8 @@ class ReaderConfig(BaseModel):
 
     kwargs: Annotated[dict[str, Any], Field(default_factory=dict, description="Keyword arguments for reader")]
     function: Annotated[Callable[..., Any] | None, Field(description="Custom reader function")] = None
-    header_rows: Annotated[int, Field(ge=1, description="Number of CSV/TSV header rows to combine")] = 1
-    header_separator: Annotated[
-        str, Field(min_length=1, description="Separator used to combine multi-row headers")
-    ] = "|"
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class SplitColumnSpec(BaseModel):
@@ -122,6 +133,12 @@ class SplitColumnSpec(BaseModel):
 
 class TabularProcessing(BaseModel):
     """Data transformations for tabular files (CSV, HDF5, Parquet, etc.).
+
+    Transitional contract
+    ---------------------
+    This is the current ``DataFile.proc_spec`` contract and remains in use until
+    ordered mapping steps reach parity, as described in
+    :doc:`../explanations/tabular-processing-roadmap`.
 
     Defines a sequence of operations to apply to tabular data after loading.
     Supports column selection, filtering, reshaping, aggregation, and more.
@@ -221,7 +238,7 @@ class TabularProcessing(BaseModel):
             pivot_functions = {
                 function.lower()
                 for function in self.aggregate_on.values()
-                if _PLACEHOLDER_PATTERN.search(function) is None
+                if PLACEHOLDER_PATTERN.search(function) is None
             }
             if len(pivot_functions) > 1:
                 raise ValueError("pivot_on requires one aggregation function for all value columns")
@@ -236,7 +253,7 @@ class TabularProcessing(BaseModel):
             invalid = {
                 column: function
                 for column, function in self.aggregate_on.items()
-                if _PLACEHOLDER_PATTERN.search(function) is None
+                if PLACEHOLDER_PATTERN.search(function) is None
                 and function.lower() not in _SUPPORTED_AGGREGATIONS
             }
             if invalid:
@@ -265,7 +282,7 @@ class TabularProcessing(BaseModel):
             invalid_directions = {
                 column: direction
                 for column, direction in self.sort_by.items()
-                if _PLACEHOLDER_PATTERN.search(direction) is None
+                if PLACEHOLDER_PATTERN.search(direction) is None
                 and direction.lower() not in {"asc", "ascending", "desc", "descending"}
             }
             if invalid_directions:
@@ -367,7 +384,7 @@ class DataFile(BaseModel):
     name: Annotated[str, Field(description="Name of the mapping")]
     fpath: Annotated[
         Path | None,
-        AfterValidator(_validate_optional_file_extension),
+        AfterValidator(validate_optional_file_extension),
         Field(description="Absolute file path"),
     ] = None
     relative_fpath: Annotated[Path | str | None, Field(description="Relative file path")] = None
@@ -387,14 +404,13 @@ class DataFile(BaseModel):
         if not isinstance(value, dict):
             return value
 
-        glob = info.data.get("glob")
-        if glob is not None:
-            extension = "." + glob.rsplit(".", 1)[-1].rstrip("*?[]") if "." in glob else ""
-        else:
-            path = info.data.get("fpath") or info.data.get("relative_fpath")
-            if path is None:
-                return value
-            extension = Path(path).suffix.lower()
+        extension = extension_for_path_source(
+            info.data.get("fpath"),
+            info.data.get("relative_fpath"),
+            info.data.get("glob"),
+        )
+        if extension is None:
+            return value
 
         format_type = EXTENSION_MAPPING.get(extension)
         if format_type is None:
@@ -418,7 +434,7 @@ class DataFile(BaseModel):
 
         if self.fpath is not None:
             is_optional = self.info.is_optional if self.info else False
-            has_template = _PLACEHOLDER_PATTERN.search(str(self.fpath)) is not None
+            has_template = PLACEHOLDER_PATTERN.search(str(self.fpath)) is not None
             if not is_optional and not has_template and not self.fpath.exists():
                 msg = f"File not found: {self.fpath}"
                 raise FileNotFoundError(msg)
@@ -448,21 +464,12 @@ class DataFile(BaseModel):
     @property
     def file_type(self) -> FileFormat:
         """Computed file type based on file extension."""
-        if self.fpath is not None:
-            extension = self.fpath.suffix.lower()
-        elif self.relative_fpath is not None:
-            rel_path = (
-                Path(self.relative_fpath) if isinstance(self.relative_fpath, str) else self.relative_fpath
-            )
-            extension = rel_path.suffix.lower()
-        elif self.glob is not None:
-            if "." in self.glob:
-                extension = "." + self.glob.rsplit(".", 1)[-1].rstrip("*?[]")
-            else:
+        extension = extension_for_path_source(self.fpath, self.relative_fpath, self.glob)
+        if extension is None:
+            if self.glob is not None:
                 msg = "Cannot determine file type from glob pattern without extension"
-                raise ValueError(msg)
-        else:
-            msg = "Either fpath, relative_fpath, or glob must be set"
+            else:
+                msg = "Either fpath, relative_fpath, or glob must be set"
             raise ValueError(msg)
 
         if extension not in EXTENSION_MAPPING:
@@ -499,8 +506,8 @@ class DataFile(BaseModel):
             return cls.model_validate(record_copy)
 
         raw_path = record_copy[path_field]
-        has_template = _PLACEHOLDER_PATTERN.search(str(raw_path)) is not None
-        resolved = cls._resolve_record_path(
+        has_template = PLACEHOLDER_PATTERN.search(str(raw_path)) is not None
+        resolved = cls.resolve_record_path(
             raw_path,
             folder_path=folder_path,
             must_exist=not is_optional and not has_template,
@@ -539,19 +546,27 @@ class DataFile(BaseModel):
                 )
 
         if errors:
-            # NOTE: Why adding type ignore
-            # For some reason, line_errors should be of type "list[InitErrorDetails]", but we are returning
-            # "list[ErrorDetails]". I think this is not a potential bug in the future and will use ignore the type.
-            line_errors = [line for err in errors for line in err.errors()]
+            line_errors: list[InitErrorDetails] = []
+            for error in errors:
+                for details in error.errors():
+                    init_error: InitErrorDetails = {
+                        "type": details["type"],
+                        "loc": details["loc"],
+                        "input": details["input"],
+                    }
+                    if "ctx" in details:
+                        init_error["ctx"] = details["ctx"]
+                    line_errors.append(init_error)
+
             raise ValidationError.from_exception_data(
                 title="Invalid data file records",
-                line_errors=line_errors,  # type: ignore
+                line_errors=line_errors,
             )
 
         return data_files
 
     @staticmethod
-    def _resolve_record_path(
+    def resolve_record_path(
         raw_path: str | Path,
         *,
         folder_path: Path,
@@ -559,10 +574,6 @@ class DataFile(BaseModel):
     ) -> Path:
         """Resolve a raw path into an absolute path with optional checking."""
         result = resolve_path(raw_path, base_folder=folder_path, must_exist=must_exist)
-        if result.is_err():
+        if is_err(result):
             raise result.err()
-
-        # Safe because we verified result is Ok above
-        path = result.ok()
-        assert path is not None, "Expected Path from Ok result"
-        return path
+        return result.unwrap()

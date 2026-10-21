@@ -520,3 +520,14 @@ def test_data_file_from_records_file_not_found(tmp_path):
 
     with pytest.raises(ValidationError, match="Invalid data file records"):
         DataFile.from_records(records, folder_path=tmp_path)
+
+
+def test_nested_opening_brace_placeholder_is_consistent(tmp_path):
+    from r2x_core import DataFile
+    from r2x_core.processors import substitute_placeholders
+
+    fpath = tmp_path / "{a{b}.csv"
+    data_file = DataFile(name="nested-placeholder", fpath=fpath)
+    result = substitute_placeholders(str(data_file.fpath), placeholders={"b": "2025"})
+
+    assert result.unwrap() == str(tmp_path / "{a2025.csv")

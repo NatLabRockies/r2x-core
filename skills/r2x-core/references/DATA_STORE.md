@@ -10,7 +10,7 @@ and `DataStore`.
 - `DataFile` must set exactly one path source: `fpath`, `relative_fpath`, or
   `glob`.
 - `FileInfo(description=None, is_input=True, is_optional=False, is_timeseries=False, units=None)`
-- `ReaderConfig(kwargs: dict[str, Any] = ..., function: Callable[..., Any] | None = None, header_rows: int = 1, header_separator: str = "|")`
+- `ReaderConfig(kwargs: dict[str, Any] = ..., function: Callable[..., Any] | None = None)`
 - `TabularProcessing(...)` preserves case by default and executes lazy reshape,
   split, replacement, string cleaning, rename, cast, scale, null filling,
   filtering, aggregation, deduplication, sorting, and selection operations.
@@ -18,10 +18,10 @@ and `DataStore`.
   value replacement specs.
 - `DataReader.read_data_file(data_file, *, folder_path, placeholders=None) -> Any`
 - `DataReader.get_supported_file_types() -> list[str]`
-- `DataStore(path=None, *, reader=None, upgrade_handler=None)`
+- `DataStore(path=None, *, reader=None)`
 - `DataStore.add_data(data_files: Sequence[DataFile], *, overwrite=False) -> None`
 - `DataStore.read_data(name, *, placeholders=None) -> Any`
-- `DataStore.from_json(json_fpath, *, path=None, upgrade_handler=None) -> DataStore`
+- `DataStore.from_json(json_fpath, *, path=None) -> DataStore`
 - `DataStore.load_file(fpath, *, name=None, proc_spec=None) -> Any`
 
 ## Do
@@ -111,7 +111,9 @@ data = DataStore.load_file(
 ```
 
 Use a full `DataStore` when the translator has multiple named files, optional
-inputs, placeholders, or an upgrade handler.
+inputs, placeholders, or an upgrade handler. Configure upgrades through
+`PluginConfig.upgrade_handler` or `DataStore.from_plugin_config(...,
+upgrade_handler=...)`; handlers receive both `store` and `ctx` keyword arguments.
 
 ## DataReader direct reads
 
@@ -144,12 +146,12 @@ csv_file = DataFile(
 profile_file = DataFile(
     name="profiles",
     relative_fpath="profiles.csv",
-    reader=ReaderConfig(header_rows=2, header_separator="|"),
+    reader=ReaderConfig(kwargs={"header_rows": 2, "header_separator": "|"}),
 )
 ```
 
-The built-in CSV/TSV reader joins the configured number of header rows. Header
-options do not apply to custom reader functions or other file formats.
+The built-in Polars CSV/TSV reader validates header options in `kwargs`.
+Custom readers receive kwargs and define their own behavior.
 
 Custom functions receive the resolved path plus any kwargs:
 
@@ -208,7 +210,7 @@ and `rename_index` options are unsupported and rejected.
 Use `strip_chars` to remove literal characters from formatted numeric strings,
 `column_schema` to cast them, and `scale` for conversion factors. Use
 `split_column` to split a column into named fields. For CSV/TSV files,
-`ReaderConfig(header_rows=2, header_separator="|")` combines two header rows.
+`ReaderConfig(kwargs={"header_rows": 2, "header_separator": "|"})` combines two header rows.
 
 ## JSONProcessing
 
@@ -247,10 +249,10 @@ h5_file = DataFile(
 Useful HDF5 kwargs from current docs/source include `data_key`, `columns_key`,
 `index_key`, `datetime_key`, `datetime_column_name`, `strip_timezone`,
 `additional_keys`, and `decode_bytes`. If no `data_key` is set, current readers
-may fall back to the first dataset. Verify exact accepted kwargs against
-`r2x_core.file_readers`, `r2x_core.h5_readers`, and project fixture tests. Do
-not poke raw HDF5 datasets inside plugin code if a `DataFile` reader config can
-express it.
+may fall back to the first dataset. Verify exact accepted kwargs against the
+`H5PyFileReader` adapter, `r2x_core.polars_adapter.readers`, and project fixture
+tests. Do not poke raw HDF5 datasets inside plugin code if a `DataFile` reader
+config can express it.
 
 ## Optional files
 
@@ -278,19 +280,23 @@ file_spec = DataFile(name="scenario", glob="scenario_*.csv")
 A glob must include enough extension information to detect file type. Runtime
 resolution expects exactly one match; no matches or multiple matches are errors.
 
-## Custom transformations
+## Custom readers and processing backends
 
-`DataReader.register_custom_transformation(...)` delegates to the processing
-pipeline. Source currently calls transforms as:
+Provide app-specific adapters to `DataReader` rather than registering global
+transform functions:
 
 ```python
-def transform(data, *, data_file, proc_spec):
-    ...
+reader = DataReader(
+    file_readers=[my_file_reader],
+    tabular_backend=my_tabular_backend,
+    json_processor=my_json_processor,
+)
 ```
 
-Verify the callable signature against `r2x_core.processors.apply_processing`
-before registering custom transformations; reader docstrings may lag this
-internal call shape.
+Implement `FileReader` for a supported file format, `TabularBackend` for a
+non-default tabular representation, or `JSONProcessor` for custom JSON
+processing. See `r2x_core.file_reader`, `r2x_core.tabular_backend`, and
+`r2x_core.json_adapter` for their contracts.
 
 ## Placeholders in paths and processing specs
 

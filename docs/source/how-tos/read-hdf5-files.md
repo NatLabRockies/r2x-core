@@ -1,6 +1,6 @@
 # Reading HDF5 Data Files
 
-HDF5 (Hierarchical Data Format) is a flexible format for storing large amounts of structured data. R2X Core provides specialized readers for HDF5 files through {py:class}`~r2x_core.H5Format` and the {py:mod}`~r2x_core.h5_readers` module, supporting both flat and hierarchical data structures.
+HDF5 (Hierarchical Data Format) is a flexible format for storing large amounts of structured data. R2X Core provides specialized readers for HDF5 files through {py:class}`~r2x_core.H5Format` and the {py:mod}`~r2x_core.h5_adapter` package, supporting both flat and hierarchical data structures.
 
 ## Configure HDF5 File Reading
 
@@ -99,14 +99,14 @@ First row: (100.0, 80.0)
 
 ## Use the Configurable HDF5 Reader Directly
 
-For advanced use cases, use {py:func}`~r2x_core.h5_readers.configurable_h5_reader` directly to read HDF5 files with full control over dataset mapping:
+For advanced use cases, use {py:func}`~r2x_core.h5_adapter.configurable_h5_reader` directly to read HDF5 files with full control over dataset mapping:
 
 ```python doctest
 >>> import tempfile
 >>> from pathlib import Path
 >>> import h5py
 >>> import numpy as np
->>> from r2x_core.h5_readers import configurable_h5_reader
+>>> from r2x_core.h5_adapter import configurable_h5_reader
 >>>
 >>> with tempfile.TemporaryDirectory() as tmpdir:
 ...     # Create HDF5 file with flat structure
@@ -140,4 +140,4 @@ Data shape: (2,)
 - {doc}`process-file-data` - Transform HDF5 data during loading
 - {doc}`read-data-files` - Basic data file reading
 - {py:class}`~r2x_core.H5Format` - HDF5 file format class
-- {py:mod}`~r2x_core.h5_readers` - HDF5 reader utilities
+- {py:mod}`~r2x_core.h5_adapter` - HDF5 reader utilities

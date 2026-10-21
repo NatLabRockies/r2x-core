@@ -9,25 +9,26 @@ import json
 import warnings
 from datetime import datetime, time, timedelta
 from decimal import Decimal
+from functools import partial
 from pathlib import Path
 
 import polars as pl
 import pytest
 
 from r2x_core.datafile import DataFile, JSONProcessing, TabularProcessing
-from r2x_core.processors import (
-    apply_processing,
-    json_apply_filters,
-    json_rename_keys,
-    json_select_keys,
+from r2x_core.json_adapter.processing import json_apply_filters, json_rename_keys, json_select_keys
+from r2x_core.polars_adapter import PolarsTabularBackend
+from r2x_core.polars_adapter.processing import (
     pl_apply_filters,
     pl_cast_schema,
     pl_drop_columns,
     pl_rename_columns,
     pl_select_columns,
     process_tabular_data,
-    substitute_placeholders,
 )
+from r2x_core.processors import apply_processing, substitute_placeholders
+
+apply_polars_processing = partial(apply_processing, tabular_backend=PolarsTabularBackend())
 
 
 @pytest.fixture
@@ -330,22 +331,36 @@ def test_apply_processing_with_no_proc_spec(sample_csv: Path):
     lf = pl.scan_csv(sample_csv)
     df_file = DataFile(name="test", fpath=sample_csv)
 
-    result = apply_processing(lf, data_file=df_file, proc_spec=None)
+    result = apply_polars_processing(lf, data_file=df_file, proc_spec=None)
     assert result.is_ok()
     assert result.unwrap().collect().equals(lf.collect())
 
 
-def test_apply_processing_with_unregistered_type(sample_csv: Path):
+def test_apply_processing_resolves_the_default_for_direct_callers(sample_csv: Path):
+    """Resolve Polars for the direct apply_processing call pattern used by r2x-reeds."""
+    frame = pl.LazyFrame({"value": [1]})
+    result = apply_processing(
+        frame,
+        data_file=DataFile(name="default-backend", fpath=sample_csv),
+        proc_spec=TabularProcessing(column_mapping={"value": "renamed"}),
+    )
+
+    assert result.is_ok()
+    assert result.unwrap().collect_schema().names() == ["renamed"]
+
+
+def test_apply_processing_rejects_unregistered_type(sample_csv: Path):
     class UnregisteredType:
         pass
 
-    df_file = DataFile(name="test", fpath=sample_csv)
-    proc_spec = TabularProcessing()
-    unregistered_data = UnregisteredType()
+    result = apply_polars_processing(
+        UnregisteredType(),
+        data_file=DataFile(name="test", fpath=sample_csv),
+        proc_spec=TabularProcessing(),
+    )
 
-    result = apply_processing(unregistered_data, data_file=df_file, proc_spec=proc_spec)
-    assert result.is_ok()
-    assert isinstance(result.unwrap(), UnregisteredType)
+    assert result.is_err()
+    assert str(result.err()) == "PolarsTabularBackend does not support data type UnregisteredType"
 
 
 def test_apply_processing_with_placeholder_substitution(sample_csv: Path):
@@ -353,7 +368,9 @@ def test_apply_processing_with_placeholder_substitution(sample_csv: Path):
     df_file = DataFile(name="test", fpath=sample_csv)
     proc_spec = TabularProcessing(filter_by={"name": "{year}"})
 
-    result = apply_processing(lf, data_file=df_file, proc_spec=proc_spec, placeholders={"year": "Alice"})
+    result = apply_polars_processing(
+        lf, data_file=df_file, proc_spec=proc_spec, placeholders={"year": "Alice"}
+    )
     assert result.is_ok()
 
 
@@ -362,7 +379,7 @@ def test_apply_processing_placeholder_error(sample_csv: Path):
     df_file = DataFile(name="test", fpath=sample_csv)
     proc_spec = TabularProcessing(filter_by={"name": "{missing}"})
 
-    result = apply_processing(lf, data_file=df_file, proc_spec=proc_spec, placeholders={"year": 2030})
+    result = apply_polars_processing(lf, data_file=df_file, proc_spec=proc_spec, placeholders={"year": 2030})
     assert result.is_err()
 
 
@@ -372,7 +389,7 @@ def test_apply_processing_substitutes_transformation_values(sample_csv: Path):
     df_file = DataFile(name="test", fpath=sample_csv)
     proc_spec = TabularProcessing(sort_by={"amount": "{direction}"})
 
-    result = apply_processing(
+    result = apply_polars_processing(
         lf,
         data_file=df_file,
         proc_spec=proc_spec,
@@ -385,7 +402,7 @@ def test_apply_processing_substitutes_transformation_values(sample_csv: Path):
 def test_apply_processing_rejects_invalid_substituted_transformation(sample_csv: Path):
     """Return a Result error when a placeholder resolves to invalid settings."""
     proc_spec = TabularProcessing(sort_by={"amount": "{direction}"})
-    result = apply_processing(
+    result = apply_polars_processing(
         pl.LazyFrame({"amount": [1]}),
         data_file=DataFile(name="test", fpath=sample_csv),
         proc_spec=proc_spec,
@@ -397,7 +414,7 @@ def test_apply_processing_rejects_invalid_substituted_transformation(sample_csv:
 
 def test_apply_processing_substitutes_typed_transformation_values(sample_csv: Path):
     proc_spec = TabularProcessing(lowercase="{enabled}", scale={"amount": "{factor}"})
-    result = apply_processing(
+    result = apply_polars_processing(
         pl.LazyFrame({"AMOUNT": [2.0]}),
         data_file=DataFile(name="typed-placeholders", fpath=sample_csv),
         proc_spec=proc_spec,
@@ -421,7 +438,7 @@ def test_apply_processing_revalidates_typed_placeholders(
     placeholders: dict[str, bool | float | str],
 ):
     proc_spec = TabularProcessing(**config)
-    result = apply_processing(
+    result = apply_polars_processing(
         pl.LazyFrame({"amount": [2.0]}),
         data_file=DataFile(name="invalid-typed-placeholder", fpath=sample_csv),
         proc_spec=proc_spec,
@@ -433,7 +450,7 @@ def test_apply_processing_revalidates_typed_placeholders(
 
 
 def test_json_select_columns_with_nested_list(sample_json_file: Path):
-    from r2x_core.processors import json_select_columns
+    from r2x_core.json_adapter.processing import json_select_columns
 
     data = [
         {"name": "Alice", "age": 30, "city": "NYC"},
@@ -449,7 +466,7 @@ def test_json_select_columns_with_nested_list(sample_json_file: Path):
 
 
 def test_json_rename_keys_with_list(sample_json_file: Path):
-    from r2x_core.processors import json_rename_keys
+    from r2x_core.json_adapter.processing import json_rename_keys
 
     data = [
         {"name": "Alice", "age": 30},
@@ -466,7 +483,7 @@ def test_json_rename_keys_with_list(sample_json_file: Path):
 
 
 def test_json_drop_columns_with_list(sample_json_file: Path):
-    from r2x_core.processors import json_drop_columns
+    from r2x_core.json_adapter.processing import json_drop_columns
 
     data = [
         {"name": "Alice", "age": 30, "city": "NYC"},
@@ -497,7 +514,7 @@ def test_process_tabular_data_full_pipeline(sample_csv: Path):
 
 
 def test_process_json_data_full_pipeline(sample_json_file: Path):
-    from r2x_core.processors import process_json_data
+    from r2x_core.json_adapter.processing import process_json_data
 
     data = {
         "users": [
@@ -560,6 +577,23 @@ def test_substitute_placeholders_string_without_placeholder():
     result = substitute_placeholders("plain text", placeholders={"x": 1})
     assert result.is_ok()
     assert result.unwrap() == "plain text"
+
+
+@pytest.mark.parametrize("value", ["{unclosed", "}{"], ids=["unclosed", "unmatched-braces"])
+def test_substitute_placeholders_unmatched_braces_are_unchanged(value: str) -> None:
+    """Strings with braces but no placeholder expression pass through unchanged."""
+    result = substitute_placeholders(value, placeholders={})
+
+    assert result.unwrap() is value
+
+
+def test_substitute_placeholders_preserves_identity_without_changes():
+    """Nested values without placeholders are returned unchanged by identity."""
+    value = {"items": ["plain text", 3]}
+
+    result = substitute_placeholders(value, placeholders={"x": 1})
+
+    assert result.unwrap() is value
 
 
 def test_substitute_placeholders_supports_embedded_values():
@@ -686,7 +720,7 @@ def test_unpivot_pipeline_renames_casts_and_filters(sample_csv: Path):
     )
     data_file = DataFile(name="annual", fpath=sample_csv, proc_spec=proc_spec)
 
-    result = apply_processing(
+    result = apply_polars_processing(
         frame,
         data_file=data_file,
         proc_spec=proc_spec,
@@ -738,7 +772,7 @@ def test_tabular_numeric_string_cleanup(sample_csv: Path):
 
 
 def test_apply_processing_returns_err_for_invalid_transformation(sample_csv: Path):
-    result = apply_processing(
+    result = apply_polars_processing(
         pl.LazyFrame({"a": [1]}),
         data_file=DataFile(name="missing-column", fpath=sample_csv),
         proc_spec=TabularProcessing(filter_by={"missing": "x"}),
@@ -748,8 +782,19 @@ def test_apply_processing_returns_err_for_invalid_transformation(sample_csv: Pat
     assert "filter_by" in str(result.err())
 
 
+def test_apply_processing_rejects_data_unsupported_by_tabular_backend(sample_csv: Path):
+    result = apply_polars_processing(
+        {"a": 1},
+        data_file=DataFile(name="not-a-frame", fpath=sample_csv),
+        proc_spec=TabularProcessing(),
+    )
+
+    assert result.is_err()
+    assert str(result.err()) == "PolarsTabularBackend does not support data type dict"
+
+
 def test_null_pivot_keys_are_rejected(sample_csv: Path):
-    result = apply_processing(
+    result = apply_polars_processing(
         pl.LazyFrame({"id": ["a", "a"], "year": [None, 2020], "value": [1, 2]}),
         data_file=DataFile(name="null-pivot", fpath=sample_csv),
         proc_spec=TabularProcessing(pivot_on="year", group_by=["id"], aggregate_on={"value": "sum"}),
@@ -867,7 +912,7 @@ def test_json_select_keys_passthrough_non_dict_list(sample_json_file: Path):
 
 
 def test_replace_values_does_not_coerce_booleans_to_numeric_columns(sample_csv: Path):
-    from r2x_core.processors import pl_replace_values
+    from r2x_core.polars_adapter.processing import pl_replace_values
 
     frame = pl.LazyFrame(
         {
@@ -898,7 +943,7 @@ def test_replace_values_does_not_coerce_booleans_to_numeric_columns(sample_csv: 
 def test_replace_values_rejects_decimal_values_that_round_for_column(
     sample_csv: Path, old: Decimal, new: Decimal
 ):
-    from r2x_core.processors import pl_replace_values
+    from r2x_core.polars_adapter.processing import pl_replace_values
 
     frame = pl.DataFrame({"value": pl.Series("value", [Decimal("1.23")], dtype=pl.Decimal(5, 2))}).lazy()
     result = pl_replace_values(
@@ -911,7 +956,7 @@ def test_replace_values_rejects_decimal_values_that_round_for_column(
 
 
 def test_replace_values_rejects_datetime_values_that_lose_precision(sample_csv: Path):
-    from r2x_core.processors import pl_replace_values
+    from r2x_core.polars_adapter.processing import pl_replace_values
 
     stored = datetime(2020, 1, 1, microsecond=1_000)
     inexact_key = datetime(2020, 1, 1, microsecond=1_001)
@@ -926,7 +971,7 @@ def test_replace_values_rejects_datetime_values_that_lose_precision(sample_csv: 
 
 
 def test_replace_values_rejects_float_values_that_lose_precision(sample_csv: Path):
-    from r2x_core.processors import pl_replace_values
+    from r2x_core.polars_adapter.processing import pl_replace_values
 
     frame = pl.DataFrame({"value": pl.Series("value", [1.0], dtype=pl.Float32)}).lazy()
     result = pl_replace_values(
@@ -941,7 +986,7 @@ def test_replace_values_rejects_float_values_that_lose_precision(sample_csv: Pat
 def test_replace_values_still_matches_float_nan(sample_csv: Path):
     from math import nan
 
-    from r2x_core.processors import pl_replace_values
+    from r2x_core.polars_adapter.processing import pl_replace_values
 
     result = pl_replace_values(
         pl.LazyFrame({"amount": [nan]}),
@@ -955,7 +1000,7 @@ def test_replace_values_still_matches_float_nan(sample_csv: Path):
 def test_replace_values_does_not_coerce_rationals_to_float_columns(sample_csv: Path):
     from fractions import Fraction
 
-    from r2x_core.processors import pl_replace_values
+    from r2x_core.polars_adapter.processing import pl_replace_values
 
     large_rational = Fraction(2**53 + 1, 1)
     frame = pl.LazyFrame({"amount": [float(2**53)]})
@@ -969,7 +1014,7 @@ def test_replace_values_does_not_coerce_rationals_to_float_columns(sample_csv: P
 
 
 def test_replace_values_allows_only_lossless_integer_to_float_widening(sample_csv: Path):
-    from r2x_core.processors import pl_replace_values
+    from r2x_core.polars_adapter.processing import pl_replace_values
 
     large_integer = 2**53 + 1
     frame = pl.LazyFrame(
@@ -1007,7 +1052,7 @@ def test_replace_values_allows_only_lossless_integer_to_float_widening(sample_cs
 def test_replace_values_preserves_logical_families(
     sample_csv: Path, old: object, new: object, dtype: pl.DataType
 ):
-    from r2x_core.processors import pl_replace_values
+    from r2x_core.polars_adapter.processing import pl_replace_values
 
     frame = pl.DataFrame(
         {
@@ -1028,7 +1073,7 @@ def test_tabular_additional_operation_edges(sample_csv: Path):
     """Cover direct operation calls and explicit operation errors."""
     from datetime import date
 
-    from r2x_core.processors import (
+    from r2x_core.polars_adapter.processing import (
         pl_aggregate,
         pl_fill_null,
         pl_pivot_on,
@@ -1129,8 +1174,7 @@ def test_tabular_additional_operation_edges(sample_csv: Path):
 
 
 def test_tabular_operations_infer_schema_without_configured_changes(sample_csv: Path):
-    from r2x_core import TabularTransformResult
-    from r2x_core.processors import (
+    from r2x_core.polars_adapter.processing import (
         pl_aggregate,
         pl_apply_filters,
         pl_cast_schema,
@@ -1148,6 +1192,7 @@ def test_tabular_operations_infer_schema_without_configured_changes(sample_csv: 
         pl_strip_chars,
         pl_unpivot_on,
     )
+    from r2x_core.result import TabularTransformResult
 
     data_file = DataFile(name="unchanged", fpath=sample_csv)
     frame = pl.LazyFrame({"label": ["value"]})
@@ -1180,23 +1225,11 @@ def test_tabular_operations_infer_schema_without_configured_changes(sample_csv: 
         assert result.collect().to_dicts() == expected
 
 
-def test_transform_xml_data_placeholder(sample_json_file: Path):
-    """Test transform_xml_data returns data unchanged (placeholder implementation)."""
-    from r2x_core.processors import transform_xml_data
-
-    df_file = DataFile(name="test", fpath=sample_json_file)
-    data = {"root": {"child": "value"}}
-
-    result = transform_xml_data(data, data_file=df_file)
-
-    assert result == data
-
-
 def test_pl_build_filter_expr_datetime_year_list():
     """Test pl_build_filter_expr with datetime column and list of years."""
     from datetime import datetime
 
-    from r2x_core.processors import pl_build_filter_expr
+    from r2x_core.polars_adapter.processing import pl_build_filter_expr
 
     expr = pl_build_filter_expr("datetime", value=[2020, 2021])
 
@@ -1218,7 +1251,7 @@ def test_pl_build_filter_expr_datetime_year_single():
     """Test pl_build_filter_expr with datetime column and single year."""
     from datetime import datetime
 
-    from r2x_core.processors import pl_build_filter_expr
+    from r2x_core.polars_adapter.processing import pl_build_filter_expr
 
     expr = pl_build_filter_expr("datetime", value=2020)
 
@@ -1236,7 +1269,7 @@ def test_pl_build_filter_expr_datetime_year_single():
 
 
 def test_tabular_processing_reports_non_numeric_scale(sample_csv: Path):
-    result = apply_processing(
+    result = apply_polars_processing(
         pl.LazyFrame({"value": ["not numeric"]}),
         data_file=DataFile(name="invalid-scale", fpath=sample_csv),
         proc_spec=TabularProcessing(scale={"value": 0.01}),
@@ -1247,7 +1280,7 @@ def test_tabular_processing_reports_non_numeric_scale(sample_csv: Path):
 
 
 def test_split_column_rejects_overwriting_existing_columns(sample_csv: Path):
-    result = apply_processing(
+    result = apply_polars_processing(
         pl.LazyFrame({"label": ["2030|NYISO"], "year": [2030]}),
         data_file=DataFile(name="split-collision", fpath=sample_csv),
         proc_spec=TabularProcessing(split_column={"label": {"separator": "|", "into": ["year", "zone"]}}),
@@ -1258,8 +1291,8 @@ def test_split_column_rejects_overwriting_existing_columns(sample_csv: Path):
 
 
 def test_pivot_result_reports_output_schema(sample_csv: Path) -> None:
-    from r2x_core import TabularTransformResult
-    from r2x_core.processors import pl_pivot_on
+    from r2x_core.polars_adapter.processing import pl_pivot_on
+    from r2x_core.result import TabularTransformResult
 
     frame = pl.LazyFrame({"region": ["a", "a"], "year": [2020, 2021], "amount": [1, 2]})
     result = pl_pivot_on(

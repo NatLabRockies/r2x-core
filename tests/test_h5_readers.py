@@ -7,7 +7,20 @@ import h5py
 import numpy as np
 import pytest
 
-from r2x_core.h5_readers import configurable_h5_reader
+from r2x_core.exceptions import ConfiguredGroupNotFoundError
+from r2x_core.h5_adapter import configurable_h5_reader, read_h5_file
+
+
+def test_read_h5_file_opens_file_and_reads_configured_columns(tmp_path: Path) -> None:
+    h5_path = tmp_path / "data.h5"
+    with h5py.File(h5_path, "w") as h5_file:
+        h5_file.create_dataset("columns", data=np.array([b"first", b"second"]))
+        h5_file.create_dataset("data", data=np.array([[1, 2], [3, 4]]))
+
+    result = read_h5_file(file_path=h5_path, data_key="data", columns_key="columns")
+
+    assert result["first"].tolist() == [1, 3]
+    assert result["second"].tolist() == [2, 4]
 
 
 def test_configurable_h5_reader_default_1d():
@@ -538,7 +551,7 @@ def test_h5_reader_group_validation_errors():
             group.create_dataset("columns", data=np.array([b"missing"]))
 
         with h5py.File(str(tmp_path), "r") as f:
-            with pytest.raises(KeyError, match="missing_group"):
+            with pytest.raises(ConfiguredGroupNotFoundError, match="missing_group"):
                 configurable_h5_reader(
                     f,
                     group_key="missing_group",

@@ -81,9 +81,10 @@ the reshape. This supports wide year columns filtered by a runtime solve year:
 {'variable': 'year', 'value': 'capacity_mw'}
 ```
 
-For a multi-row CSV/TSV header, configure `ReaderConfig(header_rows=2)`. Header
-cells are joined with `header_separator` (default `|`). Use `split_column` to
-turn a generated label such as `2025|NYISO_A` into `year` and `zone` columns.
+For a multi-row CSV/TSV header, configure
+`ReaderConfig(kwargs={"header_rows": 2, "header_separator": "|"})`. Header cells
+are joined with `|`. Use `split_column` to turn a generated label such as
+`2025|NYISO_A` into `year` and `zone` columns.
 
 ## Split Columns
 
@@ -130,25 +131,23 @@ called. Unknown placeholder names are errors.
 - {py:class}`~r2x_core.TabularProcessing` - Tabular processing class
 - {py:class}`~r2x_core.DataFile` - DataFile API reference
 
-## Inspect a tabular transform result
+## Use the Polars backend directly
 
-Individual tabular transforms return `TabularTransformResult`, containing a lazy
-frame and its ordered column names. The full `process_tabular_data` pipeline
-continues to return a `LazyFrame`.
+For code that already has a Polars frame, call the backend's processing
+contract directly:
 
 ```python doctest
 >>> import polars as pl
->>> from r2x_core import DataFile, TabularProcessing, TabularTransformResult
->>> from r2x_core.processors import pl_lowercase
->>> result = pl_lowercase(
+>>> from r2x_core import DataFile, TabularProcessing
+>>> from r2x_core.polars_adapter import PolarsTabularBackend
+>>> backend = PolarsTabularBackend()
+>>> result = backend.process(
 ...     pl.LazyFrame({"NAME": ["ALPHA"]}),
 ...     data_file=DataFile(name="example", relative_fpath="example.csv"),
 ...     proc_spec=TabularProcessing(lowercase=True),
 ... )
->>> isinstance(result, TabularTransformResult)
+>>> result.is_ok()
 True
->>> result.schema_names
-['name']
->>> result.data_frame.collect().to_dicts()
+>>> result.value.collect().to_dicts()
 [{'name': 'alpha'}]
 ```

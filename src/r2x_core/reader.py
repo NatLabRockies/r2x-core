@@ -8,29 +8,38 @@ The DataReader is the main entry point for loading data files. It handles:
 - Automatic data processing and transformations (filtering, type casting, etc.)
 - Placeholder substitution in data file paths and processing specifications
 
-File type support is determined by EXTENSION_MAPPING, with custom readers
-available via the reader parameter in DataFile configurations.
+File type support is determined by EXTENSION_MAPPING. Tabular files are read
+by selected FileReader adapters and processed by a selected TabularBackend.
+JSON and XML use the same FileReader contract as tabular formats.
 
 See Also
 --------
 :class:`~r2x_core.datafile.DataFile` : File configuration with metadata and processing specs.
-:class:`~r2x_core.file_readers.read_file_by_type` : Singledispatch file readers by type.
-:func:`~r2x_core.processors.apply_processing` : Data transformation pipeline.
-:func:`~r2x_core.datafile_utils.get_file_path` : Path resolution and validation.
+:class:`~r2x_core.file_reader.FileReader` : File-format reader interface.
+:class:`~r2x_core.tabular_backend.TabularBackend` : Tabular processing interface.
+:class:`~r2x_core.json_adapter.JSONProcessor` : JSON processing interface.
+:class:`~r2x_core.json_adapter.JSONFileReader` : Built-in JSON reader.
+:class:`~r2x_core.file_readers.XMLFileReader` : Built-in XML reader.
+:func:`~r2x_core.processors.apply_processing` : Transformation pipeline.
+:func:`~r2x_core.utils.files.get_fpath` : Path resolution and validation.
 """
 
-from collections.abc import Callable
+from collections.abc import Sequence
+from functools import cached_property
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
-from rust_ok import Ok
+from rust_ok import is_err, is_ok
 
-from .datafile import DataFile
-from .exceptions import HDF5GroupNotFoundError, ReaderError
-from .file_readers import read_file_by_type
-from .file_types import EXTENSION_MAPPING, TableFormat
-from .processors import apply_processing, register_transformation, substitute_placeholders
+from .datafile import DataFile, ReaderConfig, TabularProcessing
+from .exceptions import ConfiguredGroupNotFoundError, ReaderError
+from .file_reader import FileReader, default_tabular_file_reader
+from .file_readers import XMLFileReader
+from .json_adapter import JSONFileReader, JSONProcessor, default_json_processor
+from .processors import apply_processing, substitute_placeholders
+from .tabular_backend import TabularBackend, default_tabular_backend
+from .types import EXTENSION_MAPPING, FileFormat, TableDataFormat
 from .utils.files import get_fpath
 
 
@@ -38,21 +47,76 @@ class DataReader:
     """Reader class for loading data files with automatic processing.
 
     The DataReader handles the complete reading pipeline: file discovery,
-    format detection, reading, and transformations. File-type-specific
-    reading logic is delegated via singledispatch based on file extension.
+    format detection, reading, and transformations. File reading is delegated
+    to selected format adapters, and tabular processing to a selected backend.
 
     See Also
     --------
     :class:`~r2x_core.datafile.DataFile` : File configuration with specs.
-    :func:`read_data_file` : Main method for reading data with processing.
+    :meth:`read_data_file` : Main method for reading data with processing.
     """
 
-    def __init__(self) -> None:
-        """Initialize the data reader.
+    def __init__(
+        self,
+        *,
+        file_readers: Sequence[FileReader[Any]] | None = None,
+        tabular_backend: TabularBackend[Any] | None = None,
+        json_processor: JSONProcessor | None = None,
+    ) -> None:
+        """Initialize with optional file readers and processing adapters.
 
-        No configuration needed; the reader is stateless and uses configuration
-        from DataFile objects and optional placeholders at read time.
+        Custom readers take precedence over built-ins. The default Polars reader
+        and tabular backend are loaded only when requested.
         """
+        configured_file_readers = () if file_readers is None else tuple(file_readers)
+        self._file_readers: tuple[FileReader[Any], ...] = (
+            *configured_file_readers,
+            JSONFileReader(),
+            XMLFileReader(),
+        )
+        self._configured_tabular_backend = tabular_backend
+        self._configured_json_processor = json_processor
+
+    @cached_property
+    def tabular_backend(self) -> TabularBackend[Any]:
+        """Return the configured backend or lazily create the default."""
+        if self._configured_tabular_backend is not None:
+            return self._configured_tabular_backend
+        return default_tabular_backend()
+
+    @cached_property
+    def json_processor(self) -> JSONProcessor:
+        """Return the configured JSON processor or lazily create the default."""
+        if self._configured_json_processor is not None:
+            return self._configured_json_processor
+        return default_json_processor()
+
+    @cached_property
+    def tabular_file_reader(self) -> FileReader[Any]:
+        """Lazily create the default tabular file reader."""
+        return default_tabular_file_reader()
+
+    def select_file_reader(self, file_type: FileFormat, /) -> FileReader[Any]:
+        """Select the first configured reader that supports a file format.
+
+        The default Polars reader is loaded lazily for tabular formats when no
+        configured reader supports the format.
+
+        Raises
+        ------
+        ValueError
+            If no configured or default reader supports the format.
+        ImportError
+            If a tabular format needs Polars but the optional dependency is absent.
+        """
+        for file_reader in self._file_readers:
+            if file_reader.supports_file_type(file_type):
+                return file_reader
+
+        if isinstance(file_type, TableDataFormat):
+            return self.tabular_file_reader
+
+        raise ValueError(f"No file reader configured for {type(file_type).__name__}")
 
     def read_data_file(
         self,
@@ -91,110 +155,96 @@ class DataReader:
 
         See Also
         --------
-        :func:`~r2x_core.file_readers.read_file_by_type` : File-type-specific reading.
+        :class:`~r2x_core.file_reader.FileReader` : File-format reader interface.
+        :class:`~r2x_core.tabular_backend.TabularBackend` : Tabular processing interface.
+        :class:`~r2x_core.json_adapter.JSONProcessor` : JSON processing interface.
+        :meth:`select_file_reader` : File-format adapter selection.
         :func:`~r2x_core.processors.apply_processing` : Transformation pipeline.
-        :func:`~r2x_core.datafile_utils.get_file_path` : Path resolution.
+        :func:`~r2x_core.utils.files.get_fpath` : Path resolution.
         """
         logger.debug("Starting reading for data_file={}", data_file.name)
-        data_file = self._substitute_path_placeholders(data_file, placeholders=placeholders)
+        data_file = self.substitute_path_placeholders(data_file, placeholders=placeholders)
         is_optional = data_file.info.is_optional if data_file.info else False  # By default files are no-opt
 
-        fpath_result = get_fpath(data_file, folder_path=folder_path, info=data_file.info)
-        if fpath_result.is_err():
+        fpath_result = get_fpath(data_file, folder_path=folder_path)
+        if is_ok(fpath_result):
+            fpath = fpath_result.value
+        else:
             error = fpath_result.err()
             if isinstance(error, FileNotFoundError) and is_optional:
                 logger.info("Skipping optional file: {}", data_file.name)
                 return None
             raise error
-        assert isinstance(fpath_result, Ok), "Result should be Ok after error check"
-        fpath = fpath_result.value
 
         reader = data_file.reader
         reader_kwargs = dict(reader.kwargs) if reader else {}
         if reader and reader.function:
-            if reader.header_rows > 1:
-                raise ValueError("header_rows is only supported by the built-in CSV/TSV reader")
             logger.debug(
                 "Attempting to read data_file{} with reader_function={}",
                 data_file.name,
                 data_file.reader,
             )
             raw_data = reader.function(fpath, **reader_kwargs)
-            if data_file.proc_spec is not None:
-                processed_data = apply_processing(
-                    raw_data,
-                    data_file=data_file,
-                    proc_spec=data_file.proc_spec,
-                    placeholders=placeholders,
-                )
-
-                if processed_data.is_err():
-                    raise ReaderError(processed_data.error)
-                assert isinstance(processed_data, Ok), "Result should be Ok after error check"
-                processed_data = processed_data.value
-            else:
-                processed_data = raw_data
-
-            return processed_data
-
-        file_type_instance = data_file.file_type
-        logger.trace(
-            "Attempting to read data_file={} with {}", data_file.name, type(file_type_instance).__name__
-        )
-        try:
-            if reader and reader.header_rows > 1 and not isinstance(file_type_instance, TableFormat):
-                raise ValueError("header_rows is only supported for CSV/TSV files")
-            if isinstance(file_type_instance, TableFormat):
-                raw_data = read_file_by_type(
+        else:
+            file_type_instance = data_file.file_type
+            logger.trace(
+                "Attempting to read data_file={} with {}", data_file.name, type(file_type_instance).__name__
+            )
+            try:
+                file_reader = self.select_file_reader(file_type_instance)
+                raw_data = file_reader.read_file(
                     file_type_instance,
                     file_path=fpath,
-                    header_rows=reader.header_rows if reader else 1,
-                    header_separator=reader.header_separator if reader else "|",
-                    **reader_kwargs,
+                    reader_config=reader if reader is not None else ReaderConfig(kwargs={}),
                 )
-            else:
-                raw_data = read_file_by_type(file_type_instance, file_path=fpath, **reader_kwargs)
-        except HDF5GroupNotFoundError:
-            if is_optional:
-                logger.debug("Skipping optional file with missing HDF5 group: {}", data_file.name)
-                return None
-            raise
-        if data_file.proc_spec is not None:
-            processed_data = apply_processing(
-                raw_data, data_file=data_file, proc_spec=data_file.proc_spec, placeholders=placeholders
-            )
-            if processed_data.is_err():
-                raise ReaderError(processed_data.error)
-            assert isinstance(processed_data, Ok), "Result should be Ok after error check"
-            processed_data = processed_data.value
-        else:
-            processed_data = raw_data
-        return processed_data
+            except ConfiguredGroupNotFoundError:
+                if is_optional:
+                    logger.debug("Skipping optional file with missing configured group: {}", data_file.name)
+                    return None
+                raise
+
+        processed_data = apply_processing(
+            raw_data,
+            data_file=data_file,
+            proc_spec=data_file.proc_spec,
+            placeholders=placeholders,
+            tabular_backend=(
+                self.tabular_backend if isinstance(data_file.proc_spec, TabularProcessing) else None
+            ),
+            json_processor=self.json_processor,
+        )
+        if is_err(processed_data):
+            raise ReaderError(processed_data.err())
+        return processed_data.unwrap()
 
     @staticmethod
-    def _substitute_path_placeholders(
+    def substitute_path_placeholders(
         data_file: DataFile,
         *,
         placeholders: dict[str, Any] | None,
     ) -> DataFile:
         """Substitute placeholders in a DataFile path source before resolution."""
-        updates: dict[str, Path | str] = {}
-        for field in ("fpath", "relative_fpath", "glob"):
-            value = getattr(data_file, field)
-            if value is None or "{" not in str(value):
-                continue
-            result = substitute_placeholders(str(value), placeholders=placeholders)
-            if result.is_err():
-                raise result.err()
-            assert isinstance(result, Ok), "Result should be Ok after error check"
-            substituted = result.value
-            if field == "fpath":
-                updates[field] = Path(str(substituted))
-            else:
-                updates[field] = str(substituted)
-        return data_file.model_copy(update=updates) if updates else data_file
 
-    _SUPPORTED_FILE_TYPES: list[str] | None = None
+        def substituted(value: Path | str | None) -> str | None:
+            """Substitute placeholders in one optional path source."""
+            if value is None or "{" not in str(value):
+                return None
+            result = substitute_placeholders(str(value), placeholders=placeholders)
+            if is_err(result):
+                raise result.err()
+            return str(result.unwrap())
+
+        updates: dict[str, Path | str] = {}
+        fpath = substituted(data_file.fpath)
+        if fpath is not None:
+            updates["fpath"] = Path(fpath)
+        relative_fpath = substituted(data_file.relative_fpath)
+        if relative_fpath is not None:
+            updates["relative_fpath"] = relative_fpath
+        glob = substituted(data_file.glob)
+        if glob is not None:
+            updates["glob"] = glob
+        return data_file.model_copy(update=updates) if updates else data_file
 
     def get_supported_file_types(self) -> list[str]:
         """Get list of supported file extensions.
@@ -204,34 +254,4 @@ class DataReader:
         list[str]
             List of supported file extensions.
         """
-        if self._SUPPORTED_FILE_TYPES is None:
-            type(self)._SUPPORTED_FILE_TYPES = list(EXTENSION_MAPPING.keys())
-        # Type checker does not narrow the class-level attribute after the if.
-        result = type(self)._SUPPORTED_FILE_TYPES
-        assert result is not None
-        return result
-
-    def register_custom_transformation(
-        self,
-        data_types: type | tuple[type, ...],
-        *,
-        transform_func: Callable[[DataFile, Any], Any],
-    ) -> None:
-        """Register a custom transformation function.
-
-        Parameters
-        ----------
-        data_types : type or tuple of types
-            Data type(s) the function can handle.
-        transform_func : callable
-            Function that transforms data given a DataFile configuration.
-            Signature: (data_file: DataFile, data: Any) -> Any
-
-        Examples
-        --------
-        >>> def my_transform(data_file: DataFile, data: MyClass) -> MyClass:
-        ...     # Custom logic here
-        ...     return data
-        >>> reader.register_custom_transformation(MyClass, transform_func=my_transform)
-        """
-        register_transformation(data_types, func=transform_func)
+        return list(EXTENSION_MAPPING)

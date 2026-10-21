@@ -7,11 +7,13 @@ Explanations provide background and context about r2x-core's design and architec
 ```{toctree}
 :maxdepth: 2
 
+architecture
 plugin-system
 unit-system
 h5-readers
 rules-system
 data-management
+tabular-processing-roadmap
 versioning
 ```
 

@@ -1,0 +1,44 @@
+.api-contracts dt.sig { font-family: var(--sl-font-mono); padding: .75rem; background: var(--sl-color-gray-6); overflow-wrap: anywhere; }
+.api-contracts dd { margin-inline-start: 1rem; }
+.api-contracts .field-list { display: block; }
+.api-contracts pre { overflow-x: auto; padding: 1rem; }
+.api-contracts .headerlink { margin-inline-start: .3em; }
+.api-contracts table { display: block; overflow-x: auto; }
+
+/* Sphinx emits Pygments tokens; Starlight's Shiki rules do not style them. */
+.api-contracts .highlight {
+  --api-keyword: #7653a6;
+  --api-type: #075985;
+  --api-string: #8a3609;
+  --api-comment: #52606d;
+  background: var(--sl-color-gray-6);
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: .5rem;
+  margin-block: 1rem;
+}
+:root[data-theme='dark'] .api-contracts .highlight {
+  --api-keyword: #c4a7ef;
+  --api-type: #7dd3fc;
+  --api-string: #f5bc8c;
+  --api-comment: #a5b3c1;
+}
+.api-contracts .highlight pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: .875rem;
+  line-height: 1.7;
+}
+.api-contracts .highlight :is(.k, .kc, .kd, .kn, .ow) { color: var(--api-keyword); }
+.api-contracts .highlight :is(.nb, .nc, .nf, .nn) { color: var(--api-type); }
+.api-contracts .highlight :is(.s, .s1, .s2, .sd) { color: var(--api-string); }
+.api-contracts .highlight :is(.c, .c1, .cm) { color: var(--api-comment); }
+.api-contracts .highlight a { text-decoration: underline; text-underline-offset: .2em; }
+.api-contracts dt.sig { line-height: 1.8; border-radius: .4rem; }
+.api-contracts .sig-name { color: var(--sl-color-text-accent); font-weight: 600; }
+.api-contracts .sig-param { font-style: normal; }
+.api-contracts .viewcode-link { margin-inline-start: .75em; font-size: .85em; }
+
+/* Long Python member names remain readable in the native responsive contents tree. */
+starlight-toc a, mobile-starlight-toc a { overflow-wrap: anywhere; }
+starlight-toc a { padding-inline-start: min(calc(1rem * var(--depth) + .5rem), 2rem); }

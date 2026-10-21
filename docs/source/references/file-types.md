@@ -1,6 +1,8 @@
-# File Formats
+# File formats and validation
 
-`DataFile.file_type` returns a lightweight marker selected from the file extension. The format markers, extension mapping, and `TableDataFormat` alias are defined in `r2x_core.types`.
+`DataFile.file_type` returns a lightweight marker selected from the file
+extension. Format markers and `EXTENSION_MAPPING` are defined in
+`r2x_core.types`.
 
 ## Supported formats
 
@@ -12,23 +14,36 @@
 | `JSONFormat` | `.json` | No |
 | `XMLFormat` | `.xml` | No |
 
-The extension-to-marker mapping is `EXTENSION_MAPPING`. Tabular markers are represented by the `TableDataFormat` union.
+`TableDataFormat` is the union of `TableFormat`, `H5Format` and
+`ParquetFormat`. The marker only identifies the format. A reader must support
+that format to load the file.
 
-```python
-from pathlib import Path
-
-from r2x_core import DataFile
-from r2x_core.types import H5Format, TableDataFormat, TableFormat
-
-csv_file = DataFile(name="profiles", fpath=Path("profiles.csv"))
-assert isinstance(csv_file.file_type, TableFormat)
-
-h5_file = DataFile(name="load", fpath=Path("load.h5"))
-assert isinstance(h5_file.file_type, H5Format)
-
-file_type: TableDataFormat = csv_file.file_type
+```python doctest
+>>> from r2x_core import DataFile
+>>> from r2x_core.types import EXTENSION_MAPPING, H5Format, JSONFormat, TableDataFormat, TableFormat
+>>> csv_file = DataFile(name="profiles", relative_fpath="profiles.csv")
+>>> h5_file = DataFile(name="load", relative_fpath="load.h5")
+>>> isinstance(csv_file.file_type, TableFormat), isinstance(h5_file.file_type, H5Format)
+(True, True)
+>>> EXTENSION_MAPPING[".json"] is JSONFormat
+True
+>>> TableFormat.supports_timeseries, H5Format.supports_timeseries, JSONFormat.supports_timeseries
+(True, True, False)
 ```
 
-All format markers are dataclasses with slots. `supports_timeseries` is a class-level capability flag. A `DataFile` marked as time-series data cannot use a format whose marker sets this flag to `False`.
+All format markers are dataclasses with slots. Their `supports_timeseries`
+capability is class-level. A `DataFile` marked as time-series data cannot use a
+format that does not support time series.
 
-Adding a new extension requires a marker in `r2x_core.types.EXTENSION_MAPPING` and a reader that supports that marker. Applications can supply tabular readers and backends through the public reader interfaces without changing the core processing pipeline.
+## Add a format
+
+Adding a new extension requires a marker in `EXTENSION_MAPPING` and a reader
+that supports it. Applications can supply readers and tabular backends through
+the public interfaces without changing the core processing pipeline. See
+[Add a file format](https://natlabrockies.github.io/r2x-core/how-tos/add-file-format/).
+
+## See also
+
+- [File configuration](https://natlabrockies.github.io/r2x-core/how-tos/configure-data-files/)
+- [HDF5 reading](https://natlabrockies.github.io/r2x-core/how-tos/read-hdf5-files/)
+- [Generated API reference](https://natlabrockies.github.io/r2x-core/references/api/)

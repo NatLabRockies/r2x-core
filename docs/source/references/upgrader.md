@@ -1,110 +1,44 @@
-# Upgrade System
+# Upgrade steps
 
-For complete API documentation of upgrade classes, see {doc}`./api`.
+<span id="upgrade-system"></span>
 
-## Quick Reference
 
-- {py:class}`~r2x_core.UpgradeStep` - Upgrade step definition
-- {py:class}`~r2x_core.UpgradeType` - Upgrade type enum (DATA or SYSTEM)
-- {py:func}`~r2x_core.run_upgrade_step` - Execute a single upgrade step
 
-## Overview
 
-The upgrade system provides a flexible framework for migrating data and system objects between versions. It supports:
+<span id="quick-reference"></span>
 
-- **Data upgrades**: Transform raw configuration files and dictionaries
-- **System upgrades**: Modify System instances and components
-- **Version-aware**: Automatic version checking and comparison
-- **Rollback support**: All-or-nothing rollback on failure
-- **Priority ordering**: Control upgrade execution order
-- **Context filtering**: Target specific upgrade phases
+<span id="overview"></span>
 
-## Upgrade Types
+`UpgradeStep` describes a callable transformation and its target version.
+Its required fields are `name`, `func`, `target_version`, and `upgrade_type`.
+`priority` defaults to `100`; `min_version` and `max_version` default to `None`.
+<span id="upgrade-types"></span>
 
-Two types of upgrades are supported:
+`UpgradeType` has two values: `FILE` for file operations and `SYSTEM` for system changes.
+See [api](/r2x-core/references/api/) for generated types and the pinned source link.
 
-- **DATA**: Upgrades applied to raw data files before System creation
-- **SYSTEM**: Upgrades applied to System objects after creation
+<span id="define-an-upgrade-step"></span>
 
-## Usage Examples
+<span id="usage-examples"></span>
 
-### Define an Upgrade Step
+## Execute a step
 
-Create an upgrade step for data transformation:
+`run_upgrade_step(data, *, step, upgrader_context=None)` returns `Result[Any, UpgradeError]`.
+It invokes `step.func(data)`, passing `upgrader_context` when the callable accepts it.
+The helper returns `Ok(transformed_data)` on success.
+An `UpgradeError`, `OSError`, or `ValueError` raised by the transformation returns `Err(UpgradeError(...))`, with the original exception retained as `result.error.__cause__`.
+Other exceptions, including `TypeError`, propagate to the caller instead of becoming an `Err`.
+It does not roll back mutations or filesystem writes and does not itself compare versions.
 
-```python
-from r2x_core import UpgradeStep, UpgradeType
-from r2x_core import SemanticVersioningStrategy
+<span id="system-upgrade"></span>
 
-# Define upgrade function
-def upgrade_to_v2(data: dict) -> dict:
-    """Upgrade data from v1 to v2."""
-    data["version"] = "2.0.0"
-    data["new_field"] = "default_value"
-    # Rename old field
-    if "old_name" in data:
-        data["new_name"] = data.pop("old_name")
-    return data
+For a checked runnable example, see [execute a single system upgrade](/r2x-core/how-tos/upgrade-systems/#execute-a-single-step).
 
-# Create upgrade step
-step = UpgradeStep(
-    name="upgrade_config_to_v2",
-    func=upgrade_to_v2,
-    target_version="2.0.0",
-    versioning_strategy=SemanticVersioningStrategy(),
-    upgrade_type=UpgradeType.DATA
-)
-```
 
-### System Upgrade
+Run the example in the project environment from [install](/r2x-core/install/).
+<span id="apply-upgrades"></span>
 
-Modify System instances after creation:
+Version selection belongs to the upgrade coordinator and its version strategy.
+<span id="see-also"></span>
 
-```python
-from r2x_core import System, UpgradeStep, UpgradeType
-from r2x_core import SemanticVersioningStrategy
-from infrasys.components import ACBus
-
-def upgrade_system_to_v2(system: System) -> System:
-    """Upgrade System components."""
-    # Modify components
-    for bus in system.get_components(ACBus):
-        bus.description = f"Upgraded: {bus.description}"
-    return system
-
-step = UpgradeStep(
-    name="upgrade_system_to_v2",
-    func=upgrade_system_to_v2,
-    target_version="2.0.0",
-    versioning_strategy=SemanticVersioningStrategy(),
-    upgrade_type=UpgradeType.SYSTEM
-)
-```
-
-### Apply Upgrades
-
-Execute upgrade steps:
-
-```python
-from r2x_core import run_upgrade_step
-
-# Define upgrade steps (from previous examples)
-data_step = ...  # UpgradeStep for data transformation
-system_step = ...  # UpgradeStep for system modification
-
-# Apply data upgrade
-data = {"version": "1.0.0", "old_name": "test"}
-upgraded_data = run_upgrade_step(data_step, data)
-
-# Apply system upgrade
-system = System(100.0, name="Grid")
-upgraded_system = run_upgrade_step(system_step, system)
-```
-
-## See Also
-
-- {doc}`./versioning` - Versioning strategies
-- {doc}`./plugins` - Plugin system integration
-- {doc}`../how-tos/upgrade-data-files` - Upgrade data guide
-- {doc}`../how-tos/upgrade-systems` - Upgrade systems guide
-- {doc}`./api` - Complete API documentation
+Inspect [versioning](/r2x-core/references/versioning/) before composing multiple version transitions.

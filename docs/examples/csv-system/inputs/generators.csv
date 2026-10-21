@@ -1,0 +1,4 @@
+name,capacity_mw,status
+Alpha,100,active
+Bravo,50,active
+Retired,25,retired

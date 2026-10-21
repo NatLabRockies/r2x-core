@@ -137,8 +137,8 @@ class TabularProcessing(BaseModel):
     Transitional contract
     ---------------------
     This is the current ``DataFile.proc_spec`` contract and remains in use until
-    ordered mapping steps reach parity, as described in
-    :doc:`../explanations/tabular-processing-roadmap`.
+    ordered mapping steps reach parity, as described in the
+    `Tabular Processing Roadmap <https://natlabrockies.github.io/r2x-core/explanations/tabular-processing-roadmap/>`_.
 
     Defines a sequence of operations to apply to tabular data after loading.
     Supports column selection, filtering, reshaping, aggregation, and more.

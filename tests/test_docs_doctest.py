@@ -13,12 +13,12 @@ blocks formatted as doctests.
 
 from __future__ import annotations
 
-import doctest
 import re
 from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+from doctest_runner import minimum_python, run_block
 
 DOCS_ROOT = Path(__file__).resolve().parents[1] / "docs"
 FENCE_RE = re.compile(r"^(```|~~~)\s*([^\n`]*)?$")
@@ -32,6 +32,7 @@ class DocBlock:
     path: Path
     start_line: int
     text: str
+    minimum_python: tuple[int, int]
 
 
 def extract_doctest_blocks(path: Path) -> list[DocBlock]:
@@ -78,6 +79,7 @@ def extract_doctest_blocks(path: Path) -> list[DocBlock]:
                     path=path,
                     start_line=block_start + 1,
                     text="\n".join(doctest_lines),
+                    minimum_python=minimum_python(match.group(2) or ""),
                 )
             )
 
@@ -119,22 +121,13 @@ def run_doctest_block(block: DocBlock, block_index: int) -> tuple[int, int]:
     tuple[int, int]
         (failures, tests) - number of failures and tests run.
     """
-    runner = doctest.DocTestRunner(verbose=False)
-    parser = doctest.DocTestParser()
-
-    try:
-        test = parser.get_doctest(
-            block.text,
-            globs={},
-            name=f"{block.path.name}:block_{block_index}",
-            filename=str(block.path),
-            lineno=block.start_line,
-        )
-        runner.run(test)
-    except Exception as e:
-        pytest.fail(f"Error parsing doctest in {block.path}:{block.start_line}\n  {type(e).__name__}: {e}")
-
-    return runner.failures, runner.tries
+    result = run_block(
+        block.text,
+        name=f"{block.path.name}:block_{block_index}",
+        filename=str(block.path),
+        minimum=block.minimum_python,
+    )
+    return result.failed, result.attempted
 
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:

@@ -1,6 +1,6 @@
 # Data Models
 
-Core data models for file management, system representation, and configuration in R2X Core.
+Core data models for file management, system representation, and configuration in r2x-core.
 
 ## Quick Reference
 
@@ -15,11 +15,11 @@ Core data models for file management, system representation, and configuration i
 
 ## API Documentation
 
-For complete API documentation with method signatures and implementation details, see {doc}`./api`.
+For complete API documentation with method signatures and implementation details, see [api](/r2x-core/references/api/).
 
 ## See Also
 
-- {doc}`../how-tos/read-data-files` - How to read data files
-- {doc}`../how-tos/configure-data-files` - Configure data files
-- {doc}`../explanations/data-management` - Understand the design philosophy
-- {doc}`./system` - System model reference
+- [read data files](/r2x-core/how-tos/read-data-files/) - How to read data files
+- [configure data files](/r2x-core/how-tos/configure-data-files/) - Configure data files
+- [data management](/r2x-core/explanations/data-management/) - Understand the design philosophy
+- [system](/r2x-core/references/system/) - System model reference

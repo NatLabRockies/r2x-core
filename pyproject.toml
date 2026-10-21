@@ -97,8 +97,10 @@ docs = [
 requires = ["uv_build>=0.8.22,<0.10.0"]
 build-backend = "uv_build"
 
+[tool.ty.src]
+include = ["src"]
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+pythonpath = ["src", "docs"]
 testpaths = ["tests"]
 addopts = ["--cov=r2x_core", "--cov-report=term-missing"]
 

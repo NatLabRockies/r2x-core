@@ -476,3 +476,10 @@ docs/adr/
 
 # Agent workflow notes
 PAPERCUTS.md
+
+# Astro output and generated API contract pages
+docs/.astro/
+docs/src/content/docs/references/
+docs/src/content/docs/release-notes.md
+
+docs/src/generated/

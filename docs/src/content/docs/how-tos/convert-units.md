@@ -55,6 +55,9 @@ or non-finite bases fail scalar conversion:
 Fields without `base=...` also convert mappings to their declared unit. For
 example, `{"value": 13800.0, "unit": "V"}` becomes 13.8 in a `Unit("kV")` field.
 Bare numbers are already in the field's internal units and are not converted.
+For scalar unit fields, the Pydantic validation JSON Schema accepts both the
+field's scalar input and a `{value, unit}` envelope with a numeric magnitude.
+The serialization schema and serialized value remain the declared scalar type.
 
 ## Persist structured unit fields
 

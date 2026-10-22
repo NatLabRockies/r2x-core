@@ -155,5 +155,12 @@ class UpgradeCoordinator:
                 raise error
             msg = str(error)
             raise UpgradeError(msg)
+        if isinstance(result, Ok):
+            if result.value is not None:
+                msg = f"Upgrade handler returned Ok with success payload {type(result.value).__name__}; expected Ok(None)"
+                raise TypeError(msg)
+        elif result is not None:
+            msg = f"Upgrade handler must return None or Result[None, str], got {type(result).__name__}"
+            raise TypeError(msg)
 
         self.ran = True

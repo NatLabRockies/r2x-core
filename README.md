@@ -27,8 +27,8 @@ python -m pip install r2x-core
 ```
 
 Polars is installed as a runtime dependency for the built-in tabular reader and
-processor. It is imported lazily, so configuration-only imports do not load it,
-and applications can still supply their own `FileReader` and `TabularBackend`.
+processor. It is imported lazily, so configuration-only imports do not load it.
+Applications can supply custom `FileReader` and `TabularProcessor` implementations.
 See [Installation](https://natlabrockies.github.io/r2x-core/install/) for environment and upgrade instructions.
 
 Verify the installation and create a system:

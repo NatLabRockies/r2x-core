@@ -38,7 +38,13 @@ from ..models import (
     WithColumnsStep,
 )
 from ..types import AggregationFunction, ProcessingPlaceholder
-from .expressions import compile_polars_expression, resolve_polars_dtype
+from .expressions import (
+    apply_aggregation,
+    compile_polars_expression,
+    exact_column_expression,
+    exact_column_selector,
+    resolve_polars_dtype,
+)
 
 ValueFamily: TypeAlias = Literal[
     "boolean",
@@ -100,7 +106,10 @@ def apply_polars_step(
             require_columns(
                 schema_names, list(step.filter_by), operation="filter_columns", data_file=data_file
             )
-            filters = [pl_build_filter_expr(column, value=value) for column, value in step.filter_by.items()]
+            filters = [
+                pl_build_filter_expr(column, value=value, column_names=schema_names)
+                for column, value in step.filter_by.items()
+            ]
             data_frame = data_frame.filter(pl.all_horizontal(filters) if filters else pl.lit(True))
         case SelectStep():
             data_frame = data_frame.select(
@@ -113,7 +122,9 @@ def apply_polars_step(
             require_columns(
                 schema_names, step.select_columns, operation="select_columns", data_file=data_file
             )
-            data_frame = data_frame.select(step.select_columns)
+            data_frame = data_frame.select(
+                [exact_column_expression(column, column_names=schema_names) for column in step.select_columns]
+            )
         case WithColumnsStep():
             data_frame = data_frame.with_columns(
                 [
@@ -134,8 +145,8 @@ def apply_polars_step(
                 msg = "unpivot output names must be distinct from each other and the index"
                 raise ValueError(msg)
             data_frame = data_frame.unpivot(
-                on=value_columns,
-                index=step.index,
+                on=[exact_column_selector(column, column_names=schema_names) for column in value_columns],
+                index=[exact_column_selector(column, column_names=schema_names) for column in step.index],
                 variable_name=step.variable_name,
                 value_name=step.value_name,
             )
@@ -149,8 +160,8 @@ def apply_polars_step(
                 msg = "unpivot output names must be distinct from each other and the index"
                 raise ValueError(msg)
             data_frame = data_frame.unpivot(
-                on=step.columns,
-                index=index_columns,
+                on=[exact_column_selector(column, column_names=schema_names) for column in step.columns],
+                index=[exact_column_selector(column, column_names=schema_names) for column in index_columns],
                 variable_name=step.variable_name,
                 value_name=step.value_name,
             )
@@ -166,7 +177,9 @@ def apply_polars_step(
             pass
         case DropColumnsStep():
             require_columns(schema_names, step.drop_columns, operation="drop_columns", data_file=data_file)
-            data_frame = data_frame.drop(step.drop_columns)
+            data_frame = data_frame.drop(
+                [exact_column_selector(column, column_names=schema_names) for column in step.drop_columns]
+            )
         case RenameColumnsStep():
             require_columns(
                 schema_names, list(step.column_mapping), operation="column_mapping", data_file=data_file
@@ -185,13 +198,15 @@ def apply_polars_step(
                     msg = f"split_columns would overwrite existing column(s): {collisions}"
                     raise ValueError(msg)
                 expression = (
-                    pl.col(column)
+                    exact_column_expression(column, column_names=current_names)
                     .cast(pl.String)
                     .str.split_exact(split_spec.separator, n=len(split_spec.into) - 1)
                     .struct.rename_fields(split_spec.into)
                     .alias(column)
                 )
-                data_frame = data_frame.with_columns(expression).unnest(column)
+                data_frame = data_frame.with_columns(expression).unnest(
+                    exact_column_selector(column, column_names=current_names)
+                )
         case ReplaceValuesStep():
             data_frame = replace_values(data_frame, step=step)
         case StripCharactersStep():
@@ -201,7 +216,12 @@ def apply_polars_step(
             expressions = []
             for column, characters in step.strip_chars.items():
                 pattern = "|".join(re.escape(character) for character in characters)
-                cleaned = pl.col(column).cast(pl.String).str.strip_chars().str.replace_all(pattern, "")
+                cleaned = (
+                    exact_column_expression(column, column_names=schema_names)
+                    .cast(pl.String)
+                    .str.strip_chars()
+                    .str.replace_all(pattern, "")
+                )
                 expressions.append(cleaned.alias(column))
             data_frame = data_frame.with_columns(expressions)
         case CastColumnsStep():
@@ -210,7 +230,9 @@ def apply_polars_step(
             )
             data_frame = data_frame.with_columns(
                 [
-                    pl.col(column).cast(resolve_polars_dtype(dtype))
+                    exact_column_expression(column, column_names=schema_names).cast(
+                        resolve_polars_dtype(dtype)
+                    )
                     for column, dtype in step.column_schema.items()
                 ]
             )
@@ -222,22 +244,32 @@ def apply_polars_step(
                 msg = f"scale requires numeric columns: {invalid}"
                 raise ValueError(msg)
             data_frame = data_frame.with_columns(
-                [pl.col(column).mul(factor).alias(column) for column, factor in step.scale.items()]
+                [
+                    exact_column_expression(column, column_names=schema_names).mul(factor).alias(column)
+                    for column, factor in step.scale.items()
+                ]
             )
         case FillNullStep():
             require_columns(schema_names, list(step.fill_null), operation="fill_null", data_file=data_file)
             data_frame = data_frame.with_columns(
-                [pl.col(column).fill_null(value).alias(column) for column, value in step.fill_null.items()]
+                [
+                    exact_column_expression(column, column_names=schema_names).fill_null(value).alias(column)
+                    for column, value in step.fill_null.items()
+                ]
             )
         case AggregateStep():
             aggregate_columns = list(step.aggregate_on)
             require_columns(schema_names, aggregate_columns, operation="aggregate_on", data_file=data_file)
             require_columns(schema_names, step.group_by, operation="group_by", data_file=data_file)
             expressions = [
-                aggregation_expression(column, function) for column, function in step.aggregate_on.items()
+                aggregation_expression(column, function, column_names=schema_names)
+                for column, function in step.aggregate_on.items()
             ]
             data_frame = (
-                data_frame.group_by(step.group_by, maintain_order=True).agg(expressions)
+                data_frame.group_by(
+                    [exact_column_expression(column, column_names=schema_names) for column in step.group_by],
+                    maintain_order=True,
+                ).agg(expressions)
                 if step.group_by
                 else data_frame.select(expressions)
             )
@@ -245,7 +277,10 @@ def apply_polars_step(
             data_frame = pivot_table(data_frame, step=step, data_file=data_file)
         case GroupByStep():
             require_columns(schema_names, step.by, operation="group_by", data_file=data_file)
-            data_frame = data_frame.group_by(step.by, maintain_order=True).agg(
+            data_frame = data_frame.group_by(
+                [exact_column_expression(column, column_names=schema_names) for column in step.by],
+                maintain_order=True,
+            ).agg(
                 [
                     compile_polars_expression(expression, column_names=schema_names).alias(name)
                     for name, expression in step.agg.items()
@@ -255,12 +290,16 @@ def apply_polars_step(
             columns = list(step.by)
             require_columns(schema_names, columns, operation="sort", data_file=data_file)
             data_frame = data_frame.sort(
-                columns,
+                [exact_column_expression(column, column_names=schema_names) for column in columns],
                 descending=[direction == "desc" for direction in step.by.values()],
             )
         case UniqueStep():
             require_columns(schema_names, step.subset, operation="unique", data_file=data_file)
-            data_frame = data_frame.unique(subset=step.subset, keep="first", maintain_order=True)
+            data_frame = data_frame.unique(
+                subset=[exact_column_expression(column, column_names=schema_names) for column in step.subset],
+                keep="first",
+                maintain_order=True,
+            )
         case _:
             msg = f"Unsupported table processing operation: {type(step).__name__}"
             raise ValueError(msg)
@@ -270,8 +309,9 @@ def apply_polars_step(
 def replace_values(data_frame: pl.LazyFrame, *, step: ReplaceValuesStep) -> pl.LazyFrame:
     """Replace values only when their logical families match each column."""
     schema = data_frame.collect_schema()
+    schema_names = schema.names()
     expressions = []
-    for column in schema.names():
+    for column in schema_names:
         dtype = schema[column]
         target_family = polars_dtype_family(dtype)
         if target_family is None:
@@ -311,7 +351,9 @@ def replace_values(data_frame: pl.LazyFrame, *, step: ReplaceValuesStep) -> pl.L
             if compatible:
                 replacements[cast_values[0]] = cast_values[1]
         if replacements:
-            expressions.append(pl.col(column).replace(replacements).alias(column))
+            expressions.append(
+                exact_column_expression(column, column_names=schema_names).replace(replacements).alias(column)
+            )
     return data_frame.with_columns(expressions) if expressions else data_frame
 
 
@@ -326,12 +368,9 @@ def pivot_table(
         operation="pivot",
         data_file=data_file,
     )
+    pivot_expression = exact_column_selector(step.pivot_on, column_names=schema_names)
     pivot_values = (
-        data_frame.select(step.pivot_on)
-        .unique(maintain_order=True)
-        .collect()
-        .get_column(step.pivot_on)
-        .to_list()
+        data_frame.select(pivot_expression).unique(maintain_order=True).collect().to_series().to_list()
     )
     if any(value is None for value in pivot_values):
         file_context = f" in {data_file.name!r}" if data_file is not None else ""
@@ -345,10 +384,10 @@ def pivot_table(
         pl.element().count() if function is AggregationFunction.COUNT else function.value
     )
     result = data_frame.pivot(
-        on=step.pivot_on,
+        on=pivot_expression,
         on_columns=pivot_values,
-        index=step.group_by,
-        values=list(step.aggregate_on),
+        index=[exact_column_selector(column, column_names=schema_names) for column in step.group_by],
+        values=[exact_column_selector(column, column_names=schema_names) for column in step.aggregate_on],
         aggregate_function=aggregate_function,
     )
     return result
@@ -373,26 +412,15 @@ def require_columns(
         raise ValueError(msg)
 
 
-def aggregation_expression(column: str, function: AggregationFunction | ProcessingPlaceholder) -> pl.Expr:
+def aggregation_expression(
+    column: str, function: AggregationFunction | ProcessingPlaceholder, *, column_names: list[str]
+) -> pl.Expr:
     """Build a Polars aggregation expression from the closed function vocabulary."""
     if not isinstance(function, AggregationFunction):
         msg = f"Unresolved aggregation placeholder: {function}"
         raise ValueError(msg)
-    expression = pl.col(column)
-    operations = {
-        AggregationFunction.COUNT: expression.count,
-        AggregationFunction.FIRST: expression.first,
-        AggregationFunction.LAST: expression.last,
-        AggregationFunction.MAX: expression.max,
-        AggregationFunction.MEAN: expression.mean,
-        AggregationFunction.MEDIAN: expression.median,
-        AggregationFunction.MIN: expression.min,
-        AggregationFunction.N_UNIQUE: expression.n_unique,
-        AggregationFunction.STD: expression.std,
-        AggregationFunction.SUM: expression.sum,
-        AggregationFunction.VAR: expression.var,
-    }
-    return operations[function]().alias(column)
+    expression = exact_column_expression(column, column_names=column_names)
+    return apply_aggregation(expression, function=function).alias(column)
 
 
 def polars_dtype_family(dtype: pl.DataType) -> ValueFamily | None:
@@ -409,13 +437,13 @@ def python_value_family(value: object) -> ValueFamily | None:
     return next((family for value_type, family in VALUE_FAMILIES if isinstance(value, value_type)), None)
 
 
-def pl_build_filter_expr(column: str, *, value: Any) -> pl.Expr:
-    """Treat integer filters on the ``datetime`` column as ReEDS years."""
+def pl_build_filter_expr(column: str, *, value: Any, column_names: list[str]) -> pl.Expr:
+    """Build an exact-column filter, treating integer datetime values as years."""
+    column_expression = exact_column_expression(column, column_names=column_names)
     if column == "datetime" and isinstance(value, int | list):
         if isinstance(value, list):
-            return pl.col("datetime").dt.year().is_in(value)
-        return pl.col("datetime").dt.year() == value
-    column_expression = pl.col(column)
+            return column_expression.dt.year().is_in(value)
+        return column_expression.dt.year() == value
     if isinstance(value, list):
         return column_expression.cast(pl.String).is_in([str(item) for item in value])
     return column_expression.cast(pl.String) == str(value)

@@ -57,23 +57,11 @@ class System(InfrasysSystem):
         name: str | None = None,
         **kwargs: Any,
     ) -> None:
-        """Initialize R2X Core System.
+        """Initialize the system and define Pint's global ``system_base`` unit.
 
-        This method defines the 'system_base' unit in the global Pint registry.
-        If you create multiple System instances, the last one's system_base will
-        be used for all unit conversions. Existing components will detect the
-        change and issue a warning if they access system_base conversions.
-
-        Parameters
-        ----------
-        base_power : float, optional (defaults: 100.0)
-            System base power in MVA for per-unit calculations.
-            Can be provided as first positional argument or as keyword argument.
-        name : str, optional
-            Name of the system. If not provided, a default name will be assigned.
-        **kwargs
-            Additional keyword arguments passed to infrasys.System (e.g., description,
-            auto_add_composed_components).
+        The supplied value replaces that registry definition. Separately,
+        ``HasPerUnit`` components receive this system's base as instance-local
+        state when added to the system.
         """
         merged_kwargs = dict(kwargs)
         if name is not None:

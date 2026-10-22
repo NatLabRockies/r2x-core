@@ -65,19 +65,19 @@ class VersionStrategy(Protocol):
 
 
 class SemanticVersioningStrategy(VersionStrategy):
-    """Semantic versioning comparison using Python's string comparison.
+    """Compare dot-separated numeric version components.
 
-    Compares versions following major.minor.patch format.
-    Uses simple string comparison (assumes properly formatted versions).
+    Missing trailing components are treated as zero, so ``1.0`` equals
+    ``1.0.0``. Components must be integers.
 
     Examples
     --------
     >>> strategy = SemanticVersioningStrategy()
-    >>> strategy.compare_versions("1.0.0", "2.0.0")
+    >>> strategy.compare_versions("1.0.0", target="2.0.0")
     -1
-    >>> strategy.compare_versions("2.0.0", "2.0.0")
+    >>> strategy.compare_versions("2.0.0", target="2.0.0")
     0
-    >>> strategy.compare_versions("3.0.0", "2.0.0")
+    >>> strategy.compare_versions("3.0.0", target="2.0.0")
     1
 
     Notes
@@ -106,20 +106,9 @@ class SemanticVersioningStrategy(VersionStrategy):
 
 
 class GitVersioningStrategy(VersionStrategy):
-    """Git-based versioning using commit history order.
+    """Compare versions by their position in commit history.
 
-    Compares versions by their position in a git commit history.
-    Earlier commits are considered older versions.
-
-    Parameters
-    ----------
-    commit_history : list[str]
-        List of commit hashes ordered from oldest to newest.
-
-    Raises
-    ------
-    ValueError
-        If commit_history is empty or contains non-string values.
+    Earlier commits are considered older.
 
     Examples
     --------
@@ -127,11 +116,11 @@ class GitVersioningStrategy(VersionStrategy):
 
     >>> commits = ["abc123", "def456", "ghi789"]
     >>> strategy = GitVersioningStrategy(commits)
-    >>> strategy.compare_versions("abc123", "def456")
+    >>> strategy.compare_versions("abc123", target="def456")
     -1
-    >>> strategy.compare_versions("def456", "def456")
+    >>> strategy.compare_versions("def456", target="def456")
     0
-    >>> strategy.compare_versions("ghi789", "def456")
+    >>> strategy.compare_versions("ghi789", target="def456")
     1
     """
 

@@ -21,10 +21,12 @@ ctx = ctx.evolve(
 translation = apply_rules_to_context(ctx)
 single = apply_single_rule(rule, context=ctx)
 
-# datastore
+# configured inputs and source loading
+from r2x_core import DataFile, DataReader, DataStore
+
 store = DataStore(path="/data")
 store.add_data([DataFile(name="loads", relative_fpath="load.csv")])
-loads = store.read_data("loads")
+loads = DataReader().read_data_files([store["loads"]], folder_path=store.folder)["loads"]
 
 # logging, disabled in the package and enabled at the application boundary
 from loguru import logger
@@ -49,10 +51,12 @@ mode = get_unit_system()
 - `apply_rules_to_context(context)`, rules come from `context.rules`
 - Rule execution reads `context.source_system` and writes `context.target_system`
 - `apply_single_rule(rule, *, context=...)`
-- `DataFile` path source is exactly one of `fpath`, `relative_fpath`, `glob`
+- Physical `DataFile` records set one of `fpath`, `relative_fpath`, or `glob`; named-source records use `source`
 - `DataFile` options are `info`, `reader`, and `proc_spec`
 - `FileInfo.file_type` is `static` or `time_series`; `requirement` is `required` or `optional`
-- `DataFile.file_format` is inferred from the path extension
+- `DataFile.format_name` honors `reader.format`, then infers from the path extension
+- `DataStore` manages mappings; `DataReader.read_data_files(...)` loads named sources
+- `UpgradeHandler` returns `None`, `Ok(None)`, or `Err(error)`
 - `TabularProcessing` and `JSONProcessing` contain ordered tagged `steps`
 - `DataStore.add_data(...)` expects a sequence of `DataFile`
 - `VersionReader` is a protocol with `read_version(...)`

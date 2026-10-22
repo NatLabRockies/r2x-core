@@ -73,8 +73,12 @@ def test_field_filter_casefold_and_missing_values() -> None:
         ("not_in", "alpha", ["beta"], True),
         ("geq", 500, [400], True),
         ("startswith", "plant_alpha", ["plant_"], True),
+        ("startswith", "Plant_alpha", ["station_", "PLANT_"], True),
+        ("startswith", 12345, ["missing", "12"], True),
         ("not_startswith", "station_alpha", ["plant_"], True),
+        ("not_startswith", "plant_alpha", ["station_", "plant_"], False),
         ("endswith", "plant_alpha", ["alpha"], True),
+        ("endswith", "Plant_alpha", ["beta", "ALPHA"], True),
         ("endswith", "plant_beta", ["alpha"], False),
     ],
 )

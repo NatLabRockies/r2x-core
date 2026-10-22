@@ -30,37 +30,17 @@ class PluginConfigAsset(str, Enum):
 
 
 class PluginConfig(BaseModel):
-    """Pure Pydantic base configuration class for plugins.
+    """Base Pydantic configuration for plugin assets and component models.
 
-    This class provides a base configuration schema for plugins, managing paths to
-    configuration files and component modules. It supports both default and custom
-    configuration paths, with validation and override capabilities.
-
-    Attributes
-    ----------
-    CONFIG_DIR : str
-        Class variable specifying the default configuration directory name.
-        Default is "config".
-    models : tuple[str, ...]
-        Module path(s) for component classes. Examples: 'r2x_sienna.models',
-        'my_package.components'. If omitted, defaults to an empty tuple.
-    config_path_override : Path | None
-        Optional override for the configuration path. When provided, this path
-        is used instead of the default package configuration directory.
-    active_versions : dict[str, int]
-        Rule version to use per source component type when a lookup omits one.
-    upgrade_handler : UpgradeHandler | None
-        Optional DataStore handler for missing-file and validation upgrades.
+    ``models`` lists component-model modules and defaults to an empty tuple.
+    ``config_path_override`` replaces the package-relative ``config`` directory.
+    ``active_versions`` selects a rule version when a lookup omits one, and
+    ``upgrade_handler`` handles configured DataStore upgrades.
 
     Examples
     --------
-    Basic usage with default configuration:
-
-    >>> config = PluginConfig(models='my_package.models')
-    >>> config.config_path
-    PosixPath('.../config')
-    >>> config.defaults_path
-    PosixPath('.../config/defaults.json')
+    >>> PluginConfig(models="my_package.models").models
+    ('my_package.models',)
     """
 
     CONFIG_DIR: ClassVar[str] = "config"
@@ -94,24 +74,10 @@ class PluginConfig(BaseModel):
     @field_validator("models", mode="before")
     @classmethod
     def coerce_models(cls, value: Any | None) -> tuple[str, ...]:
-        """Coerce models input into a normalized tuple.
+        """Normalize None, a string, or a list/tuple/set of module paths to a tuple.
 
-        Accepts string, iterable, or None inputs and normalizes them to a tuple.
-
-        Parameters
-        ----------
-        value : Any | None
-            The input value to coerce. Can be a string, list, tuple, set, or None.
-
-        Returns
-        -------
-        tuple[str, ...]
-            Normalized tuple of module paths. Returns empty tuple if value is None.
-
-        Raises
-        ------
-        TypeError
-            If value is not a string, iterable of strings, or None.
+        Pydantic validates each normalized entry. Raises ``TypeError`` when the
+        input is not ``None``, a string, or a list, tuple, or set.
         """
         if value is None:
             return ()
@@ -124,21 +90,7 @@ class PluginConfig(BaseModel):
 
     @property
     def config_path(self) -> Path:
-        """Get the resolved configuration directory path.
-
-        Returns the configuration path from the override if set, otherwise computes
-        the path relative to the package module. Logs a warning if the path does
-        not exist.
-
-        Returns
-        -------
-        Path
-            The configuration directory path. May not exist on the package.
-
-        Notes
-        -----
-        A warning is logged if the returned path does not exist on the filesystem.
-        """
+        """Return the override or package-relative config path, warning if absent."""
         config_path = self.config_path_override or self.package_config_path()
 
         if not config_path.exists():
@@ -148,57 +100,27 @@ class PluginConfig(BaseModel):
 
     @property
     def fmap_path(self) -> Path:
-        """Get path to file mapping configuration file.
-
-        Returns
-        -------
-        Path
-            Path to file_mapping.json in config directory
-        """
+        """Path to ``file_mapping.json`` in the configuration directory."""
         return self.config_path / PluginConfigAsset.FILE_MAPPING.value
 
     @property
     def defaults_path(self) -> Path:
-        """Get path to defaults configuration file.
-
-        Returns
-        -------
-        Path
-            Path to defaults.json in config directory
-        """
+        """Path to ``defaults.json`` in the configuration directory."""
         return self.config_path / PluginConfigAsset.DEFAULTS.value
 
     @property
     def exporter_rules_path(self) -> Path:
-        """Get path to exporter rules configuration file.
-
-        Returns
-        -------
-        Path
-            Path to exporter_rules.json in config directory
-        """
+        """Path to ``exporter_rules.json`` in the configuration directory."""
         return self.config_path / PluginConfigAsset.EXPORTER_RULES.value
 
     @property
     def parser_rules_path(self) -> Path:
-        """Get path to parser rules configuration file.
-
-        Returns
-        -------
-        Path
-            Path to parser_rules.json in config directory
-        """
+        """Path to ``parser_rules.json`` in the configuration directory."""
         return self.config_path / PluginConfigAsset.PARSER_RULES.value
 
     @property
     def translation_rules_path(self) -> Path:
-        """Get path to translation rules configuration file.
-
-        Returns
-        -------
-        Path
-            Path to translation_rules.json in config directory
-        """
+        """Path to ``translation_rules.json`` in the configuration directory."""
         return self.config_path / PluginConfigAsset.TRANSLATION_RULES.value
 
     @classmethod

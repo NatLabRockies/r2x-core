@@ -19,6 +19,7 @@ from .type_vocabulary import (
     ProcessingPlaceholder,
     Separator,
     StrictModel,
+    json_values_equal,
 )
 
 
@@ -60,14 +61,11 @@ class ExpressionOperation(StrictConfigModel):
             MappingExpressionOperator.SPLIT,
             MappingExpressionOperator.SUBTRACT,
         }
-        unary_operations = {
+        unary_operations = set(AggregationFunction) | {
             MappingExpressionOperator.IS_NULL,
             MappingExpressionOperator.LIST_SORT,
             MappingExpressionOperator.LOWERCASE,
-            AggregationFunction.MAX,
-            AggregationFunction.MEAN,
             MappingExpressionOperator.STRIP_CHARS,
-            AggregationFunction.SUM,
             MappingExpressionOperator.YEAR,
         }
 
@@ -412,11 +410,31 @@ class FilterJSONStep(StrictConfigModel):
     where: dict[NonEmptyString, JSONValue]
 
 
+class JSONReplacement(StrictConfigModel):
+    """Replace one finite JSON scalar with a finite JSON value."""
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(allow_inf_nan=False)
+
+    old: JSONScalar
+    new: JSONValue
+
+
 class ReplaceJSONValuesStep(StrictConfigModel):
     """Recursively replace exact JSON scalar values."""
 
     op: Literal["replace_values"]
-    mapping: dict[JSONScalar, JSONValue]
+    replacements: list[JSONReplacement]
+
+    @model_validator(mode="after")
+    def validate_replacements(self) -> ReplaceJSONValuesStep:
+        """Reject replacement sources that would match the same scalar."""
+        for index, replacement in enumerate(self.replacements):
+            if any(
+                json_values_equal(replacement.old, previous.old) for previous in self.replacements[:index]
+            ):
+                msg = f"Duplicate replacement source value {replacement.old!r}"
+                raise ValueError(msg)
+        return self
 
 
 class SelectJSONKeysStep(StrictConfigModel):

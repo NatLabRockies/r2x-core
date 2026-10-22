@@ -1087,7 +1087,12 @@ def test_pl_build_filter_expr_datetime_years(years: int | list[int], expected: l
 
     frame = pl.DataFrame({"datetime": [datetime(2020, 1, 1), datetime(2021, 6, 15), datetime(2022, 12, 31)]})
 
-    assert frame.filter(pl_build_filter_expr("datetime", value=years))["datetime"].to_list() == expected
+    assert (
+        frame.filter(pl_build_filter_expr("datetime", value=years, column_names=frame.columns))[
+            "datetime"
+        ].to_list()
+        == expected
+    )
 
 
 def test_tabular_processing_reports_non_numeric_scale():

@@ -49,59 +49,36 @@ HOOK_SPECS: tuple[HookSpec, ...] = (
 
 
 class Plugin(ABC, Generic[ConfigT]):
-    """Base class for all plugins with capability-based hooks.
+    """Base class for plugins that implement optional lifecycle hooks.
 
-    Plugins implement only the hooks they need. The run() method executes
-    hooks in a fixed order, skipping any that aren't implemented.
+    ``run()`` calls implemented hooks in this order:
+    on_validate, on_prepare, on_upgrade, on_build, on_transform, on_translate,
+    on_export, on_cleanup. These hooks cover validation, preparation, upgrades,
+    building, transformation, translation, export, and cleanup. Plugin
+    capabilities follow the hooks provided, such as ``on_build`` for system
+    creation or ``on_export`` for writing systems.
 
-    Plugin capabilities are determined by which hooks are implemented:
-    - on_build()     -> Plugin that creates systems from data
-    - on_transform() -> Plugin that modifies existing systems
-    - on_translate() -> Plugin that converts source → target systems
-    - on_export()    -> Plugin that writes systems to files
-
-    Required context fields are indicated by property return types:
-    - Non-Optional return type (e.g., -> System) = field is required
-    - Optional return type (e.g., -> System | None) = field is optional
-
-    Lifecycle (fixed order, all optional)
-    --------------------------------------
-    1. on_validate()  ->  Validate inputs/config
-    2. on_prepare()   ->  Load data, setup
-    3. on_upgrade()   ->  Upgrade system to target version
-    4. on_build()     ->  Create system from scratch
-    5. on_transform() ->  Modify existing system
-    6. on_translate() ->  Source -> Target system
-    7. on_export()    ->  Write system to files
-    8. on_cleanup()   ->  Cleanup resources
+    Hooks can mutate the context directly. ``Ok(value)`` from ``on_upgrade``,
+    ``on_build``, or ``on_transform`` updates ``ctx.system``; ``on_translate``
+    updates ``ctx.target_system``. Success payloads from other hooks are not stored.
 
     Examples
     --------
-    A simple build plugin:
-
     >>> from r2x_core import Plugin, PluginContext, PluginConfig, System
     >>> from rust_ok import Ok
-
     >>> class MyConfig(PluginConfig):
     ...     name: str
-
     >>> class MyPlugin(Plugin[MyConfig]):
     ...     def on_build(self):
-    ...         system = System(name=self.config.name)
-    ...         return Ok(system)
-
+    ...         return Ok(System(name=self.config.name))
     >>> ctx = PluginContext(config=MyConfig(name="test"))
-    >>> plugin = MyPlugin.from_context(ctx)
-    >>> result_ctx = plugin.run()
-    >>> result_ctx.system.name
+    >>> result = MyPlugin.from_context(ctx).run()
+    >>> result.system.name
     'test'
-
-    Config type can be extracted via introspection for discovery:
-
-    >>> from typing import get_args, get_origin
-    >>> config_type = MyPlugin.get_config_type()
-    >>> config_type.__name__
-    'MyConfig'
+    >>> MyPlugin.get_config_type() is MyConfig
+    True
+    >>> sorted(MyPlugin.get_implemented_hooks())
+    ['on_build']
     """
 
     ctx: PluginContext[ConfigT]
@@ -111,29 +88,12 @@ class Plugin(ABC, Generic[ConfigT]):
 
     @property
     def config(self) -> ConfigT:
-        """Plugin configuration. Always required.
-
-        Returns
-        -------
-        ConfigT
-            The plugin configuration from the context.
-        """
+        """Required plugin configuration from the context."""
         return self.ctx.config
 
     @property
     def store(self) -> DataStore:
-        """Data store for file I/O. Required if return type is non-Optional.
-
-        Returns
-        -------
-        DataStore
-            The data store from the context.
-
-        Raises
-        ------
-        PluginError
-            If store is not provided in context.
-        """
+        """Return the context DataStore. Raises PluginError when it is absent."""
         if self.ctx.store is None:
             msg = "DataStore not provided in context"
             raise PluginError(msg)
@@ -141,18 +101,7 @@ class Plugin(ABC, Generic[ConfigT]):
 
     @property
     def system(self) -> System:
-        """Current system. Required for transform/export plugins.
-
-        Returns
-        -------
-        System
-            The system from the context.
-
-        Raises
-        ------
-        PluginError
-            If system is not provided in context.
-        """
+        """Return the current system. Raises PluginError when it is absent."""
         if self.ctx.system is None:
             msg = "System not provided in context"
             raise PluginError(msg)
@@ -160,18 +109,7 @@ class Plugin(ABC, Generic[ConfigT]):
 
     @property
     def source_system(self) -> System:
-        """Source system for translation. Required for translate plugins.
-
-        Returns
-        -------
-        System
-            The source system from the context.
-
-        Raises
-        ------
-        PluginError
-            If source_system is not provided in context.
-        """
+        """Return the source system. Raises PluginError when it is absent."""
         if self.ctx.source_system is None:
             msg = "Source system not provided in context"
             raise PluginError(msg)
@@ -179,18 +117,7 @@ class Plugin(ABC, Generic[ConfigT]):
 
     @property
     def target_system(self) -> System:
-        """Target system after translation.
-
-        Returns
-        -------
-        System
-            The target system from the context.
-
-        Raises
-        ------
-        PluginError
-            If target_system is not available in context.
-        """
+        """Return the translated target system. Raises PluginError when absent."""
         if self.ctx.target_system is None:
             msg = "Target system not available"
             raise PluginError(msg)
@@ -198,62 +125,19 @@ class Plugin(ABC, Generic[ConfigT]):
 
     @property
     def metadata(self) -> dict[str, Any]:
-        """Metadata dict. Always available.
-
-        Returns
-        -------
-        dict[str, Any]
-            The metadata dictionary from the context.
-        """
+        """Mutable metadata dictionary shared with the context."""
         return self.ctx.metadata
 
     @classmethod
     def from_context(cls, ctx: PluginContext[ConfigT]) -> Plugin[ConfigT]:
-        """Create plugin instance from context.
-
-        This is the recommended way to instantiate plugins.
-
-        Parameters
-        ----------
-        ctx : PluginContext[ConfigT]
-            The context to use for plugin execution.
-
-        Returns
-        -------
-        Plugin[ConfigT]
-            New plugin instance with context set.
-
-        Examples
-        --------
-        >>> from r2x_core import Plugin, PluginContext, PluginConfig
-        >>> class Config(PluginConfig):
-        ...     pass
-        >>> ctx = PluginContext(config=Config())
-        >>> plugin = Plugin.from_context(ctx)  # Would instantiate subclass in practice
-        """
+        """Create a plugin instance bound to ``ctx`` for lifecycle execution."""
         instance = cls()
         instance.ctx = ctx
         return instance
 
     @classmethod
     def get_config_type(cls) -> type[Any]:
-        """Extract the config type from generic parameters.
-
-        Returns
-        -------
-        type[Any]
-            The PluginConfig subclass used for this plugin.
-
-        Examples
-        --------
-        >>> from r2x_core import Plugin, PluginConfig
-        >>> class MyConfig(PluginConfig):
-        ...     value: int
-        >>> class MyPlugin(Plugin[MyConfig]):
-        ...     pass
-        >>> MyPlugin.get_config_type().__name__
-        'MyConfig'
-        """
+        """Return the plugin's generic config class, or ``object`` if unavailable."""
         origin = get_origin(cls)
         if origin is None:
             # cls is a concrete subclass like MyPlugin
@@ -268,67 +152,31 @@ class Plugin(ABC, Generic[ConfigT]):
 
     @classmethod
     def get_implemented_hooks(cls) -> set[str]:
-        """Get the set of implemented hook methods.
-
-        Returns
-        -------
-        set[str]
-            Names of implemented hooks (e.g., {'on_validate', 'on_build'}).
-
-        Examples
-        --------
-        >>> from r2x_core import Plugin, PluginConfig
-        >>> from rust_ok import Ok
-        >>> class MyConfig(PluginConfig):
-        ...     value: int
-        >>> class MyPlugin(Plugin[MyConfig]):
-        ...     def on_validate(self):
-        ...         return Ok(None)
-        ...     def on_build(self):
-        ...         return Ok(None)
-        >>> sorted(MyPlugin.get_implemented_hooks())
-        ['on_build', 'on_validate']
-        """
+        """Return names of callable lifecycle hooks implemented by the class."""
         return {spec.name for spec in HOOK_SPECS if callable(getattr(cls, spec.name, None))}
 
     def run(self, *, ctx: PluginContext[ConfigT] | None = None) -> PluginContext[ConfigT]:
-        """Execute plugin lifecycle.
+        """Run implemented hooks in lifecycle order and return the updated context.
 
-        Hooks are called in fixed order. Unimplemented hooks are skipped.
-        If any hook returns Err, execution stops and PluginError is raised.
-        Context is updated in-place for memory efficiency.
+        Uses ``ctx`` when supplied, otherwise the bound context. Hook mutations
+        remain in place. ``Ok(value)`` from ``on_upgrade``, ``on_build``, or
+        ``on_transform`` updates ``ctx.system``; ``on_translate`` updates
+        ``ctx.target_system``. Other successful payloads are not stored. An
+        ``Err`` raises ``PluginError``, chained from an exception error when
+        present. Non-``Ok``/``Err`` results raise ``TypeError``; other hook
+        exceptions propagate unchanged.
 
         Parameters
         ----------
         ctx : PluginContext[ConfigT] | None
-            Context to use. If None, uses context from from_context().
-
-        Returns
-        -------
-        PluginContext[ConfigT]
-            The context (updated in-place).
+            Context to use instead of the bound context.
 
         Raises
         ------
         PluginError
-            If any hook fails.
-
-        Examples
-        --------
-        >>> from r2x_core import Plugin, PluginContext, PluginConfig, System
-        >>> from rust_ok import Ok
-
-        >>> class Config(PluginConfig):
-        ...     pass
-
-        >>> class MyPlugin(Plugin[Config]):
-        ...     def on_build(self):
-        ...         return Ok(System(name="test"))
-
-        >>> ctx = PluginContext(config=Config())
-        >>> result = MyPlugin.from_context(ctx).run()
-        >>> result.system.name
-        'test'
+            If a hook returns ``Err``.
+        TypeError
+            If a hook returns neither ``Ok`` nor ``Err``.
         """
         if ctx is not None:
             self.ctx = ctx

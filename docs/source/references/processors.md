@@ -39,6 +39,9 @@ invalid operation fields are rejected during model validation.
 
 - `filter_columns` retains rows that match every exact column-value condition.
 - `filter` retains rows matching a mapping-expression predicate.
+  Configured column names are resolved literally, including names such as
+  `^load$`, `*`, or names containing quotes. Pattern-shaped names are not
+  regular expressions.
 - `select_columns` keeps named columns; `select` derives columns from expressions.
 - `rename_columns` renames columns, and `drop_columns` removes them.
 - `with_columns` adds or replaces columns using expressions.
@@ -51,7 +54,8 @@ invalid operation fields are rejected during model validation.
 - `replace_values`, `strip_characters`, `cast_columns`, `scale_columns`, and
   `fill_null` clean or convert values.
 - `aggregate` groups optionally and applies aggregation functions to columns.
-  Aggregation without `group_by` returns one row.
+  Aggregation without `group_by` returns one row. Mapping expressions also
+  support the full aggregation vocabulary listed below, with one operand each.
 - `pivot` uses `pivot_on` as the output-column key, `group_by` as identifiers,
   and `aggregate_on` as value columns. All value columns use one aggregation.
   Pivot supports `count`, `first`, `last`, `max`, `mean`, `median`, `min`, and
@@ -101,8 +105,27 @@ processing = JSONProcessing(
 ```
 
 JSON operations recursively rename and drop keys, filter records by exact
-values, replace scalar values, or select object keys. The concrete step model
-rejects fields that do not belong to that operation.
+values, replace scalar values, or select object keys. JSON replacement sources
+use a list of typed `old`/`new` records rather than a dictionary, so JSON
+round-trips preserve scalar types:
+
+```python
+from r2x_core import JSONProcessing
+
+processing = JSONProcessing(steps=[
+    {"op": "replace_values", "replacements": [
+        {"old": 0, "new": "missing"},
+        {"old": True, "new": "enabled"},
+    ]},
+])
+```
+
+Matching is recursive. Booleans are distinct from numbers, numerically equal
+integers and floats compare equally, and strings do not coerce to numbers.
+Filters require the tested key to exist, including when matching `null`.
+Duplicate matching replacement sources and non-finite replacement numbers are
+rejected. The concrete step model rejects fields that do not belong to that
+operation.
 
 ## Reader and processor contracts
 

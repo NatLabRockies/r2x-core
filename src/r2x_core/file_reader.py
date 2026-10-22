@@ -206,15 +206,14 @@ class ArraySource(ProcessingSource[ArrayDataT], Generic[ArrayDataT]):
             msg = "Array source fields must have equal lengths"
             raise ValueError(msg)
         count = next(iter(lengths), 0)
-        return (
-            {
-                name: arrays[name][index].item()
-                if isinstance(arrays[name][index], np.generic)
-                else arrays[name][index]
-                for name in names
-            }
-            for index in range(count)
-        )
+
+        def python_scalar(value: object) -> object:
+            """Keep NumPy datetimes intact while converting ordinary scalars."""
+            if isinstance(value, np.datetime64):
+                return value
+            return value.item() if isinstance(value, np.generic) else value
+
+        return ({name: python_scalar(arrays[name][index]) for name in names} for index in range(count))
 
     def values(self, field: str, /) -> list[object]:
         """Select one named one-dimensional sample array."""

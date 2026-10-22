@@ -16,6 +16,68 @@ class PowerModel(HasUnits, BaseModel):
     power: Annotated[float, Unit("pu", base="base_power")]
 
 
+def test_scalar_unit_validation_schema_includes_natural_and_enveloped_values() -> None:
+    validation_schema = PowerModel.model_json_schema(mode="validation")
+    power_schema = validation_schema["properties"]["power"]
+
+    assert {"type": "number"} in power_schema["anyOf"]
+    envelope = next(schema for schema in power_schema["anyOf"] if schema.get("type") == "object")
+    assert envelope["properties"]["value"]["type"] == "number"
+    assert envelope["properties"]["unit"]["type"] == "string"
+    assert envelope["properties"]["unit"]["minLength"] == 1
+    assert envelope["required"] == ["value", "unit"]
+    assert envelope.get("additionalProperties") is not False
+
+    serialization_schema = PowerModel.model_json_schema(mode="serialization")
+    assert serialization_schema["properties"]["power"]["type"] == "number"
+
+    model = PowerModel.model_validate_json('{"base_power":100,"power":{"value":5000,"unit":"kW"}}')
+    assert model.power == 0.05
+    assert model.model_dump(mode="json")["power"] == 0.05
+
+
+def test_scalar_unit_schema_accepts_numeric_envelopes_for_integer_fields() -> None:
+    class IntegerPower(HasUnits, BaseModel):
+        power: Annotated[int, Unit("MW")]
+
+    schema = IntegerPower.model_json_schema(mode="validation")["properties"]["power"]
+    envelope = next(item for item in schema["anyOf"] if item.get("type") == "object")
+
+    assert envelope["properties"]["value"]["type"] == "number"
+    assert IntegerPower.model_validate_json('{"power":{"value":0.001,"unit":"GW"}}').power == 1
+
+
+def test_scalar_unit_schema_allows_runtime_supported_extra_envelope_fields() -> None:
+    schema = PowerModel.model_json_schema(mode="validation")["properties"]["power"]
+    envelope = next(item for item in schema["anyOf"] if item.get("type") == "object")
+    model = PowerModel.model_validate_json(
+        '{"base_power":100,"power":{"value":1,"unit":"MW","note":"measured"}}'
+    )
+
+    assert envelope.get("additionalProperties") is not False
+    assert model.power == 0.01
+
+
+def test_optional_scalar_unit_validation_schema_keeps_null_and_envelope() -> None:
+    class OptionalPower(HasUnits, BaseModel):
+        base_power: Annotated[float, Unit("MW")]
+        power: Annotated[float | None, Unit("pu", base="base_power")] = None
+
+    schema = OptionalPower.model_json_schema(mode="validation")["properties"]["power"]
+
+    assert {"type": "number"} in schema["anyOf"]
+    assert {"type": "null"} in schema["anyOf"]
+    envelope = next(item for item in schema["anyOf"] if item.get("type") == "object")
+    assert envelope["properties"]["value"]["type"] == "number"
+    assert envelope["properties"]["unit"]["type"] == "string"
+    assert envelope["required"] == ["value", "unit"]
+    assert OptionalPower.model_validate_json('{"base_power":100,"power":null}').power is None
+    assert (
+        OptionalPower.model_validate_json('{"base_power":100,"power":{"value":5000,"unit":"kW"}}').power
+        == 0.05
+    )
+
+
 def test_convert_to_internal_with_int():
     spec = UnitSpec(unit="MVA")
     assert convert_to_internal(50, spec) == 50.0

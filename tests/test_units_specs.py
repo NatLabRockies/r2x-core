@@ -101,8 +101,8 @@ def test_structured_unit_json_schema_describes_serialized_values() -> None:
     assert schema["$defs"]["Limits"]["properties"]["minimum"]["type"] == "number"
 
 
-def test_unitspec_serialization_in_model():
-    """Test that UnitSpec fields serialize correctly in Pydantic models."""
+def test_unitspec_validation_and_serialization_schemas():
+    """Advertise scalar or envelope input and scalar output for unit fields."""
 
     class Generator(BaseModel):
         """Generator model."""
@@ -111,11 +111,15 @@ def test_unitspec_serialization_in_model():
         base_power: Annotated[float, Unit("MVA")]
         rating: Annotated[float, Unit("pu", base="base_power")]
 
-    schema = Generator.model_json_schema()
+    validation_schema = Generator.model_json_schema(mode="validation")
+    for field_name in ("base_power", "rating"):
+        field_schema = validation_schema["properties"][field_name]
+        assert {"type": "number"} in field_schema["anyOf"]
+        assert any(branch.get("type") == "object" for branch in field_schema["anyOf"])
 
-    # The fields with UnitSpec should have number type in schema
-    assert schema["properties"]["base_power"]["type"] == "number"
-    assert schema["properties"]["rating"]["type"] == "number"
+    serialization_schema = Generator.model_json_schema(mode="serialization")
+    assert serialization_schema["properties"]["base_power"]["type"] == "number"
+    assert serialization_schema["properties"]["rating"]["type"] == "number"
 
 
 def test_unitspec_no_base_field():

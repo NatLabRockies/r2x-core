@@ -24,8 +24,8 @@ ConfigT = TypeVar("ConfigT", bound="PluginConfig")
 class PluginContext(Generic[ConfigT]):
     """Unified context for all plugin operations.
 
-    A simple, memory-efficient context that plugins use to access configuration,
-    data stores, systems, and metadata. Uses __slots__ to minimize memory overhead.
+    A mutable, slotted context that plugins use to access configuration, data
+    stores, systems, rules, and metadata. Defaults are listed with each field.
 
     Attributes
     ----------
@@ -33,21 +33,17 @@ class PluginContext(Generic[ConfigT]):
         Plugin configuration (always required). The generic type ConfigT
         allows type-safe access to plugin-specific config fields.
     store : DataStore | None
-        Optional data store for file I/O operations. Used by plugins
-        that read/write files.
+        Data store for file I/O. Default is None.
     system : System | None
-        Optional system object. Created by build plugins, consumed by
-        transform/export plugins, or provided from previous step via stdin.
+        Current system for build/transform/export. Default is None.
     source_system : System | None
-        Optional source system for translation. Used by translate plugins
-        that convert from one format to another.
+        Source system for translation. Default is None.
     target_system : System | None
-        Optional target system (output of translation). Set after a
-        translate plugin runs.
+        Translation target system. Default is None.
     rules : tuple[Rule, ...]
         Transformation rules for translation. Empty tuple by default.
     metadata : dict[str, Any]
-        Arbitrary metadata key-value pairs that plugins can use.
+        Arbitrary plugin metadata. Defaults to a new empty dictionary.
     skip_validation : bool
         Skip Pydantic validation when creating components (faster but less safe).
         Parser option. Default is False.
@@ -55,11 +51,18 @@ class PluginContext(Generic[ConfigT]):
         Whether to automatically add composed components to the system.
         Parser option. Default is True.
     current_version : str | None
-        Current version of the system being upgraded. Used by on_upgrade() hooks.
+        Current version for upgrades. Default is None.
     target_version : str | None
-        Target version after upgrade. Used by on_upgrade() hooks.
+        Target version for upgrades. Default is None.
     version_strategy : VersionStrategy | None
-        Strategy for handling version upgrades. Used by on_upgrade() hooks.
+        Upgrade comparison strategy. Default is None.
+    preserve_source : bool
+        When true, tags translated outputs with their source UUID and copies
+        unmatched source components and their supplemental attributes into the target,
+        allowing a reverse translation to reproduce the original source. Default is False.
+
+    ``evolve()`` returns a new context but shares unspecified field values by
+    reference, including mutable metadata.
 
     Examples
     --------
@@ -117,43 +120,7 @@ class PluginContext(Generic[ConfigT]):
         version_strategy: VersionStrategy | None = None,
         preserve_source: bool = False,
     ) -> None:
-        """Initialize plugin context.
-
-        Parameters
-        ----------
-        config : ConfigT
-            Plugin configuration (required).
-        store : DataStore | None
-            Optional data store for file I/O.
-        system : System | None
-            Optional system object.
-        source_system : System | None
-            Optional source system for translation.
-        target_system : System | None
-            Optional target system.
-        rules : tuple[Rule, ...]
-            Transformation rules. Default is empty tuple.
-        metadata : dict[str, Any] | None
-            Arbitrary metadata. Default is empty dict.
-        skip_validation : bool
-            Skip Pydantic validation. Default is False.
-        auto_add_composed_components : bool
-            Auto-add composed components. Default is True.
-        current_version : str | None
-            Current version for upgrades. Default is None.
-        target_version : str | None
-            Target version for upgrades. Default is None.
-        version_strategy : VersionStrategy | None
-            Version strategy for upgrades. Default is None.
-        preserve_source : bool
-            When True, translation captures source-side provenance so a reverse
-            translation can reproduce the original source. Every translated
-            target component is tagged with a
-            :class:`~r2x_core.provenance.SourceProvenance` SA recording its
-            source UUID, and every source component (plus its
-            SAs) with no matching rule is copied into the target as a
-            preserved carry-over. Default is False.
-        """
+        """Initialize context fields using the defaults documented on the class."""
         self.config = config
         self.store = store
         self.system = system
@@ -169,22 +136,20 @@ class PluginContext(Generic[ConfigT]):
         self.preserve_source = preserve_source
 
     def evolve(self, **kwargs: Any) -> PluginContext[ConfigT]:
-        """Create a new context with updated fields.
+        """Return a new context with selected fields updated.
 
-        Memory-efficient method to create a new context with only the specified
-        fields changed. All other fields are copied from the current context.
+        Unspecified values, including mutable objects such as metadata, are shared
+        by reference with this context.
 
         Parameters
         ----------
         **kwargs : Any
-            Fields to update (config, store, system, source_system, target_system,
-            rules, metadata, skip_validation, auto_add_composed_components,
-            current_version, target_version, version_strategy, preserve_source).
+            Context fields to replace.
 
         Returns
         -------
         PluginContext[ConfigT]
-            A new context with the specified updates.
+            A new context with the selected updates.
 
         Examples
         --------

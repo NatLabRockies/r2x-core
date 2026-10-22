@@ -63,6 +63,66 @@ def test_enum_expression_operators_compile_to_polars() -> None:
     assert result.item() == 4.0
 
 
+@pytest.mark.parametrize(
+    ("parts", "expected"),
+    [
+        pytest.param([2024, 1, 2], datetime(2024, 1, 2), id="date"),
+        pytest.param([2024, 1, 2, 3], datetime(2024, 1, 2, 3), id="hour"),
+        pytest.param([2024, 1, 2, 3, 4], datetime(2024, 1, 2, 3, 4), id="minute"),
+        pytest.param([2024, 1, 2, 3, 4, 5], datetime(2024, 1, 2, 3, 4, 5), id="second"),
+        pytest.param([2024, 1, 2, 3, 4, 5, 6789], datetime(2024, 1, 2, 3, 4, 5, 6789), id="microsecond"),
+    ],
+)
+def test_datetime_mapping_expression_accepts_each_valid_arity(parts: list[int], expected: datetime) -> None:
+    expression = ExpressionOperation.model_validate(
+        {"op": "datetime", "args": [{"literal": part} for part in parts]}
+    )
+
+    result = pl.select(compile_polars_expression(expression, column_names=[]))
+
+    assert result.item() == expected
+
+
+@pytest.mark.parametrize(
+    ("function", "expected"),
+    [
+        pytest.param(AggregationFunction.COUNT, 2, id="count-excludes-null"),
+        pytest.param(AggregationFunction.FIRST, 2, id="first"),
+        pytest.param(AggregationFunction.LAST, 4, id="last"),
+        pytest.param(AggregationFunction.MAX, 4, id="max"),
+        pytest.param(AggregationFunction.MEAN, 3.0, id="mean"),
+        pytest.param(AggregationFunction.MEDIAN, 3.0, id="median"),
+        pytest.param(AggregationFunction.MIN, 2, id="min"),
+        pytest.param(AggregationFunction.N_UNIQUE, 3, id="n-unique-includes-null"),
+        pytest.param(AggregationFunction.STD, pytest.approx(2**0.5), id="std"),
+        pytest.param(AggregationFunction.SUM, 6, id="sum"),
+        pytest.param(AggregationFunction.VAR, 2, id="var"),
+    ],
+)
+def test_mapping_expression_supports_every_declared_aggregation(
+    function: AggregationFunction, expected: object
+) -> None:
+    frame = pl.DataFrame({"value": [2, None, 4]})
+    expression = ExpressionOperation.model_validate({"op": function.value, "args": [{"column": "value"}]})
+    compiled = compile_polars_expression(expression, column_names=frame.columns)
+
+    assert frame.select(compiled.alias("result")).item() == expected
+
+
+@pytest.mark.parametrize("function", list(AggregationFunction), ids=lambda function: function.value)
+@pytest.mark.parametrize("argument_count", [0, 2], ids=["no-operands", "multiple-operands"])
+def test_aggregation_expressions_require_one_operand(
+    function: AggregationFunction, argument_count: int
+) -> None:
+    arguments = [{"literal": value} for value in range(argument_count)]
+
+    with pytest.raises(ValidationError) as exc_info:
+        ExpressionOperation.model_validate({"op": function.value, "args": arguments})
+
+    if argument_count == 2:
+        assert f"{function.value} expects exactly one argument" in str(exc_info.value)
+
+
 @pytest.mark.parametrize("operator", ["unknown", "DIVIDE", ""])
 def test_expression_schema_rejects_unknown_operators(operator: str) -> None:
     with pytest.raises(ValidationError):
@@ -306,6 +366,388 @@ def test_mapping_steps_preserve_regex_shaped_column_names() -> None:
     assert result.unwrap().collect().to_dicts() == [
         {"regex_name": 99.0, "wildcard_name": 7, "doubled": 198.0}
     ]
+
+
+def test_named_column_steps_use_exact_names_for_scale_and_select() -> None:
+    frame = pl.LazyFrame({"^load$": [5, 6], "load": [100, 200]})
+    backend = PolarsTabularBackend()
+    scale = TypeAdapter(list[MappingStep]).validate_python([{"op": "scale_columns", "scale": {"^load$": 2}}])
+    select = TypeAdapter(list[MappingStep]).validate_python(
+        [{"op": "select_columns", "select_columns": ["^load$"]}]
+    )
+
+    scaled = apply_mapping_steps(frame, scale, backend=backend).unwrap().collect()
+    selected = apply_mapping_steps(frame, select, backend=backend).unwrap().collect()
+
+    assert scaled.to_dicts() == [{"^load$": 10, "load": 100}, {"^load$": 12, "load": 200}]
+    assert selected.columns == ["^load$"]
+    assert selected.to_series().to_list() == [5, 6]
+
+
+@pytest.mark.parametrize(
+    ("data", "step", "columns", "rows"),
+    [
+        pytest.param(
+            {"^key$": ["a", "b"], "key": ["x", "x"], "^value$": [1, 2]},
+            {"op": "filter_columns", "filter_by": {"^key$": "a"}},
+            ["^key$", "key", "^value$"],
+            [{"^key$": "a", "key": "x", "^value$": 1}],
+            id="filter",
+        ),
+        pytest.param(
+            {"^key$": ["a"], "key": ["x"], "^value$": [1]},
+            {"op": "drop_columns", "drop_columns": ["^value$"]},
+            ["^key$", "key"],
+            [{"^key$": "a", "key": "x"}],
+            id="drop",
+        ),
+        pytest.param(
+            {"^key$": ["a"], "key": ["x"]},
+            {"op": "rename_columns", "column_mapping": {"^key$": "renamed"}},
+            ["renamed", "key"],
+            [{"renamed": "a", "key": "x"}],
+            id="rename",
+        ),
+        pytest.param(
+            {"^label$": ["2030|NY"], "label": ["2031|TX"]},
+            {
+                "op": "split_columns",
+                "split_column": {"^label$": {"separator": "|", "into": ["year", "zone"]}},
+            },
+            ["year", "zone", "label"],
+            [{"year": "2030", "zone": "NY", "label": "2031|TX"}],
+            id="split",
+        ),
+        pytest.param(
+            {"^label$": [" old "], "label": ["keep"]},
+            {"op": "replace_values", "replace_values": {" old ": "new"}},
+            ["^label$", "label"],
+            [{"^label$": "new", "label": "keep"}],
+            id="replace",
+        ),
+        pytest.param(
+            {"^label$": [" old "], "label": [" old "]},
+            {"op": "strip_characters", "strip_chars": {"^label$": [" "]}},
+            ["^label$", "label"],
+            [{"^label$": "old", "label": " old "}],
+            id="strip",
+        ),
+        pytest.param(
+            {"^value$": [1, 2], "value": [100, 200]},
+            {"op": "cast_columns", "column_schema": {"^value$": "str"}},
+            ["^value$", "value"],
+            [{"^value$": "1", "value": 100}, {"^value$": "2", "value": 200}],
+            id="cast",
+        ),
+        pytest.param(
+            {"^value$": [None, 2], "value": [100, 200]},
+            {"op": "fill_null", "fill_null": {"^value$": 0}},
+            ["^value$", "value"],
+            [{"^value$": 0, "value": 100}, {"^value$": 2, "value": 200}],
+            id="fill-null",
+        ),
+        pytest.param(
+            {"^key$": ["a", "a"], "key": ["x", "y"], "^load$": [2, 3], "load": [100, 200]},
+            {"op": "aggregate", "aggregate_on": {"^load$": "sum"}, "group_by": ["^key$"]},
+            ["^key$", "^load$"],
+            [{"^key$": "a", "^load$": 5}],
+            id="aggregate",
+        ),
+        pytest.param(
+            {"^priority$": [2, 1], "priority": [1, 2]},
+            {"op": "sort", "by": {"^priority$": "asc"}},
+            ["^priority$", "priority"],
+            [{"^priority$": 1, "priority": 2}, {"^priority$": 2, "priority": 1}],
+            id="sort",
+        ),
+        pytest.param(
+            {"^key$": ["a", "b"], "key": ["x", "x"], "^load$": [1, 2]},
+            {"op": "unpivot_columns", "columns": ["^load$"]},
+            ["^key$", "key", "variable", "value"],
+            [
+                {"^key$": "a", "key": "x", "variable": "^load$", "value": 1},
+                {"^key$": "b", "key": "x", "variable": "^load$", "value": 2},
+            ],
+            id="unpivot",
+        ),
+    ],
+)
+def test_tabular_operations_resolve_literal_column_names(
+    data: dict[str, list[object]],
+    step: dict[str, object],
+    columns: list[str],
+    rows: list[dict[str, object]],
+) -> None:
+    steps = TypeAdapter(list[MappingStep]).validate_python([step])
+    result = apply_mapping_steps(pl.LazyFrame(data), steps, backend=PolarsTabularBackend()).unwrap().collect()
+
+    assert result.columns == columns
+    assert result.to_dicts() == rows
+
+
+@pytest.mark.parametrize(
+    ("how", "columns", "expected"),
+    [
+        pytest.param(
+            "inner",
+            ["left_id", "^key$", "key", "payload", "key_right"],
+            [{"left_id": "L1", "^key$": "a", "key": "lx", "payload": "R1", "key_right": "rx"}],
+            id="inner-coalesces-key",
+        ),
+        pytest.param(
+            "left",
+            ["left_id", "^key$", "key", "payload", "key_right"],
+            [
+                {"left_id": "L1", "^key$": "a", "key": "lx", "payload": "R1", "key_right": "rx"},
+                {"left_id": "L2", "^key$": "b", "key": "ly", "payload": None, "key_right": None},
+                {"left_id": "LN", "^key$": None, "key": "ln", "payload": None, "key_right": None},
+            ],
+            id="left-null-not-matched",
+        ),
+        pytest.param(
+            "right",
+            ["left_id", "key", "payload", "key_right", "^key$"],
+            [
+                {"left_id": "L1", "key": "lx", "payload": "R1", "key_right": "rx", "^key$": "a"},
+                {"left_id": None, "key": None, "payload": "R3", "key_right": "ry", "^key$": "c"},
+                {"left_id": None, "key": None, "payload": "RN", "key_right": "rn", "^key$": None},
+            ],
+            id="right-key-position-and-null",
+        ),
+        pytest.param(
+            "full",
+            ["left_id", "^key$", "key", "payload", "key_right", "^key$_right"],
+            [
+                {
+                    "left_id": "L1",
+                    "^key$": "a",
+                    "key": "lx",
+                    "payload": "R1",
+                    "key_right": "rx",
+                    "^key$_right": "a",
+                },
+                {
+                    "left_id": None,
+                    "^key$": None,
+                    "key": None,
+                    "payload": "R3",
+                    "key_right": "ry",
+                    "^key$_right": "c",
+                },
+                {
+                    "left_id": None,
+                    "^key$": None,
+                    "key": None,
+                    "payload": "RN",
+                    "key_right": "rn",
+                    "^key$_right": None,
+                },
+                {
+                    "left_id": "L2",
+                    "^key$": "b",
+                    "key": "ly",
+                    "payload": None,
+                    "key_right": None,
+                    "^key$_right": None,
+                },
+                {
+                    "left_id": "LN",
+                    "^key$": None,
+                    "key": "ln",
+                    "payload": None,
+                    "key_right": None,
+                    "^key$_right": None,
+                },
+            ],
+            id="full-keeps-both-key-columns",
+        ),
+        pytest.param(
+            "semi",
+            ["left_id", "^key$", "key"],
+            [{"left_id": "L1", "^key$": "a", "key": "lx"}],
+            id="semi-left-schema",
+        ),
+        pytest.param(
+            "anti",
+            ["left_id", "^key$", "key"],
+            [
+                {"left_id": "L2", "^key$": "b", "key": "ly"},
+                {"left_id": "LN", "^key$": None, "key": "ln"},
+            ],
+            id="anti-left-schema",
+        ),
+    ],
+)
+def test_join_strategies_resolve_literal_keys_and_keep_native_schemas(
+    how: str, columns: list[str], expected: list[dict[str, object]]
+) -> None:
+    left = pl.LazyFrame({"left_id": ["L1", "L2", "LN"], "^key$": ["a", "b", None], "key": ["lx", "ly", "ln"]})
+    right = pl.LazyFrame(
+        {"payload": ["R1", "R3", "RN"], "key": ["rx", "ry", "rn"], "^key$": ["a", "c", None]}
+    )
+    steps = TypeAdapter(list[MappingStep]).validate_python(
+        [{"op": "join", "source": "right", "how": how, "on": ["^key$"]}]
+    )
+
+    result = (
+        apply_mapping_steps(left, steps, backend=PolarsTabularBackend(), source_frames={"right": right})
+        .unwrap()
+        .collect()
+    )
+
+    assert result.columns == columns
+    assert sorted(result.to_dicts(), key=repr) == sorted(expected, key=repr)
+
+
+def test_multi_key_join_resolves_names_in_different_positions() -> None:
+    left = pl.LazyFrame({"^key$": ["a", "a"], "^region$": ["n", "s"], "left": [1, 2]})
+    right = pl.LazyFrame({"^region$": ["s", "n"], "payload": [20, 10], "^key$": ["a", "a"]})
+    steps = TypeAdapter(list[MappingStep]).validate_python(
+        [{"op": "join", "source": "right", "how": "inner", "on": ["^key$", "^region$"]}]
+    )
+
+    result = (
+        apply_mapping_steps(left, steps, backend=PolarsTabularBackend(), source_frames={"right": right})
+        .unwrap()
+        .collect()
+    )
+
+    assert result.columns == ["^key$", "^region$", "left", "payload"]
+    assert sorted(result.rows()) == [("a", "n", 1, 10), ("a", "s", 2, 20)]
+
+
+def test_join_rejects_missing_literal_key_despite_matching_plain_name() -> None:
+    left = pl.LazyFrame({"key": ["a"], "left": [1]})
+    right = pl.LazyFrame({"key": ["a"], "right": [2]})
+    steps = TypeAdapter(list[MappingStep]).validate_python(
+        [{"op": "join", "source": "right", "how": "inner", "on": ["^key$"]}]
+    )
+
+    result = apply_mapping_steps(left, steps, backend=PolarsTabularBackend(), source_frames={"right": right})
+
+    assert isinstance(result, Err)
+    assert "references missing column(s): ['^key$']" in str(result.err())
+
+
+def test_join_validates_exact_keys_and_preserves_polars_validation_errors() -> None:
+    left = pl.LazyFrame({"^key$": ["a"]})
+    right = pl.LazyFrame({"^key$": ["a", "a"]})
+    steps = TypeAdapter(list[MappingStep]).validate_python(
+        [{"op": "join", "source": "right", "how": "inner", "on": ["^key$"], "validate": "1:1"}]
+    )
+
+    result = apply_mapping_steps(left, steps, backend=PolarsTabularBackend(), source_frames={"right": right})
+
+    assert isinstance(result, Ok)
+    with pytest.raises(pl.exceptions.PolarsError, match="join keys did not fulfill 1:1 validation"):
+        result.value.collect()
+
+
+def test_join_resolves_wildcard_and_quoted_keys_literally() -> None:
+    left = pl.LazyFrame({"*": ["a"], 'quoted"key': [1], "left": [10]})
+    right = pl.LazyFrame({"right": [20], 'quoted"key': [1], "*": ["a"]})
+    steps = TypeAdapter(list[MappingStep]).validate_python(
+        [{"op": "join", "source": "right", "how": "inner", "on": ["*", 'quoted"key']}]
+    )
+
+    result = (
+        apply_mapping_steps(left, steps, backend=PolarsTabularBackend(), source_frames={"right": right})
+        .unwrap()
+        .collect()
+    )
+
+    assert result.columns == ["*", 'quoted"key', "left", "right"]
+    assert result.to_dicts() == [{"*": "a", 'quoted"key': 1, "left": 10, "right": 20}]
+
+
+def test_sort_then_unique_keeps_first_row_for_exact_pattern_key() -> None:
+    frame = pl.LazyFrame({"^key$": ["b", "b"], "key": ["x", "x"], "^priority$": [2, 1], "priority": [1, 2]})
+    steps = TypeAdapter(list[MappingStep]).validate_python(
+        [
+            {"op": "sort", "by": {"^priority$": "asc"}},
+            {"op": "unique", "subset": ["^key$"]},
+        ]
+    )
+
+    result = apply_mapping_steps(frame, steps, backend=PolarsTabularBackend()).unwrap().collect()
+
+    assert result.columns == ["^key$", "key", "^priority$", "priority"]
+    assert result.to_dicts() == [{"^key$": "b", "key": "x", "^priority$": 1, "priority": 2}]
+
+
+def test_pivot_resolves_pattern_shaped_group_key_period_and_value_columns() -> None:
+    frame = pl.LazyFrame(
+        {
+            "^key$": ["a", "a", "b"],
+            "key": ["x", "y", "x"],
+            "^period$": [2020, 2021, 2020],
+            "^load$": [1, 2, 3],
+            "load": [100, 200, 300],
+        }
+    )
+    steps = TypeAdapter(list[MappingStep]).validate_python(
+        [
+            {
+                "op": "pivot",
+                "pivot_on": "^period$",
+                "group_by": ["^key$"],
+                "aggregate_on": {"^load$": "sum"},
+            }
+        ]
+    )
+
+    result = apply_mapping_steps(frame, steps, backend=PolarsTabularBackend()).unwrap().collect()
+
+    assert result.columns == ["^key$", "2020", "2021"]
+    assert sorted(result.to_dicts(), key=lambda row: row["^key$"]) == [
+        {"^key$": "a", "2020": 1, "2021": 2},
+        {"^key$": "b", "2020": 3, "2021": 0},
+    ]
+
+
+def test_named_operations_reject_missing_literal_name_with_plain_match() -> None:
+    steps = TypeAdapter(list[MappingStep]).validate_python(
+        [{"op": "select_columns", "select_columns": ["^load$"]}]
+    )
+    result = apply_mapping_steps(pl.LazyFrame({"load": [10]}), steps, backend=PolarsTabularBackend())
+
+    assert isinstance(result, Err)
+    assert "references missing column(s): ['^load$']" in str(result.err())
+
+
+def test_group_by_uses_exact_pattern_shaped_key_and_value_names() -> None:
+    frame = pl.LazyFrame({"^key$": ["a", "b"], "key": ["x", "x"], "^load$": [5, 6]})
+    steps = TypeAdapter(list[MappingStep]).validate_python(
+        [
+            {
+                "op": "group_by",
+                "by": ["^key$"],
+                "agg": {"total": {"op": "sum", "args": [{"column": "^load$"}]}},
+            }
+        ]
+    )
+
+    result = apply_mapping_steps(frame, steps, backend=PolarsTabularBackend()).unwrap().collect()
+
+    assert result.columns == ["^key$", "total"]
+    assert result.to_dicts() == [{"^key$": "a", "total": 5}, {"^key$": "b", "total": 6}]
+
+
+def test_join_uses_exact_pattern_shaped_key_and_preserves_coalescing() -> None:
+    frame = pl.LazyFrame({"^key$": ["a", "b"], "key": ["x", "x"], "left": [5, 6]})
+    lookup = pl.LazyFrame({"payload": [10, 20], "^key$": ["a", "c"], "key": ["x", "x"]})
+    steps = TypeAdapter(list[MappingStep]).validate_python(
+        [{"op": "join", "source": "lookup", "how": "inner", "on": ["^key$"]}]
+    )
+
+    result = (
+        apply_mapping_steps(frame, steps, backend=PolarsTabularBackend(), source_frames={"lookup": lookup})
+        .unwrap()
+        .collect()
+    )
+
+    assert result.columns == ["^key$", "key", "left", "payload", "key_right"]
+    assert result.to_dicts() == [{"^key$": "a", "key": "x", "left": 5, "payload": 10, "key_right": "x"}]
 
 
 @pytest.mark.parametrize("column_name", ["missing", "^load$", "*"])

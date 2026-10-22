@@ -33,8 +33,11 @@ reading inputs, then executes component, time-series, and supplemental-attribute
 instructions in declaration order. Each output is validated before attachment.
 A later failure does not roll back outputs already attached.
 
-A missing input may invoke the configured upgrade handler once and retry the
-canonical read. `System.from_json` and serialized-system loading are separate
+A missing input may invoke the configured `DataStore` upgrade handler once and
+retry the canonical read. This handler receives keyword-only `store` and `ctx`
+and succeeds with `None` or `Ok(None)`; `Err(error)` is a failure. Invalid
+success values raise `TypeError` before the coordinator is marked complete.
+`System.from_json` migration hooks and serialized-system loading are separate
 from file ingestion. System-to-System translation also remains a separate
 rule-driven workflow with dependency ordering and time-series transfer and
 replacement.

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from rust_ok import Err
+from rust_ok import Err, Ok, Result
 
 from r2x_core import DataStore, PluginConfig, PluginContext
 from r2x_core.exceptions import UpgradeError
@@ -75,6 +75,45 @@ def test_upgrade_coordinator_runs_and_marks(tmp_path: Path) -> None:
     assert calls[0][1].config is config
     assert calls[0][1].store is store
     assert coordinator.ran is True
+
+
+def test_upgrade_coordinator_accepts_ok_none_result(tmp_path: Path) -> None:
+    def handler(*, store: DataStore, ctx: PluginContext[Any]) -> Result[None, str]:
+        return Ok(None)
+
+    store = DataStore(tmp_path)
+    store.configure_upgrades(plugin_config=PluginConfig(upgrade_handler=handler))
+
+    store.upgrade_coordinator.run(store=store, reason="test")
+
+    assert store.upgrade_coordinator.ran is True
+
+
+@pytest.mark.parametrize(
+    ("handler_result", "message"),
+    [
+        pytest.param(42, "return None or Result", id="plain-integer"),
+        pytest.param(Ok(42), "success payload int", id="nonempty-ok-payload"),
+    ],
+)
+def test_upgrade_coordinator_rejects_invalid_success_result(
+    tmp_path: Path, handler_result: object, message: str
+) -> None:
+    calls = 0
+
+    def handler(*, store: DataStore, ctx: PluginContext[Any]) -> Any:
+        nonlocal calls
+        calls += 1
+        return handler_result
+
+    store = DataStore(tmp_path)
+    store.configure_upgrades(plugin_config=PluginConfig(upgrade_handler=handler))
+
+    with pytest.raises(TypeError, match=message):
+        store.upgrade_coordinator.run(store=store, reason="invalid result")
+
+    assert calls == 1
+    assert store.upgrade_coordinator.ran is False
 
 
 def test_upgrade_coordinator_raises_on_result_error(tmp_path: Path) -> None:

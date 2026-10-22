@@ -186,9 +186,18 @@ class UnitSpec:
                 value = convert_to_internal(value, self, base_value=base_value, base_unit=base_unit)
             return next_validator(value)
 
+        inner_schema = handler(source_type)
+        envelope_schema = core_schema.typed_dict_schema(
+            {
+                "value": core_schema.typed_dict_field(core_schema.float_schema()),
+                "unit": core_schema.typed_dict_field(core_schema.str_schema(min_length=1)),
+            },
+            extra_behavior="allow",
+        )
         return core_schema.with_info_wrap_validator_function(
             validate_scalar,
-            handler(source_type),
+            inner_schema,
+            json_schema_input_schema=core_schema.union_schema([inner_schema, envelope_schema]),
             metadata={"r2x_core.unit_spec": self},
         )
 

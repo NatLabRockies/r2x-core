@@ -13,7 +13,46 @@ from ..file_reader import DecodedSource, TabularSource
 from ..models import CustomStep, JoinStep, MappingStep, TabularProcessing
 from ..tabular_backend import MappingStepHandler, apply_mapping_steps
 from ..types import FileProcessing
-from .processing import apply_polars_step
+from .processing import apply_polars_step, require_columns
+
+
+def join_exact_columns(
+    left: pl.LazyFrame,
+    right: pl.LazyFrame,
+    *,
+    on: list[str] | None,
+    how: str,
+    validate: str,
+) -> pl.LazyFrame:
+    """Join named columns literally while retaining Polars join semantics."""
+    if on is None or how == "cross":
+        return left.join(right, on=on, how=how, validate=validate)
+
+    left_names = left.collect_schema().names()
+    right_names = right.collect_schema().names()
+    require_columns(left_names, on, operation="join")
+    require_columns(right_names, on, operation="join")
+    occupied_names = set(left_names) | set(right_names)
+    temporary_names: dict[str, str] = {}
+    for index, column in enumerate(dict.fromkeys(on)):
+        temporary = f"__r2x_join_key_{index}__"
+        while temporary in occupied_names or f"{temporary}_right" in occupied_names:
+            temporary = f"_{temporary}"
+        temporary_names[column] = temporary
+        occupied_names.update((temporary, f"{temporary}_right"))
+
+    joined = left.rename(temporary_names).join(
+        right.rename(temporary_names),
+        on=[temporary_names[column] for column in on],
+        how=how,
+        validate=validate,
+    )
+    restored_names = {temporary: column for column, temporary in temporary_names.items()}
+    if how == "full":
+        restored_names.update(
+            {f"{temporary}_right": f"{column}_right" for column, temporary in temporary_names.items()}
+        )
+    return joined.rename(restored_names)
 
 
 class PolarsTabularBackend:
@@ -83,7 +122,8 @@ class PolarsTabularBackend:
                     if step.source not in source_frames:
                         msg = f"join source {step.source!r} was not provided"
                         raise ValueError(msg)
-                    frame = frame.join(
+                    frame = join_exact_columns(
+                        frame,
                         source_frames[step.source],
                         on=step.on,
                         how=step.how,

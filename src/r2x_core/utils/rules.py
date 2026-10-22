@@ -294,11 +294,11 @@ def evaluate_rule_filter(
         except (TypeError, ValueError):
             return False
     if leaf_filter.op == "startswith":
-        return any(str(candidate).startswith(value) for value in values)
+        return str(candidate).startswith(tuple(values))
     if leaf_filter.op == "not_startswith":
-        return all(not str(candidate).startswith(value) for value in values)
+        return not str(candidate).startswith(tuple(values))
     if leaf_filter.op == "endswith":
-        return any(str(candidate).endswith(value) for value in values)
+        return str(candidate).endswith(tuple(values))
     return False
 
 

@@ -163,6 +163,53 @@ class ConcreteDocumentSource(DecodedSource):
         return Ok(self)
 
 
+class ArrayTimeAxisReader(FileReader):
+    """Return named-owner and literal-owner samples with a selected NumPy time unit."""
+
+    def __init__(self, unit: str) -> None:
+        self.unit = unit
+
+    def read_file(
+        self,
+        format_name: str,
+        /,
+        *,
+        file_path: Path,
+        reader_config: ReaderConfig,
+    ) -> DecodedSources:
+        if format_name != "array_time_axis":
+            msg = f"Unsupported format {format_name!r}"
+            raise ValueError(msg)
+        owner_times = np.array(
+            [
+                "2024-01-01T00:00:00",
+                "2024-01-01T00:00:00",
+                "2024-01-01T01:00:00",
+                "2024-01-01T01:00:00",
+            ],
+            dtype=f"datetime64[{self.unit}]",
+        )
+        literal_times = np.array(
+            ["2024-01-01T00:00:00", "2024-01-01T01:00:00"], dtype=f"datetime64[{self.unit}]"
+        )
+        owners: JSONValue = [
+            {"name": "NORTH", "number": 1, "base_kv": 230.0},
+            {"name": "SOUTH", "number": 2, "base_kv": 115.0},
+        ]
+        return {
+            "owners": DocumentSource(owners, None),
+            "grouped": ArraySource(
+                {
+                    "bus_name": ["NORTH", "SOUTH", "NORTH", "SOUTH"],
+                    "timestamp": owner_times,
+                    "load": np.array([1.0, 9.0, 2.0, 10.0]),
+                },
+                None,
+            ),
+            "literal": ArraySource({"timestamp": literal_times, "load": np.array([100.0, 200.0])}, None),
+        }
+
+
 class CustomDocumentReader(FileReader):
     """Read a new extension and pair documents with an application processor."""
 
@@ -703,6 +750,73 @@ def test_csv_column_axis_creates_owner_specific_and_explicitly_shared_series(tmp
         np.testing.assert_array_equal(system.get_time_series(bus, name="shared_load").data, [100, 200])
 
 
+@pytest.mark.parametrize("unit", ["ns", "us", "ms"], ids=["nanoseconds", "microseconds", "milliseconds"])
+def test_build_system_preserves_array_time_axes_for_each_owner_mode(tmp_path: Path, unit: str) -> None:
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    (tmp_path / "samples.array").touch()
+    (config_dir / "file_mapping.json").write_text(
+        json.dumps(
+            [
+                {
+                    "name": "arrays",
+                    "relative_fpath": "../samples.array",
+                    "reader": {"format": "array_time_axis"},
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (config_dir / "parser_rules.json").write_text(
+        json.dumps(
+            [
+                {
+                    "kind": "component",
+                    "source": "arrays.owners",
+                    "component_type": "PSSEBus",
+                    "fields": {"name": "name", "number": "number", "base_kv": "base_kv"},
+                },
+                {
+                    "kind": "time_series",
+                    "source": "arrays.grouped",
+                    "name": "grouped_load",
+                    "values": "load",
+                    "time_axis": {"kind": "column", "column": "timestamp"},
+                    "owners": [{"component_type": "PSSEBus", "name_field": "bus_name"}],
+                },
+                {
+                    "kind": "time_series",
+                    "source": "arrays.literal",
+                    "name": "literal_load",
+                    "values": "load",
+                    "time_axis": {"kind": "column", "column": "timestamp"},
+                    "owners": [{"component_type": "PSSEBus", "name": "NORTH"}],
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    system = build_system(
+        PluginConfig(models=("fixtures.ingestion_models",), config_path_override=config_dir),
+        name=f"array-time-{unit}",
+        readers={"array_time_axis": ArrayTimeAxisReader(unit)},
+    )
+    buses = {bus.name: bus for bus in system.get_components(PSSEBus)}
+
+    for name, expected in (("NORTH", [1.0, 2.0]), ("SOUTH", [9.0, 10.0])):
+        grouped = system.get_time_series(buses[name], name="grouped_load")
+        np.testing.assert_array_equal(grouped.data_array, expected)
+        assert grouped.initial_timestamp == datetime(2024, 1, 1)
+        assert grouped.resolution == timedelta(hours=1)
+
+    literal = system.get_time_series(buses["NORTH"], name="literal_load")
+    np.testing.assert_array_equal(literal.data_array, [100.0, 200.0])
+    assert literal.initial_timestamp == datetime(2024, 1, 1)
+    assert literal.resolution == timedelta(hours=1)
+    assert system.list_time_series_metadata(buses["SOUTH"], name="literal_load") == []
+
+
 def test_component_name_matching_override_and_cross_type_identity(tmp_path: Path) -> None:
     """Use explicit mappings over same-name fields and allow cross-type name reuse."""
     config = PluginConfig(models=("fixtures.ingestion_models",), config_path_override=tmp_path)
@@ -823,6 +937,22 @@ def test_document_and_array_sources_keep_their_native_access_contracts() -> None
         ArraySource(np.array([[1, 2]]), None).fields()
     with pytest.raises(ValueError, match="one-dimensional"):
         ArraySource({"matrix": np.array([[1, 2]])}, None).values("matrix")
+
+
+@pytest.mark.parametrize("unit", ["ns", "us", "ms"], ids=["nanoseconds", "microseconds", "milliseconds"])
+def test_array_source_rows_preserve_numpy_datetime64_and_python_scalars(unit: str) -> None:
+    timestamps = np.array(["2024-01-01T00:00:00"], dtype=f"datetime64[{unit}]")
+    rows = list(
+        ArraySource(
+            {"timestamp": timestamps, "count": np.array([3]), "enabled": np.array([True])}, None
+        ).iter_rows()
+    )
+
+    assert rows == [{"timestamp": timestamps[0], "count": 3, "enabled": True}]
+    assert isinstance(rows[0]["timestamp"], np.datetime64)
+    assert rows[0]["timestamp"].dtype == np.dtype(f"datetime64[{unit}]")
+    assert type(rows[0]["count"]) is int
+    assert type(rows[0]["enabled"]) is bool
 
 
 def test_component_builder_preserves_defaults_false_and_explicit_null() -> None:

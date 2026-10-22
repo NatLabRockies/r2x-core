@@ -88,10 +88,14 @@ JSON processing has a separate step vocabulary:
 >>> from r2x_core import JSONProcessing
 >>> processing = JSONProcessing(steps=[
 ...     {"op": "rename_keys", "mapping": {"old_key": "new_key"}},
+...     {"op": "replace_values", "replacements": [
+...         {"old": 0, "new": "missing"},
+...         {"old": True, "new": "enabled"},
+...     ]},
 ...     {"op": "select_keys", "keys": ["new_key"]},
 ... ])
 >>> [step.op for step in processing.steps]
-['rename_keys', 'select_keys']
+['rename_keys', 'replace_values', 'select_keys']
 ```
 
 See the [processor reference](/r2x-core/references/processors/) for operation

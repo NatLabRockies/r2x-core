@@ -15,7 +15,8 @@ A tabular spec contains `MappingStep` variants such as `filter`,
 validates its own inputs and is executed by the `SourceProcessor` paired with
 the decoded payload. `PolarsTabularBackend` implements the built-in tabular
 operations. Applications can register another typed reader and processor pair
-for their native representation.
+for their native representation. Configured column names are matched literally,
+including regex-shaped names such as `^load$` or `*`.
 
 ```python doctest
 >>> from r2x_core import TabularProcessing
@@ -36,16 +37,24 @@ union without guessing the schema.
 
 `JSONProcessing` uses a separate set of steps for JSON values, including
 `rename_keys`, `drop_keys`, `filter`, `replace_values`, and `select_keys`.
-Its `kind` tag is `"json"`.
+Its `kind` tag is `"json"`. Replacement sources are an ordered list of
+`{"old": scalar, "new": JSON value}` records, not a mapping. Matching is
+recursive and type-aware: booleans do not match numbers, numerically equal
+integers and floats do, and a null filter only matches when its key exists.
+Non-finite replacement numbers and duplicate matching sources are rejected.
 
 ```python doctest
 >>> from r2x_core import JSONProcessing
 >>> processing = JSONProcessing(steps=[
 ...     {"op": "rename_keys", "mapping": {"old": "new"}},
+...     {"op": "replace_values", "replacements": [
+...         {"old": 0, "new": "missing"},
+...         {"old": True, "new": "enabled"},
+...     ]},
 ...     {"op": "select_keys", "keys": ["new"]},
 ... ])
 >>> [step.op for step in processing.steps]
-['rename_keys', 'select_keys']
+['rename_keys', 'replace_values', 'select_keys']
 ```
 
 ## Validation and execution

@@ -12,6 +12,22 @@ PLACEHOLDER_PATTERN: re.Pattern[str] = re.compile(r"\{([^{}]+)\}")
 
 JSONScalar: TypeAlias = str | int | float | bool | None
 JSONValue: TypeAlias = JsonValue
+
+
+def json_values_equal(left: JSONValue, right: JSONValue) -> bool:
+    """Compare JSON values without treating booleans as numbers."""
+    if isinstance(left, bool) != isinstance(right, bool):
+        return False
+    if isinstance(left, dict) and isinstance(right, dict):
+        return left.keys() == right.keys() and all(json_values_equal(left[key], right[key]) for key in left)
+    if isinstance(left, list) and isinstance(right, list):
+        return len(left) == len(right) and all(
+            json_values_equal(left_item, right_item)
+            for left_item, right_item in zip(left, right, strict=True)
+        )
+    return left == right
+
+
 NonEmptyString = Annotated[str, StringConstraints(min_length=1)]
 PositiveInteger = Annotated[int, Field(gt=0)]
 ColumnNames = Annotated[list[NonEmptyString], Field(min_length=1)]

@@ -14,11 +14,13 @@ from ..models import (
     FilterJSONStep,
     JSONProcessing,
     JSONProcessingStep,
+    JSONReplacement,
     RenameJSONKeysStep,
     ReplaceJSONValuesStep,
     SelectJSONKeysStep,
 )
-from ..types import FileProcessing, JSONScalar, JSONValue
+from ..type_vocabulary import json_values_equal
+from ..types import FileProcessing, JSONValue
 
 
 def process_json_data(json_data: JSONValue, *, steps: Sequence[JSONProcessingStep]) -> JSONValue:
@@ -33,7 +35,7 @@ def process_json_data(json_data: JSONValue, *, steps: Sequence[JSONProcessingSte
             case FilterJSONStep():
                 result = filter_records(result, where=step.where)
             case ReplaceJSONValuesStep():
-                result = replace_values(result, mapping=step.mapping)
+                result = replace_values(result, replacements=step.replacements)
             case SelectJSONKeysStep():
                 result = select_keys(result, keys=frozenset(step.keys))
     return result
@@ -73,7 +75,12 @@ def filter_records(value: JSONValue, *, where: dict[str, JSONValue]) -> JSONValu
         if not isinstance(item, dict):
             return False
         return all(
-            item.get(key) in expected if isinstance(expected, list) else item.get(key) == expected
+            key in item
+            and (
+                any(json_values_equal(item[key], candidate) for candidate in expected)
+                if isinstance(expected, list)
+                else json_values_equal(item[key], expected)
+            )
             for key, expected in where.items()
         )
 
@@ -86,13 +93,16 @@ def filter_records(value: JSONValue, *, where: dict[str, JSONValue]) -> JSONValu
     return value
 
 
-def replace_values(value: JSONValue, *, mapping: dict[JSONScalar, JSONValue]) -> JSONValue:
-    """Replace matching scalar values recursively."""
+def replace_values(value: JSONValue, *, replacements: Sequence[JSONReplacement]) -> JSONValue:
+    """Replace matching scalar values recursively without reprocessing outputs."""
     if isinstance(value, dict):
-        return {key: replace_values(item, mapping=mapping) for key, item in value.items()}
+        return {key: replace_values(item, replacements=replacements) for key, item in value.items()}
     if isinstance(value, list):
-        return [replace_values(item, mapping=mapping) for item in value]
-    return mapping.get(value, value)
+        return [replace_values(item, replacements=replacements) for item in value]
+    for replacement in replacements:
+        if json_values_equal(value, replacement.old):
+            return replacement.new
+    return value
 
 
 def select_keys(value: JSONValue, *, keys: frozenset[str]) -> JSONValue:

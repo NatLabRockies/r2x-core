@@ -599,6 +599,50 @@ def test_join_strategies_resolve_literal_keys_and_keep_native_schemas(
     assert sorted(result.to_dicts(), key=repr) == sorted(expected, key=repr)
 
 
+@pytest.mark.parametrize(
+    ("left_data", "right_data", "expected_columns", "expected_row"),
+    [
+        pytest.param(
+            {"id": [1], "left": ["left value"], "__r2x_join_key_0__": ["reserved"]},
+            {"id": [1], "right": ["right value"]},
+            ["id", "left", "__r2x_join_key_0__", "right"],
+            {"id": 1, "left": "left value", "__r2x_join_key_0__": "reserved", "right": "right value"},
+            id="left-temporary-name",
+        ),
+        pytest.param(
+            {"id": [1], "left": ["left value"]},
+            {"id": [1], "right": ["right value"], "__r2x_join_key_0___right": ["reserved"]},
+            ["id", "left", "right", "__r2x_join_key_0___right"],
+            {"id": 1, "left": "left value", "right": "right value", "__r2x_join_key_0___right": "reserved"},
+            id="right-suffix-name",
+        ),
+    ],
+)
+def test_join_preserves_columns_that_collide_with_temporary_key_names(
+    left_data: dict[str, list[object]],
+    right_data: dict[str, list[object]],
+    expected_columns: list[str],
+    expected_row: dict[str, object],
+) -> None:
+    steps = TypeAdapter(list[MappingStep]).validate_python(
+        [{"op": "join", "source": "right", "how": "inner", "on": ["id"]}]
+    )
+
+    result = (
+        apply_mapping_steps(
+            pl.LazyFrame(left_data),
+            steps,
+            backend=PolarsTabularBackend(),
+            source_frames={"right": pl.LazyFrame(right_data)},
+        )
+        .unwrap()
+        .collect()
+    )
+
+    assert result.columns == expected_columns
+    assert result.to_dicts() == [expected_row]
+
+
 def test_multi_key_join_resolves_names_in_different_positions() -> None:
     left = pl.LazyFrame({"^key$": ["a", "a"], "^region$": ["n", "s"], "left": [1, 2]})
     right = pl.LazyFrame({"^region$": ["s", "n"], "payload": [20, 10], "^key$": ["a", "a"]})

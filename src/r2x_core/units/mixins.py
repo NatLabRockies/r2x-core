@@ -105,7 +105,7 @@ class HasUnits:
 
             value = getattr(self, field_name)
             spec = type(self).unit_specs.get(field_name)
-            if spec is None:
+            if spec is None or value is None:
                 repr_args.append((field_name, value))
                 continue
 

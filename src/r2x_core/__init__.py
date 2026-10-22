@@ -30,10 +30,32 @@ if TYPE_CHECKING:
         UpgradeError,
         ValidationError,
     )
-    from .file_reader import FileReader
+    from .file_reader import (
+        ArraySource,
+        DecodedSource,
+        DecodedSources,
+        DocumentSource,
+        FileReader,
+        ProcessingSource,
+        SourceProcessor,
+        TabularProcessor,
+        TabularSource,
+    )
     from .getters import getter, resolve_getter
     from .h5_adapter import H5PyFileReader, H5Reader
-    from .models import JSONProcessing, SplitColumnSpec, TabularProcessing
+    from .ingestion import build_system
+    from .models import (
+        ColumnTimeAxis,
+        ComponentInstruction,
+        ComponentOwner,
+        ComponentReference,
+        JSONProcessing,
+        RegularTimeAxis,
+        SplitColumnSpec,
+        SupplementalAttributeInstruction,
+        TabularProcessing,
+        TimeSeriesInstruction,
+    )
     from .plugin_base import Plugin
     from .plugin_config import PluginConfig
     from .plugin_context import PluginContext
@@ -57,12 +79,10 @@ if TYPE_CHECKING:
     )
     from .store import DataStore
     from .system import System
-    from .tabular_backend import TabularBackend
     from .time_series import replace_single_time_series, transfer_time_series_metadata
-    from .types import FileFormat, FileProcessing, FileRequirement, FileType, H5Format
+    from .types import FileProcessing, FileRequirement, FileType
     from .units import HasPerUnit, HasUnits, Unit, UnitSystem, get_unit_system, set_unit_system
     from .utils.export import components_to_records, export_components_to_csv
-    from .utils.parser import create_component
     from .utils.upgrade import UpgradeStep, UpgradeType, run_upgrade_step
     from .versioning import (
         GitVersioningStrategy,
@@ -74,12 +94,29 @@ if TYPE_CHECKING:
 # ── Lazy at runtime ─────────────────────────────────────────────────
 LAZY_IMPORTS: dict[str, str] = {
     "DataFile": ".datafile",
+    "DataReader": ".reader",
     "FileInfo": ".datafile",
     "JSONProcessing": ".models",
     "ReaderConfig": ".datafile",
     "SplitColumnSpec": ".models",
     "TabularProcessing": ".models",
     "FileProcessing": ".types",
+    "ArraySource": ".file_reader",
+    "DecodedSource": ".file_reader",
+    "DecodedSources": ".file_reader",
+    "DocumentSource": ".file_reader",
+    "ProcessingSource": ".file_reader",
+    "TabularSource": ".file_reader",
+    "SourceProcessor": ".file_reader",
+    "TabularProcessor": ".file_reader",
+    "ColumnTimeAxis": ".models",
+    "ComponentInstruction": ".models",
+    "ComponentOwner": ".models",
+    "ComponentReference": ".models",
+    "RegularTimeAxis": ".models",
+    "SupplementalAttributeInstruction": ".models",
+    "TimeSeriesInstruction": ".models",
+    "build_system": ".ingestion",
     "FileRequirement": ".types",
     "FileType": ".types",
     "CLIError": ".exceptions",
@@ -87,12 +124,9 @@ LAZY_IMPORTS: dict[str, str] = {
     "PluginError": ".exceptions",
     "UpgradeError": ".exceptions",
     "ValidationError": ".exceptions",
-    "FileFormat": ".types",
-    "H5Format": ".types",
     "H5PyFileReader": ".h5_adapter",
     "H5Reader": ".h5_adapter",
     "FileReader": ".file_reader",
-    "TabularBackend": ".tabular_backend",
     "getter": ".getters",
     "resolve_getter": ".getters",
     "Plugin": ".plugin_base",
@@ -102,7 +136,6 @@ LAZY_IMPORTS: dict[str, str] = {
     "ProvenanceBuilder": ".provenance",
     "ProvenanceInfo": ".provenance",
     "SourceProvenance": ".provenance",
-    "DataReader": ".reader",
     "RuleResult": ".result",
     "TranslationResult": ".result",
     "Rule": ".rules",
@@ -129,7 +162,6 @@ LAZY_IMPORTS: dict[str, str] = {
     "UpgradeStep": ".utils",
     "UpgradeType": ".utils",
     "components_to_records": ".utils",
-    "create_component": ".utils",
     "export_components_to_csv": ".utils",
     "run_upgrade_step": ".utils",
     "GitVersioningStrategy": ".versioning",
@@ -160,14 +192,21 @@ def __getattr__(name: str) -> object:
 __all__ = [
     "AllOfFilter",
     "AnyOfFilter",
+    "ArraySource",
     "CLIError",
+    "ColumnTimeAxis",
     "ComponentCreationError",
+    "ComponentInstruction",
+    "ComponentOwner",
+    "ComponentReference",
     "DataFile",
     "DataReader",
     "DataStore",
+    "DecodedSource",
+    "DecodedSources",
+    "DocumentSource",
     "Err",
     "FieldFilter",
-    "FileFormat",
     "FileInfo",
     "FileProcessing",
     "FileReader",
@@ -175,7 +214,6 @@ __all__ = [
     "FileType",
     "GetterFilter",
     "GitVersioningStrategy",
-    "H5Format",
     "H5PyFileReader",
     "H5Reader",
     "HasPerUnit",
@@ -186,17 +224,23 @@ __all__ = [
     "PluginConfig",
     "PluginContext",
     "PluginError",
+    "ProcessingSource",
     "ReaderConfig",
+    "RegularTimeAxis",
     "Result",
     "Rule",
     "RuleFilter",
     "RuleResult",
     "SemanticVersioningStrategy",
+    "SourceProcessor",
     "SplitColumnSpec",
+    "SupplementalAttributeInstruction",
     "SupplementalAttributeRule",
     "System",
-    "TabularBackend",
     "TabularProcessing",
+    "TabularProcessor",
+    "TabularSource",
+    "TimeSeriesInstruction",
     "TranslationResult",
     "Unit",
     "UnitSystem",
@@ -209,8 +253,8 @@ __all__ = [
     "apply_rules_to_context",
     "apply_single_rule",
     "attach_rule_outputs",
+    "build_system",
     "components_to_records",
-    "create_component",
     "export_components_to_csv",
     "expose_plugin",
     "get_unit_system",

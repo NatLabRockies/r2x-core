@@ -1,16 +1,19 @@
 ---
-title: "Working with DataFiles"
+title: "Configure Data Files"
 ---
 
-<span id="working-with-datafiles"></span>
+`DataFile` describes one physical input or one named source transformation. It
+contains path and availability settings, an optional symbolic reader selection
+with options, and an ordered processing spec. Path existence and glob matching
+are resolved at execution time.
 
-`DataFile` describes where data lives, its semantics, the reader options, and
-any ordered processing steps.
+## Working with datafiles
 
-## Configure file metadata
+### Configure file metadata
 
-`FileInfo.file_type` describes the data, while `DataFile.file_format` describes
-its physical encoding. `requirement` says whether the input must be present.
+`FileInfo.file_type` describes the content's purpose and does not restrict its
+physical format or output use. `requirement` controls whether a missing input is
+an error or is skipped.
 
 ```python doctest
 >>> from r2x_core import DataFile, FileInfo, FileRequirement, FileType
@@ -28,17 +31,40 @@ its physical encoding. `requirement` says whether the input must be present.
 <FileType.TIME_SERIES: 'time_series'>
 >>> profile.info.requirement
 <FileRequirement.OPTIONAL: 'optional'>
->>> type(profile.file_format).__name__
-'TableFormat'
 ```
 
-`DataFile.info` and `DataFile.reader` have default models. Use the default
-`FileInfo` for static, required inputs without extra metadata.
+## Select a reader
 
-## Configure ordered tabular processing
+Common extensions are inferred when unambiguous. Configure `reader.format` to
+select a registered reader for an uncommon extension. Reader-specific settings
+belong in `reader.options`; the selected Python reader validates those options.
+JSON configuration cannot import arbitrary code.
 
-A processing spec is an ordered list of tagged operations. The order in `steps`
-is the execution order.
+```python doctest
+>>> from r2x_core import DataFile, ReaderConfig
+>>> data_file = DataFile(
+...     name="profiles",
+...     relative_fpath="profiles.raw",
+...     reader=ReaderConfig(format="dummy_raw", options={"encoding": "utf-8"}),
+... )
+>>> data_file.format_name
+'dummy_raw'
+>>> data_file.reader.options
+{'encoding': 'utf-8'}
+```
+
+## Configure ordered processing
+
+A processing spec is an ordered list of tagged operations. `FileProcessing` is
+the discriminated union of the tabular and JSON models. The representation and
+its paired processor determine compatibility, not the filename extension.
+
+```python doctest
+>>> from r2x_core import FileProcessing, TabularProcessing
+>>> processing: FileProcessing = TabularProcessing()
+>>> processing.kind
+'tabular'
+```
 
 ```python doctest
 >>> from pathlib import Path
@@ -56,75 +82,18 @@ is the execution order.
 ['rename_columns', 'drop_columns']
 ```
 
-Each step accepts only the fields relevant to that operation. For example,
-`filter_columns` selects rows by exact values and `filter` accepts a mapping
-expression:
+JSON processing has a separate step vocabulary:
 
 ```python doctest
->>> from r2x_core import TabularProcessing
->>> processing = TabularProcessing(steps=[
-...     {"op": "filter_columns", "filter_by": {"region": "North"}},
-...     {"op": "sort", "by": {"year": "asc"}},
+>>> from r2x_core import JSONProcessing
+>>> processing = JSONProcessing(steps=[
+...     {"op": "rename_keys", "mapping": {"old_key": "new_key"}},
+...     {"op": "select_keys", "keys": ["new_key"]},
 ... ])
 >>> [step.op for step in processing.steps]
-['filter_columns', 'sort']
-```
-
-The two processing models share the `FileProcessing` union, which uses their
-`kind` field to validate JSON mapping records:
-
-```python doctest
->>> from r2x_core import FileProcessing, TabularProcessing
->>> processing: FileProcessing = TabularProcessing()
->>> processing.kind
-'tabular'
-```
-
-See the [processor reference](/r2x-core/references/processors/) for the
-operation vocabulary and the JSON processing schema.
-
-## Configure JSON processing
-
-JSON processing uses its own ordered operations.
-
-```python doctest
->>> from pathlib import Path
->>> from tempfile import TemporaryDirectory
->>> from r2x_core import DataFile, JSONProcessing
->>> with TemporaryDirectory() as directory:
-...     path = Path(directory) / "data.json"
-...     _ = path.write_text('{"old_key": "value"}', encoding="utf-8")
-...     processing = JSONProcessing(steps=[
-...         {"op": "rename_keys", "mapping": {"old_key": "new_key"}},
-...         {"op": "select_keys", "keys": ["new_key"]},
-...     ])
-...     data_file = DataFile(name="json_data", fpath=path, proc_spec=processing)
-...     [step.op for step in data_file.proc_spec.steps]
 ['rename_keys', 'select_keys']
 ```
 
-## Detect physical formats
-
-The format is inferred from one configured path source. File formats are
-validated against `EXTENSION_MAPPING` and exposed as `FileFormat` markers.
-
-```python doctest
->>> from pathlib import Path
->>> from tempfile import TemporaryDirectory
->>> from r2x_core import DataFile, FileFormat, H5Format
->>> with TemporaryDirectory() as directory:
-...     path = Path(directory) / "data.csv"
-...     _ = path.write_text("a,b\n1,2\n", encoding="utf-8")
-...     data_file = DataFile(name="csv_data", fpath=path)
-...     isinstance(data_file.file_format, FileFormat)
-True
->>> h5_file = DataFile(name="hdf5_data", relative_fpath="data.h5")
->>> isinstance(h5_file.file_format, H5Format)
-True
-```
-
-## See also
-
-- [Read data files](/r2x-core/how-tos/read-data-files/)
-- [Configure data settings](/r2x-core/how-tos/configure-data-settings/)
-- [Processor reference](/r2x-core/references/processors/)
+See the [processor reference](/r2x-core/references/processors/) for operation
+schemas and [Read data files](/r2x-core/how-tos/read-data-files/) for source
+loading.

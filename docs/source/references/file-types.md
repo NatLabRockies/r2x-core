@@ -1,49 +1,41 @@
-# File formats and validation
+# File formats and reader selection
 
-`DataFile.file_format` returns a lightweight marker selected from the file
-extension. Format markers and `EXTENSION_MAPPING` are exposed through
-`r2x_core.types`.
+`DataFile.format_name` is a symbolic string. Common built-in extensions map to
+reader names through `EXTENSION_MAPPING`; an application can explicitly select
+any registered name with `ReaderConfig.format`, including for a new extension.
+No core whitelist change is required for application formats.
 
-## Supported formats
+| Inferred extension | Symbolic format |
+| --- | --- |
+| `.csv` | `csv` |
+| `.tsv` | `tsv` |
+| `.h5`, `.hdf5` | `hdf5` |
+| `.parquet` | `parquet` |
+| `.json` | `json` |
+| `.xml` | `xml` |
 
-| Marker | Extensions | Time-series support |
-| --- | --- | --- |
-| `TableFormat` | `.csv`, `.tsv` | Yes |
-| `H5Format` | `.h5`, `.hdf5` | Yes |
-| `ParquetFormat` | `.parquet` | Yes |
-| `JSONFormat` | `.json` | No |
-| `XMLFormat` | `.xml` | No |
-
-`TableDataFormat` is the union of `TableFormat`, `H5Format` and
-`ParquetFormat`. The marker only identifies the format. A reader must support
-that format to load the file.
+`FileInfo.file_type` describes content semantics. It does not declare reader
+capabilities or restrict whether a decoded source can supply one of the three
+configured outputs: components, time series, or supplemental attributes.
+Output purpose and fields are configured separately in `parser_rules.json`.
 
 ```python doctest
->>> from r2x_core import DataFile
->>> from r2x_core.types import EXTENSION_MAPPING, H5Format, JSONFormat, TableDataFormat, TableFormat
->>> csv_file = DataFile(name="profiles", relative_fpath="profiles.csv")
->>> h5_file = DataFile(name="load", relative_fpath="load.h5")
->>> isinstance(csv_file.file_format, TableFormat), isinstance(h5_file.file_format, H5Format)
-(True, True)
->>> EXTENSION_MAPPING[".json"] is JSONFormat
-True
->>> TableFormat.supports_timeseries, H5Format.supports_timeseries, JSONFormat.supports_timeseries
-(True, True, False)
+>>> from r2x_core import DataFile, FileInfo, FileType, ReaderConfig
+>>> common = DataFile(name="load", relative_fpath="load.h5")
+>>> common.format_name
+'hdf5'
+>>> custom = DataFile(
+...     name="case",
+...     relative_fpath="case.raw",
+...     reader=ReaderConfig(format="dummy_raw"),
+...     info=FileInfo(file_type=FileType.TIME_SERIES),
+... )
+>>> custom.format_name, custom.info.file_type.value
+('dummy_raw', 'time_series')
 ```
 
-All format markers are dataclasses with slots. Their `supports_timeseries`
-capability is class-level. A `DataFile` marked as time-series data cannot use a
-format that does not support time series.
-
-## Add a format
-
-Adding a new extension requires a marker in `EXTENSION_MAPPING` and a reader
-that supports it. Applications can supply readers and tabular backends through
-the public interfaces without changing the core processing pipeline. See
-[Add a file format](https://natlabrockies.github.io/r2x-core/how-tos/add-file-format/).
-
-## See also
-
-- [File configuration](https://natlabrockies.github.io/r2x-core/how-tos/configure-data-files/)
-- [HDF5 reading](https://natlabrockies.github.io/r2x-core/how-tos/read-hdf5-files/)
-- [Generated API reference](https://natlabrockies.github.io/r2x-core/references/api/)
+An unknown extension without an explicit format raises when `format_name` is
+resolved. A configured symbolic format delegates validation and decoding to its
+registered reader. See [Register an application format](/r2x-core/how-tos/add-file-format/),
+[Configure data files](/r2x-core/how-tos/configure-data-files/), and the
+[generated API reference](/r2x-core/references/api/).

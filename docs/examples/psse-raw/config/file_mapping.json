@@ -1,0 +1,38 @@
+[
+  {
+    "name": "case",
+    "relative_fpath": "../inputs/case.raw",
+    "reader": {"format": "dummy_raw", "options": {"encoding": "utf-8"}}
+  },
+  {
+    "name": "bus_names",
+    "source": "case.buses",
+    "proc_spec": {
+      "kind": "tabular",
+      "steps": [{"op": "select_columns", "select_columns": ["bus_number", "bus_name"]}]
+    }
+  },
+  {
+    "name": "generators",
+    "source": "case.generators",
+    "proc_spec": {
+      "kind": "tabular",
+      "steps": [
+        {
+          "op": "filter",
+          "predicate": {"op": "eq", "args": [{"column": "status"}, {"literal": 1}]}
+        },
+        {"op": "join", "source": "bus_names", "how": "left", "on": ["bus_number"]},
+        {
+          "op": "with_columns",
+          "columns": {
+            "name": {
+              "op": "concat_str",
+              "args": [{"column": "bus_name"}, {"literal": "_"}, {"column": "machine_id"}]
+            }
+          }
+        }
+      ]
+    }
+  }
+]

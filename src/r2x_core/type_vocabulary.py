@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 from enum import StrEnum
-from typing import Annotated, Any, ClassVar, Literal, TypeAlias, TypeVar
+from typing import Annotated, Literal, TypeAlias, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, StringConstraints
-from pydantic_core import core_schema
 
 PLACEHOLDER_PATTERN: re.Pattern[str] = re.compile(r"\{([^{}]+)\}")
 
@@ -58,72 +56,17 @@ class AggregationFunction(StrEnum):
     VAR = "var"
 
 
-FileOutputT = TypeVar("FileOutputT")
 FrameT = TypeVar("FrameT")
 
-
-@dataclass(slots=True)
-class FileFormat:
-    """Lightweight marker for a supported physical file format."""
-
-    supports_timeseries: ClassVar[bool] = False
-
-    @classmethod
-    def __get_pydantic_core_schema__(cls, source_type: Any, handler: Any) -> core_schema.CoreSchema:
-        """Serialize format markers by their class name."""
-        python_schema = core_schema.is_instance_schema(cls)
-        return core_schema.no_info_after_validator_function(
-            lambda value: value,
-            python_schema,
-            serialization=core_schema.plain_serializer_function_ser_schema(
-                lambda instance: instance.__class__.__name__,
-                return_schema=core_schema.str_schema(),
-            ),
-        )
-
-
-@dataclass(slots=True)
-class TableFormat(FileFormat):
-    """CSV, TSV, and other delimited tabular formats."""
-
-    supports_timeseries: ClassVar[bool] = True
-
-
-@dataclass(slots=True)
-class H5Format(FileFormat):
-    """Hierarchical HDF5 data files."""
-
-    supports_timeseries: ClassVar[bool] = True
-
-
-@dataclass(slots=True)
-class ParquetFormat(FileFormat):
-    """Apache Parquet columnar data files."""
-
-    supports_timeseries: ClassVar[bool] = True
-
-
-@dataclass(slots=True)
-class JSONFormat(FileFormat):
-    """JSON data files."""
-
-
-@dataclass(slots=True)
-class XMLFormat(FileFormat):
-    """XML data files."""
-
-
-EXTENSION_MAPPING: dict[str, type[FileFormat]] = {
-    ".csv": TableFormat,
-    ".tsv": TableFormat,
-    ".h5": H5Format,
-    ".hdf5": H5Format,
-    ".parquet": ParquetFormat,
-    ".json": JSONFormat,
-    ".xml": XMLFormat,
+EXTENSION_MAPPING: dict[str, str] = {
+    ".csv": "csv",
+    ".tsv": "tsv",
+    ".h5": "hdf5",
+    ".hdf5": "hdf5",
+    ".parquet": "parquet",
+    ".json": "json",
+    ".xml": "xml",
 }
-
-TableDataFormat: TypeAlias = TableFormat | H5Format | ParquetFormat
 
 FilterOperator: TypeAlias = Literal[
     "eq",

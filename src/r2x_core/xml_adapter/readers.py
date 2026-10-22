@@ -1,30 +1,28 @@
-"""Built-in file-format readers without dedicated adapter modules."""
+"""XML file reader adapter."""
 
 from pathlib import Path
 from xml.etree import ElementTree
 
 from ..datafile import ReaderConfig
-from ..file_reader import FileReader
-from ..types import FileFormat, XMLFormat
+from ..file_reader import DecodedSources, DocumentSource, FileReader
 
 
-class XMLFileReader(FileReader[ElementTree.Element]):
+class XMLFileReader(FileReader):
     """Read XML files into their root elements."""
-
-    def supports_file_type(self, file_type: FileFormat, /) -> bool:
-        """Return whether this reader supports XML format markers."""
-        return isinstance(file_type, XMLFormat)
 
     def read_file(
         self,
-        file_type: FileFormat,
+        format_name: str,
         /,
         *,
         file_path: Path,
         reader_config: ReaderConfig,
-    ) -> ElementTree.Element:
-        """Read one XML file and return its root element."""
-        if not self.supports_file_type(file_type):
-            msg = f"XML reader does not support {type(file_type).__name__}"
+    ) -> DecodedSources:
+        """Read one XML document into a named source."""
+        if format_name != "xml":
+            msg = f"XML reader cannot read format {format_name!r}"
             raise ValueError(msg)
-        return ElementTree.parse(file_path).getroot()
+        if reader_config.options:
+            msg = f"XML reader has no options: {sorted(reader_config.options)}"
+            raise ValueError(msg)
+        return {"data": DocumentSource(ElementTree.parse(file_path).getroot(), None)}

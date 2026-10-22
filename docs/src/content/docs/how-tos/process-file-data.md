@@ -106,9 +106,10 @@ error.
 ['filter_columns', 'scale_columns']
 ```
 
-`fpath`, `relative_fpath`, and `glob` path sources also support placeholders.
-`DataReader` resolves them when `read_data_file` or `DataStore.read_data` is
-called with a `placeholders` mapping.
+`fpath`, `relative_fpath`, `glob`, reader options, and processing values support
+placeholders. `DataReader.read_data_files` resolves each configured input before
+its read or processing operation. `build_system` resolves parser instructions
+before it reads any inputs.
 
 ## Process a Polars frame directly
 
@@ -119,8 +120,9 @@ called with a `placeholders` mapping.
 >>> backend = PolarsTabularBackend()
 >>> result = backend.process(
 ...     pl.LazyFrame({"NAME": ["ALPHA"]}),
+...     processing=TabularProcessing(steps=[{"op": "lowercase", "lowercase": True}]),
+...     sources={},
 ...     data_file=DataFile(name="example", relative_fpath="example.csv"),
-...     proc_spec=TabularProcessing(steps=[{"op": "lowercase", "lowercase": True}]),
 ... )
 >>> result.is_ok()
 True

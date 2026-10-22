@@ -334,4 +334,4 @@ True
 
 - [plugin system](/r2x-core/explanations/plugin-system/) - Plugin system architecture
 - [api](/r2x-core/references/api/) - API reference for `@expose_plugin` decorator
-- [manage datastores](/r2x-core/how-tos/manage-datastores/) - Working with DataStore for file operations
+- [manage datastores](/r2x-core/how-tos/manage-datastores/) - Managing input mapping configuration

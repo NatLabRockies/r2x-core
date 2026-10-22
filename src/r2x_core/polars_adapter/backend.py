@@ -2,19 +2,21 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Any, TypeGuard
+from collections.abc import Iterable, Mapping
+from typing import Any
 
 import polars as pl
 from rust_ok import Err, Ok, Result
 
 from ..datafile import DataFile
+from ..file_reader import DecodedSource, TabularSource
 from ..models import CustomStep, JoinStep, MappingStep, TabularProcessing
-from ..tabular_backend import MappingStepHandler, TabularBackend, apply_mapping_steps
+from ..tabular_backend import MappingStepHandler, apply_mapping_steps
+from ..types import FileProcessing
 from .processing import apply_polars_step
 
 
-class PolarsTabularBackend(TabularBackend[pl.LazyFrame]):
+class PolarsTabularBackend:
     """Implement tabular processing and mapping operations with Polars."""
 
     def __init__(
@@ -25,19 +27,46 @@ class PolarsTabularBackend(TabularBackend[pl.LazyFrame]):
         """Configure optional app-provided handlers for custom table steps."""
         self.step_handlers = dict(step_handlers or {})
 
-    def supports_data(self, value: object, /) -> TypeGuard[pl.LazyFrame]:
-        """Return whether a value is a Polars lazy frame."""
-        return isinstance(value, pl.LazyFrame)
-
     def process(
         self,
         frame: pl.LazyFrame,
+        /,
         *,
+        processing: FileProcessing,
+        sources: Mapping[str, DecodedSource],
         data_file: DataFile,
-        proc_spec: TabularProcessing,
     ) -> Result[pl.LazyFrame, ValueError]:
-        """Apply the configured tabular processing pipeline with Polars."""
-        return apply_mapping_steps(frame, proc_spec.steps, backend=self, data_file=data_file)
+        """Apply compatible ordered operations with Polars."""
+        if not isinstance(processing, TabularProcessing):
+            return Err(ValueError("PolarsTabularBackend requires TabularProcessing"))
+        source_frames: dict[str, pl.LazyFrame] = {}
+        for name, source in sources.items():
+            if isinstance(source, TabularSource) and isinstance(source.data, pl.LazyFrame):
+                source_frames[name] = source.data
+        return apply_mapping_steps(
+            frame,
+            processing.steps,
+            backend=self,
+            source_frames=source_frames,
+            data_file=data_file,
+        )
+
+    def column_names(self, frame: pl.LazyFrame, /) -> list[str]:
+        """Return the lazy frame's declared column names."""
+        return frame.collect_schema().names()
+
+    def iter_rows(self, frame: pl.LazyFrame, /) -> Iterable[Mapping[str, object]]:
+        """Collect a frame and yield named row mappings."""
+        return frame.collect().iter_rows(named=True)
+
+    def values(self, frame: pl.LazyFrame, field: str, /) -> list[object]:
+        """Collect one named column as values."""
+        try:
+            index = frame.collect_schema().names().index(field)
+        except ValueError as error:
+            msg = f"Table has no field {field!r}"
+            raise ValueError(msg) from error
+        return frame.select(pl.nth(index)).collect().to_series().to_list()
 
     def apply_mapping_operation(
         self,

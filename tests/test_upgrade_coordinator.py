@@ -6,46 +6,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from pydantic import ValidationError
-from pydantic_core import ErrorDetails, InitErrorDetails
 from rust_ok import Err
 
 from r2x_core import DataStore, PluginConfig, PluginContext
 from r2x_core.exceptions import UpgradeError
-from r2x_core.utils.upgrade import UpgradeCoordinator, is_missing_file_error
-
-
-def test_is_missing_file_error_detects_exception_type() -> None:
-    error: ErrorDetails = {
-        "type": "value_error",
-        "msg": "test error",
-        "input": "ignored",
-        "loc": ("fpath",),
-        "ctx": {"exc_type": "FileNotFoundError"},
-    }
-    assert is_missing_file_error(error)
-
-
-def test_is_missing_file_error_requires_exception_type() -> None:
-    error: ErrorDetails = {
-        "type": "value_error",
-        "msg": "Missing required file: /tmp/foo",
-        "input": "Missing required file: /tmp/foo",
-        "loc": ("fpath",),
-        "ctx": {"error": "Missing required file: /tmp/foo"},
-    }
-    assert not is_missing_file_error(error)
-
-
-def test_is_missing_file_error_false_for_other_errors() -> None:
-    error: ErrorDetails = {
-        "type": "value_error",
-        "msg": "bad input",
-        "input": "bad input",
-        "loc": ("fpath",),
-        "ctx": {"error": "bad input", "exc_type": "ValueError"},
-    }
-    assert not is_missing_file_error(error)
+from r2x_core.utils.upgrade import UpgradeCoordinator
 
 
 def test_upgrade_coordinator_resolves_handler_from_plugin_config() -> None:
@@ -121,22 +86,6 @@ def test_upgrade_coordinator_raises_on_result_error(tmp_path: Path) -> None:
 
     with pytest.raises(UpgradeError, match="boom"):
         coordinator.run(store=store, reason="bad")
-
-
-def test_upgrade_coordinator_should_attempt() -> None:
-    error: InitErrorDetails = {
-        "type": "value_error",
-        "input": "ignored",
-        "loc": ("fpath",),
-        "ctx": {"error": "missing input", "exc_type": "FileNotFoundError"},
-    }
-    validation_error = ValidationError.from_exception_data(title="missing", line_errors=[error])
-
-    def handler(*, store: DataStore, ctx: PluginContext[Any]) -> None:
-        return None
-
-    coordinator = UpgradeCoordinator(plugin_config=PluginConfig(upgrade_handler=handler))
-    assert coordinator.should_attempt(validation_error)
 
 
 def test_upgrade_coordinator_preserves_raised_exception_cause(tmp_path: Path) -> None:

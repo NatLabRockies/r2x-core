@@ -1,96 +1,89 @@
 ---
-title: "Custom Readers and Tabular Backends"
-description: "Use the public reader and processing seams with application-specific adapters."
+title: "Custom Readers and Typed Sources"
+description: "Register an application reader while keeping source processing and construction in core."
 ---
 
-Use `FileReader` to override a supported file format and `TabularBackend` to
-process the returned tabular representation. File extensions are registered by
-r2x-core, so a custom reader selects an existing format such as CSV rather than
-adding a new extension.
+Use `ReaderConfig.format` to select a symbolic format. Common CSV, TSV, Parquet,
+HDF5, JSON, and XML formats are inferred from their extensions when that is
+unambiguous. An uncommon format supplies an application `FileReader` and a
+registration mapping. JSON configuration never imports implementation names.
 
-The example uses CSV rows as its frame representation. The custom reader takes
-precedence over the built-in CSV reader, and the configured backend handles
-`TabularProcessing` without importing or invoking Polars. Polars is installed by
-default, but these interfaces do not depend on its frame types.
+A reader returns a mapping of source names to `DecodedSource` instances. One
+physical input may return several names. `DataReader` resolves input paths,
+validates options through the selected reader, reuses decodes only within one
+read execution, and resolves named processing dependencies. Use
+`DataReader.read_data_files` when an application needs decoded sources without
+constructing a `System`.
 
-```python doctest
->>> import csv
->>> import tempfile
->>> from pathlib import Path
->>> from typing import TypeGuard
->>>
->>> from rust_ok import Ok, Result
->>> from r2x_core import DataFile, DataReader, FileReader, TabularBackend, TabularProcessing
->>> from r2x_core import FileFormat, H5PyFileReader, H5Reader, ReaderConfig
->>> from r2x_core.types import TableFormat
->>>
->>> CsvRows = list[dict[str, str]]
->>>
->>> class CsvRowsReader(FileReader[CsvRows]):
-...     def supports_file_type(self, file_type: FileFormat, /) -> bool:
-...         return isinstance(file_type, TableFormat)
-...
-...     def read_file(
-...         self,
-...         file_type: FileFormat,
-...         /,
-...         *,
-...         file_path: Path,
-...         reader_config: ReaderConfig,
-...     ) -> CsvRows:
-...         if not self.supports_file_type(file_type):
-...             msg = f"Unsupported format: {type(file_type).__name__}"
-...             raise ValueError(msg)
-...         with file_path.open(newline="", encoding="utf-8") as file:
-...             rows = csv.reader(file)
-...             headers = next(rows)
-...             return [dict(zip(headers, row, strict=True)) for row in rows]
->>>
->>> class CsvRowsBackend(TabularBackend[CsvRows]):
-...     def supports_data(self, value: object, /) -> TypeGuard[CsvRows]:
-...         return isinstance(value, list) and all(
-...             isinstance(row, dict)
-...             and all(isinstance(key, str) and isinstance(item, str) for key, item in row.items())
-...             for row in value
-...         )
-...
-...     def process(
-...         self,
-...         frame: CsvRows,
-...         *,
-...         data_file: DataFile,
-...         proc_spec: TabularProcessing,
-...     ) -> Result[CsvRows, ValueError]:
-...         return Ok(frame)
->>>
->>> issubclass(H5PyFileReader, H5Reader)
-True
->>> with tempfile.TemporaryDirectory() as tmpdir:
-...     csv_path = Path(tmpdir) / "plants.csv"
-...     _ = csv_path.write_text("plant,capacity\nA,10\n", encoding="utf-8")
-...     data_file = DataFile(name="plants", fpath=csv_path)
-...     rows = DataReader(file_readers=[CsvRowsReader()]).read_data_file(
-...         data_file, folder_path=Path(tmpdir)
-...     )
-...     rows
-[{'plant': 'A', 'capacity': '10'}]
->>> with tempfile.TemporaryDirectory() as tmpdir:
-...     csv_path = Path(tmpdir) / "plants.csv"
-...     _ = csv_path.write_text("plant,capacity\nA,10\n", encoding="utf-8")
-...     data_file = DataFile(
-...         name="plants", fpath=csv_path, proc_spec=TabularProcessing()
-...     )
-...     rows = DataReader(
-...         file_readers=[CsvRowsReader()], tabular_backend=CsvRowsBackend()
-...     ).read_data_file(data_file, folder_path=Path(tmpdir))
-...     rows
-[{'plant': 'A', 'capacity': '10'}]
+For configured component construction, applications provide their model module,
+reader registration, and the three output instructions in `parser_rules.json`.
+`build_system` performs processing, model validation, component construction,
+reference resolution, and attachment. The runnable
+[illustrative RAW example](../../../../examples/psse-raw/README.md) demonstrates
+the full route. Its invented CSV-like grammar is not actual PSS/E RAW syntax.
+
+## Pair a payload with its processor
+
+`SourceProcessor[Payload]` processes a particular payload type. A
+`ProcessingSource[Payload]` keeps that implementation paired with the payload.
+For table-like data, implement `TabularProcessor[Payload]` to provide field,
+row, and value access as well as processing. The built-in Polars reader pairs
+`LazyFrame` with `PolarsTabularBackend`. JSON and HDF5 array readers retain their
+native representations and use their corresponding processors where configured.
+
+An application-defined representation can implement `DecodedSource` directly.
+Its `process` method is the processing seam. The reader orchestrator calls that
+contract without probing for a built-in wrapper type. Implementations must
+return an explicit error for a requested operation they do not support. With
+no requested operations, the source passes through unchanged.
+
+```python
+from collections.abc import Mapping
+from pathlib import Path
+
+from rust_ok import Result
+from r2x_core import DataFile, DecodedSource, FileReader, ReaderConfig
+from r2x_core.file_reader import DecodedSources
+from r2x_core.types import FileProcessing
+
+
+class VendorReader(FileReader):
+    def read_file(
+        self,
+        format_name: str,
+        /,
+        *,
+        file_path: Path,
+        reader_config: ReaderConfig,
+    ) -> DecodedSources:
+        # Decode vendor syntax and return named typed sources.
+        ...
 ```
 
-The backend can implement transformations over its own frame type. This stub
-returns frames unchanged to keep the adapter contract visible. Use the same
-interfaces to supply an application-specific reader or processing engine.
+The reader owns syntax decoding and option validation, not component creation
+or attachment loops. Use existing `TabularProcessing` operations, expressions,
+joins, or registered custom mapping handlers where they apply. If decoding
+changes representation, make that conversion explicit in the reader or
+processor.
 
-Ordered mapping steps use the separate `MappingStepBackend` protocol in
-`r2x_core.tabular_backend`. Implement `apply_mapping_operation` only if your
-backend needs to support `apply_mapping_steps`.
+## Register and use a custom format
+
+```python
+from r2x_core import PluginConfig, build_system
+from psse_reader import DummyPSSEReader
+
+config = PluginConfig(
+    models=("psse_models",),
+    config_path_override="path/to/config",
+)
+system = build_system(
+    config,
+    name="case",
+    readers={"dummy_raw": DummyPSSEReader()},
+)
+```
+
+The corresponding `file_mapping.json` selects the symbolic registration with
+`{"reader": {"format": "dummy_raw", "options": {}}}`. Reader-specific
+options are validated by the application reader. Core does not accept a Python
+module path in JSON.

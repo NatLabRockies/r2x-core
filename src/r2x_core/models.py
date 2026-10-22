@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from math import isfinite
 from typing import Annotated, Any, ClassVar, Literal, TypeAlias
 
@@ -436,3 +437,105 @@ class JSONProcessing(StrictConfigModel):
 
     kind: Literal["json"] = "json"
     steps: list[JSONProcessingStep] = Field(default_factory=list)
+
+
+class ComponentReference(StrictConfigModel):
+    """Resolve a source field as the name of a previously built component."""
+
+    component_type: NonEmptyString
+    name_field: NonEmptyString
+
+
+class ComponentOwner(StrictConfigModel):
+    """Select component owners by explicit names or names in source records."""
+
+    component_type: NonEmptyString
+    name: NonEmptyString | None = None
+    names: list[NonEmptyString] | None = None
+    name_field: NonEmptyString | None = None
+
+    @model_validator(mode="after")
+    def validate_selection(self) -> ComponentOwner:
+        """Require one unambiguous owner selection mode."""
+        if sum(value is not None for value in (self.name, self.names, self.name_field)) != 1:
+            msg = "An owner requires exactly one of name, names, or name_field"
+            raise ValueError(msg)
+        if self.names is not None and not self.names:
+            msg = "An owner's names list cannot be empty"
+            raise ValueError(msg)
+        return self
+
+
+class RegularTimeAxis(StrictConfigModel):
+    """Describe samples with a fixed initial timestamp and resolution."""
+
+    kind: Literal["regular"]
+    initial_timestamp: datetime
+    resolution_seconds: float = Field(gt=0)
+
+
+class ColumnTimeAxis(StrictConfigModel):
+    """Read sample timestamps from a source field and validate regularity."""
+
+    kind: Literal["column"]
+    column: NonEmptyString
+    resolution_seconds: float | None = Field(default=None, gt=0)
+
+
+TimeAxis: TypeAlias = Annotated[RegularTimeAxis | ColumnTimeAxis, Field(discriminator="kind")]
+
+
+class ComponentInstruction(StrictConfigModel):
+    """Construct validated components from a named source."""
+
+    kind: Literal["component"]
+    source: NonEmptyString
+    component_type: NonEmptyString
+    fields: dict[NonEmptyString, NonEmptyString] = Field(default_factory=dict)
+    references: dict[NonEmptyString, ComponentReference] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_field_mapping(self) -> ComponentInstruction:
+        """Prevent a field from being both copied and reference-resolved."""
+        overlap = self.fields.keys() & self.references.keys()
+        if overlap:
+            msg = f"Fields cannot be both mapped and referenced: {sorted(overlap)}"
+            raise ValueError(msg)
+        return self
+
+
+class TimeSeriesInstruction(StrictConfigModel):
+    """Attach sample values from a named source to selected components."""
+
+    kind: Literal["time_series"]
+    source: NonEmptyString
+    name: NonEmptyString
+    values: NonEmptyString
+    time_axis: TimeAxis
+    units: NonEmptyString | None = None
+    metadata: dict[NonEmptyString, JSONValue] = Field(default_factory=dict)
+    owners: Annotated[list[ComponentOwner], Field(min_length=1)]
+
+    @model_validator(mode="after")
+    def validate_metadata(self) -> TimeSeriesInstruction:
+        """Protect the infrasys context argument from being mistaken for a feature."""
+        if "context" in self.metadata:
+            msg = "Time-series metadata cannot set the reserved infrasys 'context' argument"
+            raise ValueError(msg)
+        return self
+
+
+class SupplementalAttributeInstruction(StrictConfigModel):
+    """Construct and attach validated supplemental attributes from a source."""
+
+    kind: Literal["supplemental_attribute"]
+    source: NonEmptyString
+    attribute_type: NonEmptyString
+    fields: dict[NonEmptyString, NonEmptyString] = Field(default_factory=dict)
+    owners: Annotated[list[ComponentOwner], Field(min_length=1)]
+
+
+ParserInstruction: TypeAlias = Annotated[
+    ComponentInstruction | TimeSeriesInstruction | SupplementalAttributeInstruction,
+    Field(discriminator="kind"),
+]

@@ -9,8 +9,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Annotated, Any
 
 from loguru import logger
-from pydantic import BaseModel, ValidationError
-from pydantic_core import ErrorDetails
+from pydantic import BaseModel
 from rust_ok import Err, Ok, Result
 
 from ..exceptions import UpgradeError
@@ -106,12 +105,6 @@ def run_upgrade_step(
 # ── Coordinator ─────────────────────────────────────────────────────
 
 
-def is_missing_file_error(error: ErrorDetails) -> bool:
-    """Return whether Pydantic reports a missing input file exception."""
-    context = error.get("ctx") or {}
-    return context.get("exc_type") == "FileNotFoundError"
-
-
 @dataclass
 class UpgradeCoordinator:
     """Coordinate upgrade execution for a DataStore instance."""
@@ -135,14 +128,6 @@ class UpgradeCoordinator:
     def can_run(self) -> bool:
         """Return True when upgrades are configured and not yet executed."""
         return self.handler is not None and not self.ran
-
-    def should_attempt(self, exc: ValidationError) -> bool:
-        """Return True if validation errors indicate missing files."""
-        self.resolve()
-        if not self.can_run:
-            return False
-
-        return any(is_missing_file_error(error) for error in exc.errors())
 
     def run(self, *, store: DataStore, reason: str) -> None:
         """Run the upgrade handler and mark upgrades as completed."""

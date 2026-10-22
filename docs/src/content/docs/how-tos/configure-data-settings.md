@@ -2,81 +2,69 @@
 title: "Configuring Data Settings"
 ---
 
-<span id="configuring-data-settings"></span>
+## Configuring data settings
 
-`DataStore` loads an array of `DataFile` records from JSON. File metadata is
-nested under `info`, and processing settings use a tagged `proc_spec` with
-ordered steps.
+`file_mapping.json` is an array of `DataFile` records. Metadata is nested under
+`info`, reader selection and options under `reader`, and processing uses a
+tagged `proc_spec` with ordered steps.
 
-## Define file records
-
-```python doctest
->>> config = [
-...     {
-...         "name": "generators",
-...         "relative_fpath": "gen_data.csv",
-...         "info": {"description": "Generator capacity", "units": "MW"},
-...     },
-...     {
-...         "name": "loads",
-...         "relative_fpath": "load_data.csv",
-...         "info": {"file_type": "time_series", "requirement": "optional"},
-...         "proc_spec": {
-...             "kind": "tabular",
-...             "steps": [
-...                 {"op": "filter_columns", "filter_by": {"year": 2030}}
-...             ],
-...         },
-...     },
-... ]
->>> config[1]["proc_spec"]["steps"][0]["op"]
-'filter_columns'
+```json
+[
+  {
+    "name": "generators",
+    "relative_fpath": "gen_data.csv",
+    "proc_spec": {
+      "kind": "tabular",
+      "steps": [
+        {"op": "filter_columns", "filter_by": {"status": "active"}}
+      ]
+    }
+  },
+  {
+    "name": "profiles",
+    "relative_fpath": "load.h5",
+    "reader": {
+      "format": "hdf5",
+      "options": {"data_key": "data", "columns_key": "columns"}
+    },
+    "info": {"file_type": "time_series", "requirement": "optional"}
+  }
+]
 ```
 
-`file_type` describes static versus time-series content. `requirement`
-controls whether a missing input is skipped. The physical format is inferred
-from the file extension and is not configured as `file_type`.
+`file_type` describes content semantics; it does not restrict the physical
+format or whether an output instruction can use the decoded source.
+`requirement` is `required` by default. An explicit `reader.format` selects a
+symbolic registration. Built-in and application readers validate their own
+options.
 
-## Load configuration into a DataStore
+### Load a mapping
+
+`DataStore` manages validated mapping configuration. Use `load_file_mapping`
+to read JSON; use `DataReader` for source loading or `build_system` for
+configured construction and attachment.
 
 ```python doctest
 >>> from pathlib import Path
 >>> from tempfile import TemporaryDirectory
->>> import json
->>> from r2x_core import DataStore
+>>> from r2x_core import DataFile, DataStore
 >>> with TemporaryDirectory() as directory:
 ...     root = Path(directory)
-...     gen_path = root / "gen_data.csv"
-...     _ = gen_path.write_text("name,capacity\nGen1,100\n", encoding="utf-8")
-...     config_path = root / "data_config.json"
-...     _ = config_path.write_text(
-...         json.dumps([{"name": "generators", "fpath": str(gen_path)}]),
+...     mapping = root / "file_mapping.json"
+...     _ = mapping.write_text(
+...         '[{"name":"generators","relative_fpath":"generators.csv"}]',
 ...         encoding="utf-8",
 ...     )
-...     store = DataStore.from_json(config_path, path=root)
+...     store = DataStore(root)
+...     store.load_file_mapping(mapping)
 ...     store.list_data()
 ['generators']
 ```
 
-## Record fields
+A record accepts exactly one path source: `fpath`, `relative_fpath`, or `glob`.
+A glob must contain a wildcard and resolve to one file at read time. Placeholder
+substitution and path availability are execution-time behavior.
 
-A file record accepts one path source: `fpath`, `relative_fpath`, or `glob`.
-Optional metadata belongs in `info`, for example:
-
-- `description`: human-readable context.
-- `file_type`: `static` or `time_series`.
-- `requirement`: `required` or `optional`.
-- `units`: units for single-column data.
-
-A tabular `proc_spec` has `kind: "tabular"` and an ordered `steps` list. A JSON
-`proc_spec` has `kind: "json"` and JSON-specific steps. See the
-[processor reference](/r2x-core/references/processors/) for supported
-operations and examples.
-
-## See also
-
-- [Manage datastores](/r2x-core/how-tos/manage-datastores/)
-- [Read data files](/r2x-core/how-tos/read-data-files/)
-- [Process file data](/r2x-core/how-tos/process-file-data/)
-- [`DataStore`](/r2x-core/references/api/)
-- [`DataFile`](/r2x-core/references/api/)
+See [Read data files](/r2x-core/how-tos/read-data-files/),
+[Build a parser](/r2x-core/how-tos/build-parsers/), and the
+[processor reference](/r2x-core/references/processors/).

@@ -1,257 +1,209 @@
-"""Data reading and processing pipeline for multiple file formats.
+"""Resolve inputs, dispatch registered readers, and process named sources."""
 
-The DataReader is the main entry point for loading data files. It handles:
-- Path resolution (absolute, relative, and glob patterns)
-- File type detection based on extension
-- Optional file handling (returns None instead of raising errors)
-- Custom reader function delegation
-- Automatic data processing and transformations (filtering, type casting, etc.)
-- Placeholder substitution in data file paths and processing specifications
+from __future__ import annotations
 
-File type support is determined by EXTENSION_MAPPING. Tabular files are read
-by selected FileReader adapters and processed by a selected TabularBackend.
-JSON and XML use the same FileReader contract as tabular formats.
-
-See Also
---------
-:class:`~r2x_core.datafile.DataFile` : File configuration with metadata and processing specs.
-:class:`~r2x_core.file_reader.FileReader` : File-format reader interface.
-:class:`~r2x_core.tabular_backend.TabularBackend` : Tabular processing interface.
-:class:`~r2x_core.json_adapter.JSONProcessor` : JSON processing interface.
-:class:`~r2x_core.json_adapter.JSONFileReader` : Built-in JSON reader.
-:class:`~r2x_core.xml_adapter.XMLFileReader` : Built-in XML reader.
-:func:`~r2x_core.processors.apply_processing` : Transformation pipeline.
-:func:`~r2x_core.utils.files.get_fpath` : Path resolution and validation.
-"""
-
-from collections.abc import Sequence
+import json
+from collections.abc import Iterable, Mapping
 from functools import cached_property
 from pathlib import Path
-from typing import Any
 
 from loguru import logger
-from rust_ok import is_err, is_ok
+from pydantic import TypeAdapter
+from rust_ok import is_ok
 
 from .datafile import DataFile, ReaderConfig
 from .exceptions import ConfiguredGroupNotFoundError, ReaderError
-from .file_reader import FileReader, default_tabular_file_reader
-from .json_adapter import JSONFileReader, JSONProcessor, default_json_processor
-from .models import JSONProcessing, TabularProcessing
-from .processors import apply_processing, substitute_placeholders
-from .tabular_backend import TabularBackend, default_tabular_backend
-from .types import EXTENSION_MAPPING, FileFormat, FileRequirement, TableDataFormat
+from .file_reader import DecodedSource, DecodedSources, FileReader
+from .json_adapter import JSONFileReader
+from .processors import substitute_placeholders
+from .types import FileProcessing, FileRequirement, JSONValue
 from .utils.files import get_fpath
 from .xml_adapter import XMLFileReader
 
 
 class DataReader:
-    """Reader class for loading data files with automatic processing.
+    """Read configured files into named sources and execute declared operations."""
 
-    The DataReader handles the complete reading pipeline: file discovery,
-    format detection, reading, and transformations. File reading is delegated
-    to selected format adapters, and tabular processing to a selected backend.
-
-    See Also
-    --------
-    :class:`~r2x_core.datafile.DataFile` : File configuration with specs.
-    :meth:`read_data_file` : Main method for reading data with processing.
-    """
-
-    def __init__(
-        self,
-        *,
-        file_readers: Sequence[FileReader[Any]] | None = None,
-        tabular_backend: TabularBackend[Any] | None = None,
-        json_processor: JSONProcessor | None = None,
-    ) -> None:
-        """Initialize with optional file readers and processing adapters.
-
-        Custom readers take precedence over built-ins. The default Polars
-        reader and tabular backend are loaded only when requested.
-        """
-        configured_file_readers = () if file_readers is None else tuple(file_readers)
-        self.file_readers: tuple[FileReader[Any], ...] = (
-            *configured_file_readers,
-            JSONFileReader(),
-            XMLFileReader(),
-        )
-        if tabular_backend is not None:
-            self.tabular_backend = tabular_backend
-        if json_processor is not None:
-            self.json_processor = json_processor
+    def __init__(self, *, file_readers: Mapping[str, FileReader] | None = None) -> None:
+        """Register app readers by symbolic format name."""
+        self.file_readers = dict(file_readers or {})
 
     @cached_property
-    def tabular_backend(self) -> TabularBackend[Any]:
-        """Lazily create the default backend when none was configured."""
-        return default_tabular_backend()
+    def polars_file_reader(self) -> FileReader:
+        """Load built-in tabular support on first use."""
+        from .polars_adapter import PolarsTabularFileReader
+
+        return PolarsTabularFileReader()
 
     @cached_property
-    def json_processor(self) -> JSONProcessor:
-        """Lazily create the default JSON processor when none was configured."""
-        return default_json_processor()
+    def json_file_reader(self) -> FileReader:
+        """Load the built-in JSON reader on first use."""
+        return JSONFileReader()
 
     @cached_property
-    def tabular_file_reader(self) -> FileReader[Any]:
-        """Lazily create the default tabular file reader."""
-        return default_tabular_file_reader()
+    def xml_file_reader(self) -> FileReader:
+        """Load the built-in XML reader on first use."""
+        return XMLFileReader()
 
-    def select_file_reader(self, file_type: FileFormat, /) -> FileReader[Any]:
-        """Select the first configured reader that supports a file format.
+    def select_file_reader(self, format_name: str, /) -> FileReader:
+        """Select a registered reader for a symbolic input format."""
+        registered = self.file_readers.get(format_name)
+        if registered is not None:
+            return registered
+        if format_name in {"csv", "tsv", "parquet", "hdf5"}:
+            return self.polars_file_reader
+        if format_name == "json":
+            return self.json_file_reader
+        if format_name == "xml":
+            return self.xml_file_reader
+        if format_name == "hdf5_array":
+            from .h5_adapter import H5PyFileReader
 
-        The default Polars reader is loaded lazily for tabular formats when no
-        configured reader supports the format.
-
-        Raises
-        ------
-        ValueError
-            If no configured or default reader supports the format.
-        """
-        for file_reader in self.file_readers:
-            if file_reader.supports_file_type(file_type):
-                return file_reader
-
-        if isinstance(file_type, TableDataFormat):
-            return self.tabular_file_reader
-
-        msg = f"No file reader configured for {type(file_type).__name__}"
+            return H5PyFileReader()
+        msg = f"No reader registered for format {format_name!r}"
         raise ValueError(msg)
 
-    def read_data_file(
+    def read_data_files(
         self,
-        data_file: DataFile,
+        data_files: Iterable[DataFile],
         *,
         folder_path: Path,
-        placeholders: dict[str, Any] | None = None,
-    ) -> Any:
-        """Read a data file.
-
-        Parameters
-        ----------
-        data_file : DataFile
-            Data file configuration with metadata.
-        folder_path : Path
-            Base directory containing the data files.
-        placeholders : dict[str, Any] | None, optional
-            Dictionary mapping placeholder variable names to their values.
-            Used to substitute placeholders in file paths and processing values.
-            Default is None.
-
-        Returns
-        -------
-        Any
-            The loaded data, type depends on file type.
-
-        Raises
-        ------
-        FileNotFoundError
-            If a required file does not exist or if a glob pattern matches no files.
-        ValueError
-            If glob pattern is malformed (no wildcards) or if placeholders are found
-            without a corresponding value in ``placeholders``.
-        MultipleFileError
-            If a glob pattern matches multiple files (subclass of ValueError).
-
-        See Also
-        --------
-        :class:`~r2x_core.file_reader.FileReader` : File-format reader interface.
-        :class:`~r2x_core.tabular_backend.TabularBackend` : Tabular processing interface.
-        :class:`~r2x_core.json_adapter.JSONProcessor` : JSON processing interface.
-        :meth:`select_file_reader` : File-format adapter selection.
-        :func:`~r2x_core.processors.apply_processing` : Transformation pipeline.
-        :func:`~r2x_core.utils.files.get_fpath` : Path resolution.
-        """
-        logger.debug("Starting reading for data_file={}", data_file.name)
-        data_file = self.substitute_path_placeholders(data_file, placeholders=placeholders)
-        is_optional = data_file.info.requirement is FileRequirement.OPTIONAL
-
-        fpath_result = get_fpath(data_file, folder_path=folder_path)
-        if is_ok(fpath_result):
-            fpath = fpath_result.value
-        else:
-            error = fpath_result.err()
-            if isinstance(error, FileNotFoundError) and is_optional:
-                logger.info("Skipping optional file: {}", data_file.name)
-                return None
-            raise error
-
-        reader = data_file.reader
-        reader_kwargs = dict(reader.kwargs) if reader else {}
-        if reader and reader.function:
-            logger.debug(
-                "Attempting to read data_file{} with reader_function={}",
-                data_file.name,
-                data_file.reader,
-            )
-            raw_data = reader.function(fpath, **reader_kwargs)
-        else:
-            file_type_instance = data_file.file_format
-            logger.trace(
-                "Attempting to read data_file={} with {}", data_file.name, type(file_type_instance).__name__
-            )
-            try:
-                file_reader = self.select_file_reader(file_type_instance)
-                raw_data = file_reader.read_file(
-                    file_type_instance,
-                    file_path=fpath,
-                    reader_config=reader if reader is not None else ReaderConfig(kwargs={}),
+        placeholders: Mapping[str, JSONValue] | None = None,
+    ) -> DecodedSources:
+        """Decode and process inputs in declaration order with execution-local reuse."""
+        sources: dict[str, DecodedSource] = {}
+        decoded_cache: dict[tuple[Path, str, str], DecodedSources] = {}
+        for configured_file in data_files:
+            data_file = self.resolve_placeholders(configured_file, placeholders=placeholders)
+            if data_file.source is not None:
+                if data_file.name in sources:
+                    msg = f"Duplicate named source {data_file.name!r}"
+                    raise ValueError(msg)
+                try:
+                    source = sources[data_file.source]
+                except KeyError:
+                    msg = f"Named source {data_file.source!r} must be declared before {data_file.name!r}"
+                    raise ValueError(msg) from None
+                sources[data_file.name] = self.process_source(
+                    source,
+                    data_file=data_file,
+                    sources=sources,
                 )
-            except ConfiguredGroupNotFoundError:
-                if is_optional:
-                    logger.debug("Skipping optional file with missing configured group: {}", data_file.name)
-                    return None
-                raise
+                continue
 
-        processor = None
-        if isinstance(data_file.proc_spec, TabularProcessing):
-            processor = self.tabular_backend
-        elif isinstance(data_file.proc_spec, JSONProcessing):
-            processor = self.json_processor
-        processed_data = apply_processing(
-            raw_data,
-            data_file=data_file,
-            proc_spec=data_file.proc_spec,
-            placeholders=placeholders,
-            processor=processor,
-        )
-        if is_err(processed_data):
-            raise ReaderError(processed_data.err())
-        return processed_data.unwrap()
+            path_result = get_fpath(data_file, folder_path=folder_path)
+            if is_ok(path_result):
+                file_path = path_result.value
+            else:
+                error = path_result.err()
+                if (
+                    isinstance(error, FileNotFoundError)
+                    and data_file.info.requirement is FileRequirement.OPTIONAL
+                ):
+                    logger.info("Skipping optional file: {}", data_file.name)
+                    continue
+                raise error
+            format_name = data_file.format_name
+            reader = self.select_file_reader(format_name)
+            resolved_path = file_path.resolve()
+            options_key = json.dumps(data_file.reader.options, sort_keys=True, separators=(",", ":"))
+            cache_key = (resolved_path, format_name, options_key)
+            if cache_key not in decoded_cache:
+                try:
+                    decoded_cache[cache_key] = reader.read_file(
+                        format_name,
+                        file_path=resolved_path,
+                        reader_config=data_file.reader,
+                    )
+                except ConfiguredGroupNotFoundError:
+                    if data_file.info.requirement is FileRequirement.OPTIONAL:
+                        continue
+                    raise
+            decoded = decoded_cache[cache_key]
+            named = self.name_decoded_sources(data_file.name, decoded)
+            if set(named) & sources.keys():
+                duplicate = sorted(set(named) & sources.keys())[0]
+                msg = f"Duplicate named source {duplicate!r}"
+                raise ValueError(msg)
+            available = sources | named
+            for name, source in named.items():
+                sources[name] = self.process_source(source, data_file=data_file, sources=available)
+        return sources
 
     @staticmethod
-    def substitute_path_placeholders(
+    def name_decoded_sources(name: str, decoded: DecodedSources) -> dict[str, DecodedSource]:
+        """Qualify reader outputs while keeping the conventional single output concise."""
+        if not decoded:
+            msg = f"Reader for {name!r} returned no named sources"
+            raise ValueError(msg)
+        if any(
+            not isinstance(key, str) or not key or not isinstance(value, DecodedSource)
+            for key, value in decoded.items()
+        ):
+            msg = f"Reader for {name!r} returned an invalid named source"
+            raise TypeError(msg)
+        if len(decoded) == 1 and "data" in decoded:
+            return {name: decoded["data"]}
+        return {f"{name}.{key}": value for key, value in decoded.items()}
+
+    @staticmethod
+    def process_source(
+        source: DecodedSource,
+        *,
+        data_file: DataFile,
+        sources: Mapping[str, DecodedSource],
+    ) -> DecodedSource:
+        """Apply configured operations through the source's representation contract."""
+        spec = data_file.proc_spec
+        if spec is None or not spec.steps:
+            return source
+        result = source.process(spec, sources=sources, data_file=data_file)
+        if is_ok(result):
+            return result.value
+        raise ReaderError(result.err())
+
+    @staticmethod
+    def resolve_placeholders(
         data_file: DataFile,
         *,
-        placeholders: dict[str, Any] | None,
+        placeholders: Mapping[str, JSONValue] | None,
     ) -> DataFile:
-        """Substitute placeholders in a DataFile path source before resolution."""
+        """Substitute paths, reader options, source names, and operations before execution."""
 
-        def substituted(value: Path | str | None) -> str | None:
-            """Substitute placeholders in one optional path source."""
+        def substitute_path(value: Path | str | None) -> Path | str | None:
             if value is None or "{" not in str(value):
-                return None
+                return value
             result = substitute_placeholders(str(value), placeholders=placeholders)
-            if is_err(result):
+            if is_ok(result):
+                resolved = result.value
+            else:
                 raise result.err()
-            return str(result.unwrap())
+            if not isinstance(resolved, str):
+                msg = "Path placeholders must resolve to strings"
+                raise ValueError(msg)
+            return Path(resolved) if isinstance(value, Path) else resolved
 
-        updates: dict[str, Path | str] = {}
-        fpath = substituted(data_file.fpath)
-        if fpath is not None:
-            updates["fpath"] = Path(fpath)
-        relative_fpath = substituted(data_file.relative_fpath)
-        if relative_fpath is not None:
-            updates["relative_fpath"] = relative_fpath
-        glob = substituted(data_file.glob)
-        if glob is not None:
-            updates["glob"] = glob
+        updates: dict[str, object] = {}
+        for field in ("fpath", "relative_fpath", "glob", "source"):
+            original = getattr(data_file, field)
+            substituted = substitute_path(original)
+            if substituted != original:
+                updates[field] = substituted
+
+        if data_file.reader.options:
+            result = substitute_placeholders(data_file.reader.options, placeholders=placeholders)
+            if is_ok(result):
+                options = TypeAdapter(dict[str, JSONValue]).validate_python(result.value)
+            else:
+                raise result.err()
+            updates["reader"] = ReaderConfig(format=data_file.reader.format, options=options)
+
+        if data_file.proc_spec is not None:
+            raw_spec = data_file.proc_spec.model_dump(mode="python")
+            result = substitute_placeholders(raw_spec, placeholders=placeholders)
+            if is_ok(result):
+                if result.value != raw_spec:
+                    updates["proc_spec"] = TypeAdapter(FileProcessing).validate_python(result.value)
+            else:
+                raise result.err()
         return data_file.model_copy(update=updates) if updates else data_file
-
-    def get_supported_file_types(self) -> list[str]:
-        """Get list of supported file extensions.
-
-        Returns
-        -------
-        list[str]
-            List of supported file extensions.
-        """
-        return list(EXTENSION_MAPPING)

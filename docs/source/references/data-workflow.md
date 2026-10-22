@@ -1,32 +1,47 @@
 # Data and serialization contracts
 
-This reference specifies data registration, lifecycle and serialization boundaries; the generated [full API](/r2x-core/references/api/) supplies complete inherited members and configuration fields.
-The [DataStore source](https://github.com/NatLabRockies/r2x-core/blob/0b904d7cc8e9dde1a87d849b1cd3298bbcf34a82/src/r2x_core/store.py) and [System source](https://github.com/NatLabRockies/r2x-core/blob/0b904d7cc8e9dde1a87d849b1cd3298bbcf34a82/src/r2x_core/system.py) define these contracts.
+This reference specifies input configuration, typed source loading, configured
+construction, and system serialization. The generated [full API](/r2x-core/references/api/)
+supplies inherited members and model fields.
 
-The Python blocks below show signature notation for lookup, not executable calls.
-Use the linked how-to guides for runnable examples.
-
-## File registration and reading
+## File mapping and typed sources
 
 ```python
-DataStore(path: str | Path | None = None, *,
-          reader: DataReader | None = None,
-          upgrade_handler: Callable[..., Any] | None = None)
+DataStore(path: str | Path | None = None)
 DataStore.add_data(data_files: Sequence[DataFile], *, overwrite: bool = False) -> None
+DataStore.load_file_mapping(mapping_path: Path) -> None
 DataStore.list_data() -> list[str]
-DataStore.read_data(name: str, *, placeholders: dict[str, Any] | None = None) -> Any
+DataReader(file_readers: Mapping[str, FileReader] | None = None)
+DataReader.read_data_files(
+    data_files: Iterable[DataFile],
+    *,
+    folder_path: Path,
+    placeholders: Mapping[str, JSONValue] | None = None,
+) -> DecodedSources
 ```
 
-`path=None` uses the current directory; an explicit root must already exist.
-The optional reader is a {py:class}`~r2x_core.DataReader`; the optional upgrade handler is a callable used by upgrade-aware loading.
-{py:meth}`~r2x_core.DataStore.add_data` registers definitions and rejects duplicate names unless overwriting is enabled.
-`list_data` returns registered logical names in sorted order.
-`read_data` returns the format-specific reader result, not always a DataFrame: the tutorial's CSV path returns a Polars lazy frame.
-A missing root raises `FileNotFoundError`; an unknown logical name raises `KeyError`; parsing and processing failures propagate from the reader.
-Use `relative_fpath` under the root, or `fpath` for an explicit file path.
+`DataStore` manages validated mapping configuration and upgrade handlers; it
+does not read or process physical inputs. `DataReader.read_data_files` resolves
+paths and optional inputs, selects the configured symbolic reader, and returns
+named `DecodedSource` values. A reader may decode one physical file into several
+source names. Results are reused only within that call, keyed by canonical path,
+format, and reader options.
 
-The [CSV scenario](/r2x-core/tutorials/getting-started/) demonstrates registration, filtering, materialization with `collect()`, and component construction as separate operations.
-See [processing specifications](/r2x-core/references/processors/) before combining column mappings, filtering, and reshaping.
+`build_system(config, /, *, name, readers=None, placeholders=None)` is the standard
+configured construction operation. It validates parser instructions before
+reading inputs, then executes component, time-series, and supplemental-attribute
+instructions in declaration order. Each output is validated before attachment.
+A later failure does not roll back outputs already attached.
+
+A missing input may invoke the configured upgrade handler once and retry the
+canonical read. `System.from_json` and serialized-system loading are separate
+from file ingestion. System-to-System translation also remains a separate
+rule-driven workflow with dependency ordering and time-series transfer and
+replacement.
+
+See [Read data files](/r2x-core/how-tos/read-data-files/),
+[Build a parser](/r2x-core/how-tos/build-parsers/), and the
+[processor reference](/r2x-core/references/processors/).
 
 ## System serialization
 

@@ -1,23 +1,39 @@
-"""Fresh-process checks for the lazy public API."""
+"""Fresh-process checks for the lazy public API and typed reader seams."""
 
 import os
 import subprocess
 import sys
 from pathlib import Path
 
+import polars as pl
 
-def test_reader_interfaces_are_public() -> None:
+
+def test_reader_and_processor_contracts_are_public() -> None:
     import r2x_core
-    from r2x_core import FileReader, H5PyFileReader, H5Reader, TabularBackend
+    from r2x_core import (
+        DecodedSource,
+        FileReader,
+        H5PyFileReader,
+        H5Reader,
+        SourceProcessor,
+        TabularProcessor,
+        TabularSource,
+    )
     from r2x_core.json_adapter import JSONFileReader, JSONProcessingBackend
     from r2x_core.polars_adapter import PolarsTabularBackend, PolarsTabularFileReader
 
+    source = TabularSource(pl.LazyFrame({"value": [1]}), PolarsTabularBackend())
+    assert isinstance(source, DecodedSource)
+    assert source.values("value") == [1]
     assert callable(JSONProcessingBackend)
+    assert callable(SourceProcessor)
+    assert callable(TabularProcessor)
     assert issubclass(H5Reader, FileReader)
     assert issubclass(H5PyFileReader, H5Reader)
     assert issubclass(JSONFileReader, FileReader)
-    assert issubclass(PolarsTabularBackend, TabularBackend)
     assert issubclass(PolarsTabularFileReader, FileReader)
+    assert "DataReader" in r2x_core.__all__
+    assert "TabularBackend" not in r2x_core.__all__
     assert not {
         "JSONFileReader",
         "JSONProcessingBackend",
@@ -49,7 +65,6 @@ import sys
 from r2x_core import DataFile, DataStore, ReaderConfig, TabularProcessing
 import r2x_core.datafile
 import r2x_core.store
-
 assert DataFile and DataStore and ReaderConfig and TabularProcessing
 assert 'infrasys' not in sys.modules
 assert 'pandas' not in sys.modules
@@ -63,7 +78,6 @@ def test_h5_reader_classes_are_lazy_root_exports() -> None:
     code = """
 import sys
 import r2x_core
-
 assert 'r2x_core.h5_adapter' not in sys.modules
 assert 'h5py' not in sys.modules
 from r2x_core import H5PyFileReader, H5Reader

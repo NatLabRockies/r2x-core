@@ -12,9 +12,10 @@ operations.
 
 A tabular spec contains `MappingStep` variants such as `filter`,
 `rename_columns`, `unpivot_columns`, `aggregate`, `sort`, and `unique`. Each step
-validates its own inputs and is dispatched by the configured `TabularBackend`.
-The default Polars backend implements the core operations. Applications can
-provide a different backend for their frame type.
+validates its own inputs and is executed by the `SourceProcessor` paired with
+the decoded payload. `PolarsTabularBackend` implements the built-in tabular
+operations. Applications can register another typed reader and processor pair
+for their native representation.
 
 ```python doctest
 >>> from r2x_core import TabularProcessing
@@ -57,4 +58,4 @@ processing error is returned as a `Result` by the backend and surfaced by
 
 See the [processor reference](/r2x-core/references/processors/) for the
 supported steps and [custom readers and backends](/r2x-core/how-tos/custom-readers-and-backends/)
-for the extension interfaces.
+for the reader and typed processor contracts.

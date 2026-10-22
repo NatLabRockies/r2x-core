@@ -2,40 +2,29 @@
 
 from __future__ import annotations
 
-from typing import Protocol, TypeGuard
+from collections.abc import Mapping, Sequence
+from typing import TypeGuard
 
 from rust_ok import Err, Ok, Result
 
 from ..datafile import DataFile
+from ..file_reader import DecodedSource
 from ..models import (
     DropJSONKeysStep,
     FilterJSONStep,
     JSONProcessing,
+    JSONProcessingStep,
     RenameJSONKeysStep,
     ReplaceJSONValuesStep,
     SelectJSONKeysStep,
 )
-from ..types import JSONScalar, JSONValue
+from ..types import FileProcessing, JSONScalar, JSONValue
 
 
-class JSONProcessor(Protocol):
-    """Process JSON values with an application-selected implementation."""
-
-    def process(
-        self,
-        data: JSONValue,
-        *,
-        data_file: DataFile,
-        proc_spec: JSONProcessing,
-    ) -> Result[JSONValue, ValueError]:
-        """Apply JSON transformations to one data value."""
-        ...
-
-
-def process_json_data(json_data: JSONValue, *, proc_spec: JSONProcessing) -> JSONValue:
-    """Run configured JSON transformations in their declared order."""
+def process_json_data(json_data: JSONValue, *, steps: Sequence[JSONProcessingStep]) -> JSONValue:
+    """Run JSON transformations in their declared order."""
     result = json_data
-    for step in proc_spec.steps:
+    for step in steps:
         match step:
             case RenameJSONKeysStep():
                 result = rename_keys(result, mapping=step.mapping)
@@ -146,21 +135,20 @@ class JSONProcessingBackend:
     def process(
         self,
         data: JSONValue,
+        /,
         *,
+        processing: FileProcessing,
+        sources: Mapping[str, DecodedSource],
         data_file: DataFile,
-        proc_spec: JSONProcessing,
     ) -> Result[JSONValue, ValueError]:
-        """Apply transformations and reject values outside the JSON domain."""
+        """Apply JSON operations and reject unsupported specifications."""
+        if not isinstance(processing, JSONProcessing):
+            return Err(ValueError("JSONProcessingBackend requires JSONProcessing"))
         if not is_json_value(data):
             return Err(
                 ValueError(f"JSONProcessingBackend requires JSON-compatible data, got {type(data).__name__}")
             )
         try:
-            return Ok(process_json_data(data, proc_spec=proc_spec))
+            return Ok(process_json_data(data, steps=processing.steps))
         except ValueError as error:
             return Err(error)
-
-
-def default_json_processor() -> JSONProcessor:
-    """Create the default JSON processor."""
-    return JSONProcessingBackend()

@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
-from typing import Any, Generic, Protocol, TypeGuard, TypeVar
+from typing import Protocol, TypeVar
 
 from pydantic import BaseModel
 from rust_ok import Ok, Result, is_ok
 
 from .datafile import DataFile
-from .models import MappingStep, TabularProcessing
-from .types import FrameT
+from .models import MappingStep
+from .type_vocabulary import FrameT
 
 HandlerOptionsT = TypeVar("HandlerOptionsT", bound=BaseModel)
 HandlerInputT = TypeVar("HandlerInputT")
@@ -41,26 +40,6 @@ class MappingStepHandler(Protocol[HandlerOptionsT, HandlerInputT, HandlerOutputT
         ...
 
 
-class TabularBackend(ABC, Generic[FrameT]):
-    """Process and transform frames using one tabular execution engine."""
-
-    @abstractmethod
-    def supports_data(self, value: object, /) -> TypeGuard[FrameT]:
-        """Return whether this backend handles the data value."""
-        ...
-
-    @abstractmethod
-    def process(
-        self,
-        frame: FrameT,
-        *,
-        data_file: DataFile,
-        proc_spec: TabularProcessing,
-    ) -> Result[FrameT, ValueError]:
-        """Apply tabular processing settings to a frame."""
-        ...
-
-
 class MappingStepBackend(Protocol[FrameT]):
     """Execute ordered mapping steps independently of DataFile processing."""
 
@@ -74,13 +53,6 @@ class MappingStepBackend(Protocol[FrameT]):
     ) -> Result[FrameT, ValueError]:
         """Apply one mapping operation to a frame."""
         ...
-
-
-def default_tabular_backend() -> TabularBackend[Any]:
-    """Create the default Polars backend, importing Polars only when requested."""
-    from .polars_adapter import PolarsTabularBackend
-
-    return PolarsTabularBackend()
 
 
 def apply_mapping_steps(

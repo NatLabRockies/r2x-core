@@ -1,8 +1,4 @@
-"""Data Storage for managing R2X data files and their metadata.
-
-Provides a high-level interface for managing data file configurations,
-loading data, caching.
-"""
+"""Manage file-mapping configuration and its upgrade handler."""
 
 from __future__ import annotations
 
@@ -12,12 +8,10 @@ from typing import TYPE_CHECKING, Any
 
 import orjson
 from loguru import logger
-from pydantic import ValidationError
+from pydantic import TypeAdapter
 
 from .datafile import DataFile
 from .plugin_config import PluginConfig
-from .reader import DataReader
-from .types import FileProcessing
 from .utils.upgrade import UpgradeCoordinator
 from .utils.validation import filter_kwargs_for
 
@@ -26,368 +20,57 @@ if TYPE_CHECKING:
 
 
 class DataStore:
-    """Container for managing data file mappings and loading data.
+    """Hold a unique mapping of configured inputs relative to a folder."""
 
-    The :class:`DataStore` provides a high-level interface for managing
-    a collection of :class:`DataFile` instances, including loading data,
-    caching, and executing version upgrades. It can be initialized from
-    a folder path, JSON configuration, or :class:`PluginConfig`.
-
-    Parameters
-    ----------
-    path : str | Path | None, optional
-        Path to the folder containing data files or a ``file_mapping.json``.
-        If None, uses current working directory. Default is None.
-    reader : DataReader | None, optional
-        Custom :class:`DataReader` instance. If None, a default reader
-        is created. Default is None.
-
-    Attributes
-    ----------
-    folder : Path
-        The resolved folder path containing the data files.
-    reader : DataReader
-        The data reader instance used to load data.
-
-    Methods
-    -------
-    from_data_files(data_files, path)
-        Create a DataStore from a list of DataFile instances.
-    from_json(json_fpath, path)
-        Create a DataStore from a JSON configuration file.
-    from_plugin_config(plugin_config, path)
-        Create a DataStore from a PluginConfig instance.
-    add_data(*data_files, overwrite)
-        Add one or more DataFile instances to the store.
-    read_data(name, placeholders)
-        Load data from a file by name.
-    list_data()
-        List all data file names in the store.
-    remove_data(*names)
-        Remove one or more data files from the store.
-    to_json(fpath, **model_dump_kwargs)
-        Export store configuration to JSON.
-
-    See Also
-    --------
-    :class:`DataFile` : Individual data file configuration.
-    :class:`DataReader` : Reader for loading data files.
-    :class:`PluginConfig` : Plugin configuration source.
-
-    Notes
-    -----
-    All data file names must be unique within a store. The reader cache
-    is managed separately from the file configuration cache.
-    """
-
-    def __init__(
-        self,
-        /,
-        path: str | Path | None = None,
-        *,
-        reader: DataReader | None = None,
-    ) -> None:
-        """Initialize the DataStore."""
-        if path is None:
-            logger.debug("Starting store in current directory: {}", str(Path.cwd()))
-            resolved_path = Path.cwd()
-        else:
-            resolved_path = Path(path)
-
-        if not resolved_path.exists():
-            msg = f"Path does not exist: {resolved_path}"
-            raise FileNotFoundError(msg)
-
-        mapping_path: Path | None = None
-        if resolved_path.is_file():
-            mapping_path = resolved_path
-            folder_path = resolved_path.parent
-        else:
-            folder_path = resolved_path
-
-        self.reader = reader or DataReader()
-        self.folder = folder_path.resolve()
+    def __init__(self, /, path: str | Path | None = None) -> None:
+        """Create an empty mapping store rooted at an existing directory."""
+        folder = Path.cwd() if path is None else Path(path)
+        if not folder.is_dir():
+            msg = f"DataStore path must be a directory: {folder}"
+            raise NotADirectoryError(msg)
+        self.folder = folder.resolve()
         self.data_files: dict[str, DataFile] = {}
         self.upgrade_coordinator = UpgradeCoordinator()
-        logger.debug("Initialized DataStore with folder: {}", self.folder)
 
-        if mapping_path is not None:
-            self.load_file_mapping(mapping_path)
-
-    def __getitem__(self, key: str) -> DataFile:
-        """Return a data file by name.
-
-        Returns
-        -------
-        DataFile
-            The requested data file.
-
-        Raises
-        ------
-        KeyError
-            If the data file name is not in the store.
-        """
-        if key not in self.data_files:
-            available_files = list(self.data_files.keys())
-            msg = f"'{key}' not present in store. Available files: {available_files}"
-            raise KeyError(msg)
-
-        return self.data_files[key]
+    def __getitem__(self, name: str) -> DataFile:
+        """Return one configured input by name."""
+        try:
+            return self.data_files[name]
+        except KeyError:
+            msg = f"{name!r} not present in store. Available files: {list(self.data_files)}"
+            raise KeyError(msg) from None
 
     def __contains__(self, name: str) -> bool:
-        """Check if a :class:`DataFile` exists in the store."""
+        """Return whether an input name is configured."""
         return name in self.data_files
 
-    @classmethod
-    def from_data_files(
-        cls,
-        data_files: list[DataFile],
-        *,
-        path: Path | str | None = None,
-    ) -> DataStore:
-        """Create a :class:`DataStore` from a list of :class:`DataFile` instances.
-
-        Parameters
-        ----------
-        data_files : list[DataFile]
-            List of DataFile instances to add to the store.
-        path : Path | str | None, optional
-            Path to the folder containing data files. Default is None.
-
-        Returns
-        -------
-        DataStore
-            New DataStore instance with provided data files.
-        """
-        store = cls(path=path)
-        store.add_data(data_files)
-        return store
-
-    @classmethod
-    def from_json(
-        cls,
-        json_fpath: Path | str,
-        *,
-        path: Path | str | None = None,
-    ) -> DataStore:
-        """Create a :class:`DataStore` from a JSON configuration file.
-
-        Parameters
-        ----------
-        json_fpath : Path | str
-            Path to the JSON file containing data file configurations.
-        path : Path | str | None
-            Path to the folder containing data files. Defaults to the JSON's parent folder.
-
-        Returns
-        -------
-        DataStore
-            New DataStore instance with data files from JSON.
-
-        Raises
-        ------
-        FileNotFoundError
-            If the data folder or json_fpath does not exist.
-        TypeError
-            If JSON file is not a JSON array.
-        ValidationError
-            If data files in JSON are invalid.
-        """
-        json_fpath = Path(json_fpath)
-
-        if not json_fpath.exists():
-            msg = f"Configuration file not found: {json_fpath}"
-            raise FileNotFoundError(msg)
-        folder_path = Path(path) if path is not None else json_fpath.parent
-
-        if not folder_path.exists():
-            msg = f"Data folder not found: {folder_path}"
-            raise FileNotFoundError(msg)
-
-        store = cls(path=folder_path)
-        store.load_file_mapping(json_fpath)
-        return store
-
-    @classmethod
-    def from_plugin_config(
-        cls,
-        plugin_config: PluginConfig,
-        *,
-        path: Path | str,
-        upgrade_handler: UpgradeHandler | None = None,
-    ) -> DataStore:
-        """Create a :class:`DataStore` from a :class:`PluginConfig` instance.
-
-        Parameters
-        ----------
-        plugin_config : PluginConfig
-            Plugin configuration containing file mappings.
-        path : Path | str
-            Path to the folder containing data files.
-        upgrade_handler : UpgradeHandler | None, optional
-            Optional handler for missing files or invalid mappings. If omitted,
-            the handler declared on ``plugin_config`` is used.
-
-        Returns
-        -------
-        DataStore
-            New DataStore instance with data files from plugin config.
-        """
-        json_fpath = plugin_config.fmap_path
-        logger.info("Loading DataStore from plugin config: {}", type(plugin_config).__name__)
-        logger.debug("File mapping path: {}", json_fpath)
-        store = cls(path=path)
-        store.configure_upgrades(plugin_config=plugin_config, upgrade_handler=upgrade_handler)
-        if not json_fpath.exists():
-            logger.warning(
-                "File mapping not found for {} at {}; continuing with empty DataStore.",
-                type(plugin_config).__name__,
-                json_fpath,
-            )
-            return store
-        try:
-            store.load_file_mapping(json_fpath)
-        except ValidationError as exc:
-            if store.upgrade_coordinator.should_attempt(exc):
-                store.upgrade_coordinator.run(store=store, reason="file mapping validation failed")
-                store.load_file_mapping(json_fpath)
-            else:
-                raise
-        return store
-
-    @classmethod
-    def load_file(
-        cls,
-        fpath: str | Path,
-        *,
-        name: str | None = None,
-        proc_spec: FileProcessing | dict[str, Any] | None = None,
-    ) -> Any:
-        """Load a single data file conveniently without creating a full DataStore.
-
-        This is a convenience method for loading a single file with minimal setup.
-        For complex use cases with multiple files, use the full DataStore API.
-
-        Parameters
-        ----------
-        fpath : str | Path
-            Path to the data file to load.
-        name : str | None, optional
-            Name identifier for the file. If None, uses the file stem (name without extension).
-            Default is None.
-        proc_spec : FileProcessing | dict[str, Any] | None, optional
-            Process to apply to the file data. Can be a TabularProcessing or JSONProcessing
-            instance, or a dictionary with transformation parameters. Default is None.
-
-        Returns
-        -------
-        Any
-            Loaded data from the file (type depends on file format).
-
-        Raises
-        ------
-        FileNotFoundError
-            If the file does not exist.
-        Exception
-            If the file cannot be read.
-        """
-        fpath = Path(fpath)
-
-        if not fpath.exists():
-            msg = f"File not found: {fpath}"
-            raise FileNotFoundError(msg)
-
-        if name is None:
-            name = fpath.stem
-
-        store = cls(path=fpath.parent)
-
-        data_file = DataFile.model_validate({"name": name, "fpath": fpath, "proc_spec": proc_spec})
-        store.add_data([data_file])
-
-        return store.read_data(name=name)
-
     def add_data(self, data_files: Sequence[DataFile], *, overwrite: bool = False) -> None:
-        """Add one or more :class:`DataFile` instances to the store.
-
-        Parameters
-        ----------
-        data_files : Sequence[DataFile]
-            DataFile instances to add.
-        overwrite : bool, optional
-            If True, overwrite existing data files with the same name.
-            Default is False.
-
-        Raises
-        ------
-        TypeError
-            If any item is not a DataFile instance.
-        KeyError
-            If a data file with the same name exists and overwrite is False.
-        """
+        """Add validated input configuration, rejecting duplicate names by default."""
         if any(not isinstance(data_file, DataFile) for data_file in data_files):
-            raise TypeError
-
-        if any(data_file.name in self.data_files for data_file in data_files) and not overwrite:
-            msg = "Some data files already exists with the same name. "
-            msg += "Pass overwrite=True to replace it."
+            msg = "data_files must contain only DataFile instances"
+            raise TypeError(msg)
+        duplicates = {item.name for item in data_files} & self.data_files.keys()
+        repeated = {
+            item.name for item in data_files if sum(other.name == item.name for other in data_files) > 1
+        }
+        if (duplicates or repeated) and not overwrite:
+            names = sorted(duplicates | repeated)
+            msg = f"Input names already configured: {names}"
             raise KeyError(msg)
-
-        for data_file in data_files:
-            self.data_files[data_file.name] = data_file
-            logger.debug("Added data file '{}' to store", data_file.name)
+        self.data_files.update({item.name: item for item in data_files})
 
     def list_data(self) -> list[str]:
-        """List all data file names in the store.
+        """Return configured input names in stable order."""
+        return sorted(self.data_files)
 
-        Returns
-        -------
-        list[str]
-            Sorted list of all data file names.
-        """
-        return sorted(self.data_files.keys())
-
-    def read_data(self, name: str, *, placeholders: dict[str, Any] | None = None) -> Any:
-        """Load data from a file using the configured :class:`DataReader`.
-
-        Parameters
-        ----------
-        name : str
-            Name of the data file to load.
-        placeholders : dict[str, Any] | None, optional
-            Placeholder values for template substitution. Default is None.
-
-        Returns
-        -------
-        Any
-            Loaded data from the file.
-
-        Raises
-        ------
-        KeyError
-            If the data file name is not in the store.
-        """
-        if name not in self.data_files:
-            msg = f"'{name}' not present in store."
+    def remove_data(self, *names: str) -> None:
+        """Remove configured inputs by name."""
+        missing = set(names) - self.data_files.keys()
+        if missing:
+            msg = f"Inputs not found: {sorted(missing)}"
             raise KeyError(msg)
-
-        data_file = self.data_files[name]
-        try:
-            return self.reader.read_data_file(
-                data_file,
-                folder_path=self.folder,
-                placeholders=placeholders,
-            )
-        except FileNotFoundError as exc:
-            if not self.upgrade_coordinator.can_run:
-                raise
-            logger.warning("Missing data file; attempting upgrade before retrying: {}", exc)
-            self.upgrade_coordinator.run(store=self, reason="missing data file during read")
-            return self.reader.read_data_file(
-                data_file,
-                folder_path=self.folder,
-                placeholders=placeholders,
-            )
+        for name in names:
+            del self.data_files[name]
 
     def configure_upgrades(
         self,
@@ -395,90 +78,27 @@ class DataStore:
         plugin_config: PluginConfig,
         upgrade_handler: UpgradeHandler | None = None,
     ) -> None:
-        """Configure upgrade handling using plugin config and an optional handler override."""
+        """Configure version upgrades for this store's mapping."""
         self.upgrade_coordinator = UpgradeCoordinator(
             plugin_config=plugin_config,
             handler=upgrade_handler,
         )
         self.upgrade_coordinator.resolve()
 
-    def remove_data(self, *names: str) -> None:
-        """Remove one or more data files from the store.
-
-        Parameters
-        ----------
-        *names : str
-            Data file names to remove.
-            Example: remove_data("file1", "file2")
-
-        Raises
-        ------
-        KeyError
-            If any data file name is not in the store.
-        """
-        for name in names:
-            if name not in self.data_files:
-                msg = f"Data file '{name}' not found in store."
-                raise KeyError(msg)
-
-        for name in names:
-            del self.data_files[name]
-            logger.debug("Removed data file '{}' from store", name)
-
     def to_json(self, fpath: str | Path, **model_dump_kwargs: Any) -> None:
-        """Save the :class:`DataStore` configuration to a JSON file.
-
-        Parameters
-        ----------
-        fpath : str | Path
-            Path where JSON file will be written.
-        **model_dump_kwargs : Any
-            Additional keyword arguments passed to :meth:`DataFile.model_dump`.
-
-        Notes
-        -----
-        Output JSON is formatted with 2-space indentation and includes Unicode.
-        """
-        json_data = [
-            data_file.model_dump(
+        """Write configured inputs as formatted JSON."""
+        data = [
+            item.model_dump(
                 mode="json",
                 round_trip=True,
-                **filter_kwargs_for(data_file.model_dump, kwargs=model_dump_kwargs),
+                **filter_kwargs_for(item.model_dump, kwargs=model_dump_kwargs),
             )
-            for data_file in self.data_files.values()
+            for item in self.data_files.values()
         ]
-
-        with open(fpath, "wb") as f:
-            f.write(orjson.dumps(json_data, option=orjson.OPT_INDENT_2))
-
+        Path(fpath).write_bytes(orjson.dumps(data, option=orjson.OPT_INDENT_2))
         logger.info("Created JSON file at {}", fpath)
 
     def load_file_mapping(self, mapping_path: Path) -> None:
-        """Load additional DataFile definitions from a mapping JSON into this store.
-
-        Parameters
-        ----------
-        mapping_path : Path
-            Mapping JSON file containing an array of DataFile records.
-
-        Raises
-        ------
-        FileNotFoundError
-            If the mapping file does not exist.
-        TypeError
-            If the mapping file does not contain a JSON array.
-        ValidationError
-            If a record does not define a valid DataFile.
-        KeyError
-            If a record duplicates a file name already in the store.
-        """
-        logger.info("Loading file mapping from {}", mapping_path)
-        with open(mapping_path, "rb") as f:
-            data_files_json = orjson.loads(f.read())
-
-        if not isinstance(data_files_json, list):
-            msg = f"JSON file `{mapping_path}` is not a JSON array."
-            raise TypeError(msg)
-
-        data_files = DataFile.from_records(data_files_json, folder_path=self.folder)
+        """Validate and add a JSON file mapping."""
+        data_files = TypeAdapter(list[DataFile]).validate_json(mapping_path.read_bytes())
         self.add_data(data_files)

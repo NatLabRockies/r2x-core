@@ -24,7 +24,7 @@ python -m pip install r2x-core
 python -c "import r2x_core; print(r2x_core.__version__)"
 ```
 
-The import check prints the installed version from that environment. Polars is included as a runtime dependency for the built-in tabular reader and processor. It is imported lazily, and applications can provide their own `FileReader` and `TabularBackend` adapters.
+The import check prints the installed version from that environment. Polars is included as a runtime dependency for the built-in tabular reader and processor. It is imported lazily, and applications can register a `FileReader` paired with a `SourceProcessor` or `TabularProcessor` for an uncommon native representation.
 
 ## Add to a uv project
 
@@ -37,7 +37,7 @@ uv add r2x-core
 uv run python -c "import r2x_core; print(r2x_core.__version__)"
 ```
 
-If you do not yet have a project, run `uv init --bare` in an empty directory first. `uv add r2x-core` installs the built-in Polars reader and processor by default. You can still provide custom `FileReader` and `TabularBackend` adapters.
+If you do not yet have a project, run `uv init --bare` in an empty directory first. `uv add r2x-core` installs the built-in Polars reader and processor by default. Applications can register a custom `FileReader` and paired typed processor for an uncommon format.
 
 <span id="upgrading-options"></span>
 

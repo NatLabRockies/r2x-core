@@ -7,11 +7,13 @@
 is set by the model and serialized as `"tabular"` or `"json"` so file mappings
 can validate the union directly.
 
-A tabular backend receives a `TabularProcessing` instance and executes each
-step in list order. The default Polars backend operates on `LazyFrame` values.
-JSON processing uses the injected `JSONProcessor`. A file format must match the
-processing kind: table formats use tabular processing, and JSON uses JSON
-processing. XML does not support declarative processing.
+Processing is paired with the decoded payload through the public
+`SourceProcessor[Payload]` contract. `TabularProcessor[Payload]` adds native
+table field, row, and value access. `PolarsTabularBackend` processes Polars
+`LazyFrame` values, while `JSONProcessingBackend` processes JSON values.
+Representation compatibility is decided by the paired processor, not the file
+extension. Requested unsupported operations return explicit errors. With no
+requested steps, `DataReader` passes the decoded source through unchanged.
 
 ## Tabular processing
 
@@ -102,18 +104,25 @@ JSON operations recursively rename and drop keys, filter records by exact
 values, replace scalar values, or select object keys. The concrete step model
 rejects fields that do not belong to that operation.
 
-## Backend interfaces
+## Reader and processor contracts
 
-`TabularBackend` processes an application-defined frame type. A custom backend
-implements `supports_data` and `process`. Implement the separate
-`MappingStepBackend` protocol when it also needs to support the public
-`apply_mapping_steps` runner.
+A custom `FileReader` implements `read_file(format_name, /, *, file_path,
+reader_config)` and returns `DecodedSources`, a mapping from names to typed
+sources. Output keys must be non-empty strings. `file_path` is the canonical,
+resolved physical path, regardless of whether configuration used an absolute,
+relative, or glob path. A `ProcessingSource[Payload]` couples a built-in payload
+wrapper to its processor. An application-defined source can implement
+`DecodedSource` directly and provide its own `process` implementation.
 
-A custom `JSONProcessor` implements `process` and receives JSON-compatible
-values. `DataReader(json_processor=...)` injects it without requiring the
-Polars backend.
+For native table representations, implement `TabularProcessor[Payload]` with
+`process`, `column_names`, `iter_rows`, and `values`. Do not add a second
+format-specific processor dispatcher. The separate `MappingStepBackend`
+protocol remains the execution contract for `apply_mapping_steps` and ordered
+mapping operations.
 
-See {py:class}`~r2x_core.TabularProcessing`,
-{py:class}`~r2x_core.JSONProcessing`,
-{py:class}`~r2x_core.TabularBackend`, and
-{py:class}`~r2x_core.json_adapter.JSONProcessor` for API contracts.
+See {py:class}`~r2x_core.DecodedSource`,
+{py:class}`~r2x_core.SourceProcessor`,
+{py:class}`~r2x_core.TabularProcessor`,
+{py:class}`~r2x_core.ProcessingSource`,
+{py:class}`~r2x_core.TabularProcessing`, and
+{py:class}`~r2x_core.JSONProcessing`.

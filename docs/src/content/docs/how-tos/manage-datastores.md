@@ -4,7 +4,7 @@ title: "Managing Datastores"
 
 <span id="managing-datastores"></span>
 
-A [`DataStore`](/r2x-core/references/api/) is a collection of [`DataFile`](/r2x-core/references/api/) objects that can be read together, providing a unified interface for managing multiple data sources.
+A [`DataStore`](/r2x-core/references/api/) manages a collection of validated `DataFile` mapping definitions rooted at an existing directory. It does not read or process those inputs. Use `DataReader` to load named sources or `build_system` to construct configured outputs.
 
 ## Create a DataStore
 
@@ -62,7 +62,8 @@ True
 
 ## See Also
 
-- [read data files](/r2x-core/how-tos/read-data-files/) - Read individual data files
+- [Read data files](/r2x-core/how-tos/read-data-files/) - Load named typed sources
+- [Build a parser](/r2x-core/how-tos/build-parsers/) - Construct configured systems
 - [configure data files](/r2x-core/how-tos/configure-data-files/) - Configure data file formats and parsing
 - [`DataStore`](/r2x-core/references/api/) - DataStore API reference
 - [`DataFile`](/r2x-core/references/api/) - DataFile API reference

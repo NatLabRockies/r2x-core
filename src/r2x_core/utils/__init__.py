@@ -16,7 +16,6 @@ if TYPE_CHECKING:
     )
     from .iteration import iter_components
     from .overrides import merge_with_overrides
-    from .parser import create_component
     from .rules import (
         RuleOutputs,
         build_attr_getter,
@@ -50,7 +49,6 @@ LAZY_IMPORTS: dict[str, str] = {
     "build_component_kwargs": ".rules",
     "build_target_fields": ".rules",
     "components_to_records": ".export",
-    "create_component": ".parser",
     "create_rule_outputs": ".rules",
     "create_target_component": ".rules",
     "evaluate_rule_filter": ".rules",
@@ -103,7 +101,6 @@ __all__ = [
     "build_component_kwargs",
     "build_target_fields",
     "components_to_records",
-    "create_component",
     "create_rule_outputs",
     "create_target_component",
     "evaluate_rule_filter",

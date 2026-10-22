@@ -1,230 +1,154 @@
-"""Integration test for H5 reader with DataStore.from_json()."""
+"""HDF5 reader layouts configured and loaded through the canonical source route."""
 
 import json
-import tempfile
 from pathlib import Path
 
 import h5py
 import numpy as np
+import polars as pl
 
-from r2x_core.datafile import ReaderConfig
+from r2x_core.datafile import DataFile, ReaderConfig
+from r2x_core.file_reader import TabularSource
+from r2x_core.reader import DataReader
+from r2x_core.store import DataStore
 
 
-def test_datastore_from_json_with_reader_kwargs():
-    """Test complete DataStore.from_json() workflow with reader_kwargs."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmpdir_path = Path(tmpdir)
+def read_mapping(folder: Path, records: list[dict[str, object]]) -> dict[str, object]:
+    """Validate JSON mapping data and decode each configured input."""
+    mapping = folder / "file_mapping.json"
+    mapping.write_text(json.dumps(records), encoding="utf-8")
+    store = DataStore(folder)
+    store.load_file_mapping(mapping)
+    return DataReader().read_data_files(store.data_files.values(), folder_path=store.folder)
 
-        # Create a test H5 file in ReEDS format
-        h5_file = tmpdir_path / "load_data.h5"
-        with h5py.File(str(h5_file), "w") as f:
-            columns = np.array(["region_ca", "region_tx"], dtype="S")
-            data = np.array([[100.0, 150.0], [120.0, 160.0], [110.0, 155.0]])
-            dt_strings = np.array(
+
+def table(source: object) -> pl.DataFrame:
+    """Require a Polars table for these HDF5 table-layout integration tests."""
+    assert isinstance(source, TabularSource)
+    assert isinstance(source.data, pl.LazyFrame)
+    return source.data.collect()
+
+
+def test_hdf5_mapping_loads_configured_columns_and_metadata(tmp_path: Path) -> None:
+    path = tmp_path / "load_data.h5"
+    with h5py.File(path, "w") as output:
+        output.create_dataset("columns", data=np.array(["region_ca", "region_tx"], dtype="S"))
+        output.create_dataset("data", data=np.array([[100.0, 150.0], [120.0, 160.0], [110.0, 155.0]]))
+        output.create_dataset(
+            "index_datetime",
+            data=np.array(
                 [
                     "2007-01-01T00:00:00-06:00",
                     "2007-01-01T01:00:00-06:00",
                     "2007-01-01T02:00:00-06:00",
                 ],
                 dtype="S",
-            )
-            solve_years = np.array([2030, 2030, 2030])
+            ),
+        )
+        output.create_dataset("index_year", data=np.array([2030, 2030, 2030]))
 
-            f.create_dataset("columns", data=columns)
-            f.create_dataset("data", data=data)
-            f.create_dataset("index_datetime", data=dt_strings)
-            f.create_dataset("index_year", data=solve_years)
-
-        # Create JSON configuration file (must be an array, not object)
-        config = [
+    sources = read_mapping(
+        tmp_path,
+        [
             {
                 "name": "load",
-                "fpath": str(h5_file),
+                "fpath": str(path),
                 "info": {"description": "Hourly load data", "file_type": "time_series"},
                 "reader": {
-                    "kwargs": {
+                    "format": "hdf5",
+                    "options": {
                         "data_key": "data",
                         "columns_key": "columns",
                         "datetime_key": "index_datetime",
                         "additional_keys": ["index_year"],
-                    }
+                    },
                 },
             }
-        ]
+        ],
+    )
 
-        config_file = tmpdir_path / "config.json"
-        with open(config_file, "w") as f:
-            json.dump(config, f)
-
-        # Load DataStore from JSON
-        from r2x_core.store import DataStore
-
-        store = DataStore.from_json(config_file, path=tmpdir_path)
-
-        # Verify the store loaded correctly
-        files = store.list_data()
-        assert len(files) == 1
-        assert "load" in files
-
-        data_file = store["load"]
-        assert data_file.reader is not None
-        assert data_file.reader.kwargs["data_key"] == "data"
-        assert data_file.reader.kwargs["columns_key"] == "columns"
-
-        # Read the file using the store's reader
-        from r2x_core.reader import DataReader
-
-        reader = DataReader()
-        df = reader.read_data_file(data_file, folder_path=tmpdir_path).collect()
-
-        # Verify the data
-        assert "region_ca" in df.columns
-        assert "region_tx" in df.columns
-        assert "datetime" in df.columns
-        assert "solve_year" in df.columns
-        assert len(df) == 3
-        assert df["region_ca"][0] == 100.0
-        assert df["solve_year"][0] == 2030
+    frame = table(sources["load"])
+    assert frame.columns == ["region_ca", "region_tx", "datetime", "solve_year"]
+    assert frame.height == 3
+    assert frame["region_ca"][0] == 100.0
+    assert frame["solve_year"][0] == 2030
 
 
-def test_datastore_from_json_with_multiple_h5_files():
-    """Test DataStore with multiple H5 files using different schemas."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmpdir_path = Path(tmpdir)
+def test_multiple_hdf5_layouts_load_from_one_mapping(tmp_path: Path) -> None:
+    load_path = tmp_path / "load.h5"
+    with h5py.File(load_path, "w") as output:
+        output.create_dataset("columns", data=np.array(["region1"], dtype="S"))
+        output.create_dataset("data", data=np.array([[100.0], [120.0]]))
+        output.create_dataset(
+            "index_datetime",
+            data=np.array(["2007-01-01T00:00:00-06:00", "2007-01-01T01:00:00-06:00"], dtype="S"),
+        )
+    custom_path = tmp_path / "custom.h5"
+    with h5py.File(custom_path, "w") as output:
+        output.create_dataset("technologies", data=np.array(["tech_a", "tech_b"], dtype="S"))
+        output.create_dataset("cf_values", data=np.array([[0.5, 0.6], [0.7, 0.8]]))
+        output.create_dataset("year", data=np.array([2030, 2040]))
+    simple_path = tmp_path / "simple.h5"
+    with h5py.File(simple_path, "w") as output:
+        output.create_dataset("simple_data", data=np.array([1, 2, 3]))
 
-        # Create ReEDS load file
-        load_file = tmpdir_path / "load.h5"
-        with h5py.File(str(load_file), "w") as f:
-            columns = np.array(["region1"], dtype="S")
-            data = np.array([[100.0], [120.0]])
-            dt_strings = np.array(["2007-01-01T00:00:00-06:00", "2007-01-01T01:00:00-06:00"], dtype="S")
-            f.create_dataset("columns", data=columns)
-            f.create_dataset("data", data=data)
-            f.create_dataset("index_datetime", data=dt_strings)
-
-        # Create custom tabular file
-        custom_file = tmpdir_path / "custom.h5"
-        with h5py.File(str(custom_file), "w") as f:
-            col_names = np.array(["tech_a", "tech_b"], dtype="S")
-            values = np.array([[0.5, 0.6], [0.7, 0.8]])
-            years = np.array([2030, 2040])
-
-            f.create_dataset("technologies", data=col_names)
-            f.create_dataset("cf_values", data=values)
-            f.create_dataset("year", data=years)
-
-        # Create simple default file
-        simple_file = tmpdir_path / "simple.h5"
-        with h5py.File(str(simple_file), "w") as f:
-            f.create_dataset("simple_data", data=np.array([1, 2, 3]))
-
-        # Create JSON configuration with all three (must be an array)
-        config = [
+    sources = read_mapping(
+        tmp_path,
+        [
             {
                 "name": "load",
-                "fpath": str(load_file),
+                "fpath": str(load_path),
                 "reader": {
-                    "kwargs": {
+                    "format": "hdf5",
+                    "options": {
                         "data_key": "data",
                         "columns_key": "columns",
                         "datetime_key": "index_datetime",
-                    }
+                    },
                 },
             },
             {
                 "name": "cf",
-                "fpath": str(custom_file),
+                "fpath": str(custom_path),
                 "reader": {
-                    "kwargs": {
+                    "format": "hdf5",
+                    "options": {
                         "data_key": "cf_values",
                         "columns_key": "technologies",
                         "index_key": "year",
-                    }
+                    },
                 },
             },
-            {
-                "name": "simple",
-                "fpath": str(simple_file),
-            },
-        ]
+            {"name": "simple", "fpath": str(simple_path)},
+        ],
+    )
 
-        config_file = tmpdir_path / "config.json"
-        with open(config_file, "w") as f:
-            json.dump(config, f)
-
-        # Load DataStore from JSON
-        from r2x_core.store import DataStore
-
-        store = DataStore.from_json(config_file, path=tmpdir_path)
-
-        # Verify all files loaded
-        files = store.list_data()
-        assert len(files) == 3
-
-        # Read each file
-        from r2x_core.reader import DataReader
-
-        reader = DataReader()
-
-        # Load file (ReEDS schema)
-        load_file_obj = store["load"]
-        load_df = reader.read_data_file(load_file_obj, folder_path=tmpdir_path).collect()
-        assert "region1" in load_df.columns
-        assert "datetime" in load_df.columns
-
-        cf_file_obj = store["cf"]
-        cf_df = reader.read_data_file(cf_file_obj, folder_path=tmpdir_path).collect()
-        assert "tech_a" in cf_df.columns
-        assert "tech_b" in cf_df.columns
-        assert "year" in cf_df.columns
-
-        # Simple file (default schema)
-        simple_file_obj = store["simple"]
-        simple_df = reader.read_data_file(simple_file_obj, folder_path=tmpdir_path).collect()
-        assert "simple_data" in simple_df.columns
+    load_frame = table(sources["load"])
+    cf_frame = table(sources["cf"])
+    simple_frame = table(sources["simple"])
+    assert {"region1", "datetime"} <= set(load_frame.columns)
+    assert {"tech_a", "tech_b", "year"} <= set(cf_frame.columns)
+    assert simple_frame.columns == ["simple_data"]
 
 
-def test_datastore_roundtrip_with_reader_kwargs():
-    """Test that DataStore with reader_kwargs can roundtrip through JSON."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmpdir_path = Path(tmpdir)
+def test_store_roundtrip_preserves_symbolic_hdf5_options(tmp_path: Path) -> None:
+    path = tmp_path / "data.h5"
+    with h5py.File(path, "w") as output:
+        output.create_dataset("data", data=np.array([1, 2, 3]))
+    store = DataStore(tmp_path)
+    item = DataFile(
+        name="test",
+        fpath=path,
+        reader=ReaderConfig(
+            format="hdf5",
+            options={"data_key": "data", "columns_key": "columns", "datetime_key": "index_datetime"},
+        ),
+    )
+    store.add_data([item])
+    exported = tmp_path / "export.json"
+    store.to_json(exported)
+    restored = DataStore(tmp_path)
+    restored.load_file_mapping(exported)
 
-        # Create a dummy H5 file
-        h5_file = tmpdir_path / "data.h5"
-        with h5py.File(str(h5_file), "w") as f:
-            f.create_dataset("data", data=np.array([1, 2, 3]))
-
-        # Create DataStore programmatically
-        from r2x_core.datafile import DataFile
-        from r2x_core.store import DataStore
-
-        data_file = DataFile(
-            name="test",
-            fpath=h5_file,
-            reader=ReaderConfig(
-                kwargs={
-                    "data_key": "data",
-                    "columns_key": "columns",
-                    "datetime_key": "index_datetime",
-                }
-            ),
-        )
-        store = DataStore(tmpdir_path)
-        store.add_data([data_file])
-
-        # Export to JSON
-        json_file = tmpdir_path / "export.json"
-        store.to_json(fpath=json_file)
-
-        # Read back
-        store_loaded = DataStore.from_json(json_file, path=tmpdir_path)
-
-        # Verify reader_kwargs preserved
-        files = store_loaded.list_data()
-        assert len(files) == 1
-        assert "test" in files
-
-        loaded_file = store_loaded["test"]
-        assert loaded_file.reader is not None
-        assert loaded_file.reader.kwargs is not None
-        assert loaded_file.reader.kwargs["data_key"] == "data"
+    assert restored["test"].reader.format == "hdf5"
+    assert restored["test"].reader.options == item.reader.options

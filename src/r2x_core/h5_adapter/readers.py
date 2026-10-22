@@ -7,11 +7,12 @@ from pathlib import Path
 import h5py
 import numpy as np
 from loguru import logger
+from pydantic import Field
 
 from ..datafile import ReaderConfig
 from ..exceptions import ConfiguredGroupNotFoundError
-from ..file_reader import FileReader
-from ..types import FileFormat, H5Format
+from ..file_reader import ArraySource, DecodedSources, FileReader
+from ..models import StrictConfigModel
 from .type_alias import H5Label, H5Result
 
 DEFAULT_DATETIME_COLUMN_NAME = "datetime"
@@ -22,12 +23,8 @@ SOLVE_YEAR_COLUMN_NAME = "solve_year"
 YEAR_COLUMN_NAME = "year"
 
 
-class H5Reader(FileReader[H5Result]):
-    """Base interface for HDF5 readers that return backend-neutral columns."""
-
-    def supports_file_type(self, file_type: FileFormat, /) -> bool:
-        """Return whether this reader accepts an HDF5 format marker."""
-        return isinstance(file_type, H5Format)
+class H5Reader(FileReader):
+    """Base interface for HDF5 readers that return native arrays."""
 
 
 def read_h5_file(*, file_path: Path, **reader_kwargs: object) -> H5Result:
@@ -37,22 +34,45 @@ def read_h5_file(*, file_path: Path, **reader_kwargs: object) -> H5Result:
         return configurable_h5_reader(h5_file, **reader_kwargs)
 
 
+class H5ReaderOptions(StrictConfigModel):
+    """Validate options supported by the h5py reader."""
+
+    group_key: str | None = None
+    columns_as_datasets: bool = False
+    data_key: str | None = None
+    decode_bytes: bool = True
+    index_names_key: str = DEFAULT_INDEX_NAMES_KEY
+    columns_key: str | None = None
+    column_name_mapping: dict[str, str] | None = None
+    datetime_key: str | None = None
+    datetime_column_name: str = DEFAULT_DATETIME_COLUMN_NAME
+    strip_timezone: bool = True
+    index_key: str | None = None
+    additional_keys: list[str] = Field(default_factory=list)
+
+
 class H5PyFileReader(H5Reader):
-    """Read HDF5 files with h5py into backend-neutral column data."""
+    """Read HDF5 files with h5py into named array sources."""
 
     def read_file(
         self,
-        file_type: FileFormat,
+        format_name: str,
         /,
         *,
         file_path: Path,
         reader_config: ReaderConfig,
-    ) -> H5Result:
+    ) -> DecodedSources:
         """Read one HDF5 file using the selected HDF5 implementation."""
-        if not self.supports_file_type(file_type):
-            msg = f"HDF5 reader does not support {type(file_type).__name__}"
+        if format_name != "hdf5_array":
+            msg = f"HDF5 reader cannot read format {format_name!r}"
             raise ValueError(msg)
-        return read_h5_file(file_path=file_path, **reader_config.kwargs)
+        try:
+            options = H5ReaderOptions.model_validate(reader_config.options)
+        except ValueError as error:
+            msg = f"Invalid HDF5 reader options: {error}"
+            raise ValueError(msg) from error
+        data = read_h5_file(file_path=file_path, **options.model_dump(exclude_unset=True))
+        return {"data": ArraySource(data, None)}
 
 
 def configurable_h5_reader(h5_file: h5py.File, **reader_kwargs: object) -> H5Result:

@@ -32,6 +32,18 @@ def write_assets(tmp_path: Path, payloads: dict[str, object]) -> None:
 def test_models_defaults_to_empty_tuple():
     config = SampleConfig(param1="test")
     assert config.models == ()
+    assert PluginConfig(models=None).models == ()
+
+
+def test_models_normalize_and_reject_registration_values() -> None:
+    """Accept symbolic model module names and reject non-iterable registrations."""
+    assert PluginConfig(models="package.models").models == ("package.models",)
+    assert PluginConfig(models=["package.one", "package.two"]).models == (
+        "package.one",
+        "package.two",
+    )
+    with pytest.raises(TypeError, match="models must be a string or iterable"):
+        PluginConfig(models=42)
 
 
 def test_active_versions_is_instance_data():
@@ -70,6 +82,12 @@ def test_config_path_override(tmp_path):
     override.mkdir()
     config = SampleConfig(param1="test", config_path_override=override)
     assert config.config_path == override
+
+
+def test_config_path_warns_for_missing_override(tmp_path: Path) -> None:
+    """Expose a missing app config directory without changing configured paths."""
+    missing = tmp_path / "missing-config"
+    assert PluginConfig(config_path_override=missing).config_path == missing
 
 
 @pytest.mark.parametrize(

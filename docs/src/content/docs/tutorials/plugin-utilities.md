@@ -83,8 +83,6 @@ system metadata and companion storage. A CSV record export is a different bounda
 
 <span id="component-creation"></span>
 
-<span id="create_component"></span>
-
 <span id="getter-decorator"></span>
 
 <span id="time-series-management"></span>

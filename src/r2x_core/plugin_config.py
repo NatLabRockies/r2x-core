@@ -8,7 +8,7 @@ and methods to load and override configuration assets.
 import inspect
 from enum import Enum
 from pathlib import Path
-from typing import Annotated, Any, ClassVar
+from typing import Any, ClassVar
 
 import orjson
 from loguru import logger
@@ -80,22 +80,16 @@ class PluginConfig(BaseModel):
         description="Override for the configuration path. This is used if you want to point to a different place than the `CONFIG_DIR`",
     )
 
-    active_versions: Annotated[
-        dict[str, int],
-        Field(
-            default_factory=dict,
-            description="Rule version to use per source component type when a lookup does not specify one",
-        ),
-    ]
+    active_versions: dict[str, int] = Field(
+        default_factory=dict,
+        description="Rule version to use per source component type when a lookup does not specify one",
+    )
 
-    upgrade_handler: Annotated[
-        SkipJsonSchema[UpgradeHandler | None],
-        Field(
-            default=None,
-            exclude=True,
-            description="Callable invoked by DataStore when input files are missing or fail validation",
-        ),
-    ]
+    upgrade_handler: SkipJsonSchema[UpgradeHandler | None] = Field(
+        default=None,
+        exclude=True,
+        description="Callable invoked by DataStore when input files are missing or fail validation",
+    )
 
     @field_validator("models", mode="before")
     @classmethod

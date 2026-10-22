@@ -1,0 +1,10 @@
+[
+  {
+    "name": "generators",
+    "relative_fpath": "../inputs/generators.csv",
+    "proc_spec": {
+      "kind": "tabular",
+      "steps": [{"op": "filter_columns", "filter_by": {"status": "active"}}]
+    }
+  }
+]

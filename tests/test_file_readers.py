@@ -1,3 +1,5 @@
+"""Exercise built-in and application-registered input readers with real files."""
+
 import json
 from pathlib import Path
 from xml.etree import ElementTree
@@ -8,323 +10,319 @@ import polars as pl
 import pytest
 
 from r2x_core.datafile import DataFile, ReaderConfig
+from r2x_core.file_reader import ArraySource, DecodedSources, DocumentSource
+from r2x_core.h5_adapter import H5PyFileReader, H5Reader
 from r2x_core.json_adapter import JSONFileReader
 from r2x_core.polars_adapter import PolarsTabularFileReader
+from r2x_core.polars_adapter.readers import read_polars_h5_file
 from r2x_core.reader import DataReader
-from r2x_core.types import (
-    FileFormat,
-    H5Format,
-    JSONFormat,
-    TableDataFormat,
-    TableFormat,
-    XMLFormat,
-)
 from r2x_core.xml_adapter import XMLFileReader
 
 
 def read_polars_file(
-    file_type: TableDataFormat,
+    format_name: str,
     *,
     file_path: Path,
-    reader_config: ReaderConfig | None = None,
+    options: dict[str, object] | None = None,
 ) -> pl.LazyFrame:
-    """Read a tabular fixture through the Polars file reader."""
-    return PolarsTabularFileReader().read_file(
-        file_type,
+    """Read a tabular fixture through the configured source representation."""
+    source = PolarsTabularFileReader().read_file(
+        format_name,
         file_path=file_path,
-        reader_config=ReaderConfig() if reader_config is None else reader_config,
-    )
+        reader_config=ReaderConfig(format=format_name, options=options or {}),
+    )["data"]
+    assert hasattr(source, "data")
+    return source.data
 
 
 @pytest.fixture
-def csv_file(tmp_path):
-    csv_path = tmp_path / "test.csv"
-    csv_path.write_text("col1,col2,col3\n1,2,3\n4,5,6\n")
-    return csv_path
+def csv_file(tmp_path: Path) -> Path:
+    path = tmp_path / "test.csv"
+    path.write_text("col1,col2,col3\n1,2,3\n4,5,6\n", encoding="utf-8")
+    return path
 
 
 @pytest.fixture
-def tsv_file(tmp_path):
-    tsv_path = tmp_path / "test.tsv"
-    tsv_path.write_text("col1\tcol2\tcol3\n1\t2\t3\n4\t5\t6\n")
-    return tsv_path
+def tsv_file(tmp_path: Path) -> Path:
+    path = tmp_path / "test.tsv"
+    path.write_text("col1\tcol2\tcol3\n1\t2\t3\n4\t5\t6\n", encoding="utf-8")
+    return path
 
 
 @pytest.fixture
-def json_file(tmp_path):
-    json_path = tmp_path / "test.json"
-    data = {"key1": "value1", "key2": [1, 2, 3], "nested": {"a": 1}}
-    json_path.write_text(json.dumps(data))
-    return json_path
+def json_file(tmp_path: Path) -> Path:
+    path = tmp_path / "test.json"
+    path.write_text(json.dumps({"key1": "value1", "key2": [1, 2, 3], "nested": {"a": 1}}))
+    return path
 
 
 @pytest.fixture
-def xml_file(tmp_path):
-    xml_path = tmp_path / "test.xml"
-    xml_content = """<?xml version="1.0"?>
-    <root>
-        <child name="test">value</child>
-        <child name="test2">value2</child>
-    </root>
-    """
-    xml_path.write_text(xml_content)
-    return xml_path
+def xml_file(tmp_path: Path) -> Path:
+    path = tmp_path / "test.xml"
+    path.write_text('<root><child name="test">value</child><child name="test2">value2</child></root>')
+    return path
 
 
-@pytest.fixture
-def h5_file_1d(tmp_path):
-    h5_path = tmp_path / "test_1d.h5"
-    with h5py.File(h5_path, "w") as f:
-        f.create_dataset("data", data=np.array([1, 2, 3, 4, 5]))
-    return h5_path
+def test_read_csv_and_tsv(csv_file: Path, tsv_file: Path) -> None:
+    for format_name, path in (("csv", csv_file), ("tsv", tsv_file)):
+        frame = read_polars_file(format_name, file_path=path).collect()
+        assert frame.shape == (2, 3)
+        assert frame.columns == ["col1", "col2", "col3"]
 
 
-@pytest.fixture
-def h5_file_2d(tmp_path):
-    h5_path = tmp_path / "test_2d.h5"
-    with h5py.File(h5_path, "w") as f:
-        f.create_dataset("matrix", data=np.array([[1, 2, 3], [4, 5, 6]]))
-    return h5_path
+def test_read_csv_options_and_validation(csv_file: Path, tmp_path: Path) -> None:
+    frame = read_polars_file("csv", file_path=csv_file, options={"skip_rows": 1}).collect()
+    assert frame.shape == (1, 3)
+    with pytest.raises(ValueError, match="header_rows"):
+        read_polars_file("csv", file_path=tmp_path / "missing.csv", options={"header_rows": 0})
 
 
-@pytest.fixture
-def h5_file_group(tmp_path):
-    h5_path = tmp_path / "test_group.h5"
-    with h5py.File(h5_path, "w") as f:
-        f.create_group("mygroup")
-    return h5_path
+@pytest.mark.parametrize(
+    ("options", "message"),
+    [
+        ({"has_header": True}, "has_header=True"),
+        ({"new_columns": ["first", "second"]}, "new_columns"),
+        ({"skip_rows_after_header": 1}, "skip_rows_after_header"),
+    ],
+)
+def test_multrow_csv_headers_reject_conflicting_options(
+    tmp_path: Path, options: dict[str, object], message: str
+) -> None:
+    path = tmp_path / "headers.csv"
+    path.write_text("first,second\nname,value\na,1\n", encoding="utf-8")
+    with pytest.raises(ValueError, match=message):
+        read_polars_file("csv", file_path=path, options={"header_rows": 2, **options})
 
 
-def test_read_csv_file(csv_file):
-    result = read_polars_file(TableFormat(), file_path=csv_file)
-
-    assert isinstance(result, pl.LazyFrame)
-    df = result.collect()
-    assert df.shape == (2, 3)
-    assert df.columns == ["col1", "col2", "col3"]
-
-
-def test_read_tsv_file(tsv_file):
-    result = read_polars_file(TableFormat(), file_path=tsv_file)
-
-    assert isinstance(result, pl.LazyFrame)
-    df = result.collect()
-    assert df.shape == (2, 3)
-    assert df.columns == ["col1", "col2", "col3"]
+@pytest.mark.parametrize(
+    ("separator", "expected"),
+    [(" ", ["Model Year", "Capacity MW"]), (" | ", ["Model | Year", "Capacity | MW"])],
+)
+def test_multrow_csv_header_separator_is_preserved(
+    tmp_path: Path, separator: str, expected: list[str]
+) -> None:
+    path = tmp_path / "headers.csv"
+    path.write_text("Model,Capacity\nYear,MW\n2025,10\n", encoding="utf-8")
+    frame = read_polars_file(
+        "csv", file_path=path, options={"header_rows": 2, "header_separator": separator}
+    ).collect()
+    assert frame.columns == expected
+    assert frame.rows() == [(2025, 10)]
 
 
-def test_read_csv_with_kwargs(csv_file):
-    result = read_polars_file(
-        TableFormat(), file_path=csv_file, reader_config=ReaderConfig(kwargs={"skip_rows": 1})
-    )
-
-    assert isinstance(result, pl.LazyFrame)
-    df = result.collect()
-    assert df.shape == (1, 3)
-
-
-def test_read_json_file(json_file):
-    result = JSONFileReader().read_file(JSONFormat(), file_path=json_file, reader_config=ReaderConfig())
-
-    assert isinstance(result, dict)
-    assert result["key1"] == "value1"
-    assert result["key2"] == [1, 2, 3]
-    assert result["nested"]["a"] == 1
+def test_multrow_csv_headers_reject_insufficient_and_duplicate_headers(tmp_path: Path) -> None:
+    insufficient = tmp_path / "insufficient.csv"
+    insufficient.write_text("name,value\na,1\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="Expected 3 header rows"):
+        read_polars_file("csv", file_path=insufficient, options={"header_rows": 3})
+    duplicate = tmp_path / "duplicate.csv"
+    duplicate.write_text("group,group\nvalue,value\na,1\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="duplicate column names"):
+        read_polars_file("csv", file_path=duplicate, options={"header_rows": 2})
 
 
-def test_json_reader_rejects_other_file_formats(json_file):
-    with pytest.raises(ValueError, match="JSON reader does not support XMLFormat"):
-        JSONFileReader().read_file(XMLFormat(), file_path=json_file, reader_config=ReaderConfig())
+def test_json_and_xml_decoders_preserve_native_documents(json_file: Path, xml_file: Path) -> None:
+    json_source = JSONFileReader().read_file(
+        "json", file_path=json_file, reader_config=ReaderConfig(format="json")
+    )["data"]
+    xml_source = XMLFileReader().read_file(
+        "xml", file_path=xml_file, reader_config=ReaderConfig(format="xml")
+    )["data"]
+    assert json_source.data == {"key1": "value1", "key2": [1, 2, 3], "nested": {"a": 1}}
+    assert isinstance(xml_source.data, ElementTree.Element)
+    assert xml_source.data.tag == "root"
+    with pytest.raises(TypeError, match="explicit reader conversion"):
+        xml_source.fields()
 
 
-def test_data_reader_defaults_to_stdlib_json_reader_and_allows_custom_override():
-    assert isinstance(DataReader().select_file_reader(JSONFormat()), JSONFileReader)
-
-    custom_reader = JSONFileReader()
-    configured_reader = DataReader(file_readers=(custom_reader,))
-    assert configured_reader.select_file_reader(JSONFormat()) is custom_reader
-
-
-def test_data_reader_propagates_json_decode_errors(tmp_path):
-    json_path = tmp_path / "invalid.json"
-    json_path.write_text('{"invalid":', encoding="utf-8")
-    data_file = DataFile(name="invalid", fpath=json_path)
-
+def test_document_readers_reject_wrong_formats_and_invalid_json(tmp_path: Path, json_file: Path) -> None:
+    with pytest.raises(ValueError, match="cannot read format"):
+        JSONFileReader().read_file("xml", file_path=json_file, reader_config=ReaderConfig())
+    with pytest.raises(ValueError, match="cannot read format"):
+        XMLFileReader().read_file("json", file_path=json_file, reader_config=ReaderConfig())
+    path = tmp_path / "broken.json"
+    path.write_text('{"invalid":', encoding="utf-8")
     with pytest.raises(json.JSONDecodeError):
-        DataReader().read_data_file(data_file, folder_path=tmp_path)
+        DataReader().read_data_files([DataFile(name="broken", fpath=path)], folder_path=tmp_path)
 
 
-def test_xml_reader_rejects_other_file_formats(xml_file):
-    with pytest.raises(ValueError, match="XML reader does not support JSONFormat"):
-        XMLFileReader().read_file(JSONFormat(), file_path=xml_file, reader_config=ReaderConfig())
+def test_data_reader_registers_and_overrides_symbolic_formats(json_file: Path) -> None:
+    builtin = DataReader().select_file_reader("json")
+    assert isinstance(builtin, JSONFileReader)
+    custom = JSONFileReader()
+    reader = DataReader(file_readers={"json": custom})
+    assert reader.select_file_reader("json") is custom
+    with pytest.raises(ValueError, match="No reader registered"):
+        reader.select_file_reader("unregistered")
 
 
-def test_read_xml_file(xml_file):
-    result = XMLFileReader().read_file(XMLFormat(), file_path=xml_file, reader_config=ReaderConfig())
-
-    assert isinstance(result, ElementTree.Element)
-    assert result.tag == "root"
-    children = list(result)
-    assert len(children) == 2
-    assert children[0].attrib["name"] == "test"
+def test_data_reader_reads_builtin_xml_into_named_source(xml_file: Path, tmp_path: Path) -> None:
+    source = DataReader().read_data_files([DataFile(name="xml", fpath=xml_file)], folder_path=tmp_path)["xml"]
+    assert isinstance(source.data, ElementTree.Element)
+    assert source.data.tag == "root"
 
 
-def test_read_h5_file_1d(h5_file_1d):
-    result = read_polars_file(H5Format(), file_path=h5_file_1d)
+def test_polars_reader_preserves_hdf5_array_and_table_layouts(tmp_path: Path) -> None:
+    one_dimensional = tmp_path / "one.h5"
+    with h5py.File(one_dimensional, "w") as output:
+        output.create_dataset("data", data=np.array([1, 2, 3, 4, 5]))
+    one_frame = read_polars_file("hdf5", file_path=one_dimensional).collect()
+    assert one_frame.shape == (5, 1)
+    assert one_frame.columns == ["data"]
 
-    assert isinstance(result, pl.LazyFrame)
-    df = result.collect()
-    assert df.shape == (5, 1)
-    assert "data" in df.columns
-
-
-def test_read_h5_file_2d(h5_file_2d):
-    result = read_polars_file(H5Format(), file_path=h5_file_2d)
-
-    assert isinstance(result, pl.LazyFrame)
-    df = result.collect()
-    assert df.shape == (2, 3)
-    assert "matrix_col_0" in df.columns
-    assert "matrix_col_1" in df.columns
-    assert "matrix_col_2" in df.columns
+    matrix = tmp_path / "matrix.h5"
+    with h5py.File(matrix, "w") as output:
+        output.create_dataset("matrix", data=np.array([[1, 2, 3], [4, 5, 6]]))
+    matrix_frame = read_polars_file("hdf5", file_path=matrix).collect()
+    assert matrix_frame.shape == (2, 3)
+    assert matrix_frame.columns == ["matrix_col_0", "matrix_col_1", "matrix_col_2"]
 
 
-def test_read_h5_file_group_fallback(h5_file_group):
-    result = read_polars_file(H5Format(), file_path=h5_file_group)
-
-    assert isinstance(result, pl.LazyFrame)
-    df = result.collect()
-    assert df.shape[0] == 1
-
-
-def test_polars_file_reader_uses_an_injected_h5_reader(tmp_path):
-    from r2x_core.h5_adapter import H5Reader
-
-    h5_path = tmp_path / "custom.h5"
-    with h5py.File(h5_path, "w") as h5_file:
-        h5_file.create_dataset("data", data=np.array([1, 2]))
+def test_polars_reader_accepts_custom_hdf5_array_decoder(tmp_path: Path) -> None:
+    path = tmp_path / "custom.h5"
+    with h5py.File(path, "w") as output:
+        output.create_dataset("data", data=np.array([1, 2]))
 
     class ScaledH5Reader(H5Reader):
         def read_file(
             self,
-            file_type: FileFormat,
+            format_name: str,
             /,
             *,
             file_path: Path,
             reader_config: ReaderConfig,
-        ) -> dict[str, np.ndarray]:
-            if not self.supports_file_type(file_type):
-                msg = "Expected HDF5 format"
-                raise ValueError(msg)
-            with h5py.File(file_path, "r") as h5_file:
-                return {"data": np.asarray(h5_file[str(reader_config.kwargs["data_key"])]) * 2}
+        ) -> DecodedSources:
+            with h5py.File(file_path, "r") as source:
+                values = np.asarray(source[str(reader_config.options["data_key"])]) * 2
+            return {"data": ArraySource({"data": values}, None)}
 
-    reader = PolarsTabularFileReader(h5_reader=ScaledH5Reader())
-    result = reader.read_file(
-        H5Format(),
-        file_path=h5_path,
-        reader_config=ReaderConfig(kwargs={"data_key": "data"}),
-    )
-
-    assert result.collect().to_dicts() == [{"data": 2}, {"data": 4}]
+    source = PolarsTabularFileReader(h5_reader=ScaledH5Reader()).read_file(
+        "hdf5", file_path=path, reader_config=ReaderConfig(options={"data_key": "data"})
+    )["data"]
+    assert source.data.collect().to_dicts() == [{"data": 2}, {"data": 4}]
 
 
-def test_data_reader_uses_the_builtin_xml_file_reader(xml_file, tmp_path):
-    data_file = DataFile(name="xml", fpath=xml_file)
-
-    result = DataReader().read_data_file(data_file, folder_path=tmp_path)
-
-    assert isinstance(result, ElementTree.Element)
-    assert result.tag == "root"
-
-
-def test_unsupported_file_type():
-    from dataclasses import dataclass
-
-    @dataclass(slots=True)
-    class UnsupportedFormat(FileFormat):
-        pass
-
-    with pytest.raises(ValueError, match="No file reader configured for UnsupportedFormat"):
-        DataReader().select_file_reader(UnsupportedFormat())
-
-
-def test_polars_reader_rejects_zero_header_rows(tmp_path):
-    with pytest.raises(ValueError, match="header_rows"):
-        read_polars_file(
-            TableFormat(),
-            file_path=tmp_path / "headers.csv",
-            reader_config=ReaderConfig(kwargs={"header_rows": 0}),
+def test_hdf5_reader_options_select_columns_and_datetime(tmp_path: Path) -> None:
+    path = tmp_path / "timeseries.h5"
+    with h5py.File(path, "w") as output:
+        output.create_dataset("columns", data=np.array(["north", "south"], dtype="S"))
+        output.create_dataset("data", data=np.array([[1.0, 2.0], [3.0, 4.0]]))
+        output.create_dataset(
+            "dates", data=np.array(["2024-01-01T00:00:00", "2024-01-01T01:00:00"], dtype="S")
         )
+    frame = read_polars_file(
+        "hdf5",
+        file_path=path,
+        options={"data_key": "data", "columns_key": "columns", "datetime_key": "dates"},
+    ).collect()
+    assert frame.columns == ["north", "south", "datetime"]
+    assert frame.height == 2
 
 
-def test_reader_config_rejects_csv_options_outside_kwargs():
-    from pydantic import ValidationError
-
-    with pytest.raises(ValidationError, match="header_rows"):
-        ReaderConfig(header_rows=2)
-
-
-@pytest.mark.parametrize(
-    ("header_rows", "kwargs", "message"),
-    [
-        (2, {"has_header": True}, "has_header=True"),
-        (2, {"new_columns": ["first", "second"]}, "new_columns"),
-        (2, {"skip_rows_after_header": 1}, "skip_rows_after_header"),
-    ],
-)
-def test_read_csv_rejects_unsupported_multirow_header_options(tmp_path, header_rows, kwargs, message):
-    csv_path = tmp_path / "headers.csv"
-    csv_path.write_text("first,second\nname,value\na,1\n")
-
-    with pytest.raises(ValueError, match=message):
-        read_polars_file(
-            TableFormat(),
-            file_path=csv_path,
-            reader_config=ReaderConfig(kwargs={"header_rows": header_rows, **kwargs}),
-        )
-
-
-@pytest.mark.parametrize(
-    ("separator", "expected_columns"),
-    [(" ", ["Model Year", "Capacity MW"]), (" | ", ["Model | Year", "Capacity | MW"])],
-)
-def test_csv_headers_preserve_separator_whitespace(
-    tmp_path: Path, separator: str, expected_columns: list[str]
-) -> None:
-    csv_path = tmp_path / "headers.csv"
-    csv_path.write_text("Model,Capacity\nYear,MW\n2025,10\n", encoding="utf-8")
+def test_custom_hdf5_reader_returns_arrays_without_polars_conversion(tmp_path: Path) -> None:
+    path = tmp_path / "samples.h5"
+    with h5py.File(path, "w") as output:
+        output.create_dataset("samples", data=np.array([1.0, 2.0]))
     data_file = DataFile(
-        name="headers",
-        fpath=csv_path,
-        reader=ReaderConfig(kwargs={"header_rows": 2, "header_separator": separator}),
+        name="samples",
+        fpath=path,
+        reader=ReaderConfig(format="hdf5_array", options={"data_key": "samples"}),
     )
-
-    frame = DataReader().read_data_file(data_file, folder_path=tmp_path).collect()
-
-    assert frame.columns == expected_columns
-    assert frame.rows() == [(2025, 10)]
+    source = DataReader().read_data_files([data_file], folder_path=tmp_path)["samples"]
+    assert isinstance(source, ArraySource)
+    assert source.values("samples") == [1.0, 2.0]
 
 
-def test_read_csv_rejects_insufficient_header_rows(tmp_path):
-    csv_path = tmp_path / "one_header.csv"
-    csv_path.write_text("name,value\na,1\n")
+def test_data_reader_requires_explicit_format_for_custom_extension(tmp_path: Path) -> None:
+    path = tmp_path / "new.ext"
+    path.write_text("{}", encoding="utf-8")
+    item = DataFile(name="new", fpath=path, reader=ReaderConfig(format="json"))
+    assert DataReader().read_data_files([item], folder_path=tmp_path)["new"].data == {}
 
-    with pytest.raises(ValueError, match="Expected 3 header rows"):
-        read_polars_file(
-            TableFormat(),
-            file_path=csv_path,
-            reader_config=ReaderConfig(kwargs={"header_rows": 3}),
+
+def test_csv_reader_options_are_strict(tmp_path: Path) -> None:
+    path = tmp_path / "table.csv"
+    path.write_text("a,b\n1,2\n", encoding="utf-8")
+    item = DataFile(
+        name="table",
+        fpath=path,
+        reader=ReaderConfig(format="csv", options={"not_a_scan_option": True}),
+    )
+    with pytest.raises(ValueError, match="Unsupported CSV reader option"):
+        DataReader().read_data_files([item], folder_path=tmp_path)
+
+
+def test_hdf5_reader_validates_format_and_options_before_opening(tmp_path: Path) -> None:
+    """Reject unsupported HDF5 formats and reader-specific option names."""
+    reader = H5PyFileReader()
+    path = tmp_path / "not-opened.h5"
+    with pytest.raises(ValueError, match="cannot read format"):
+        reader.read_file("csv", file_path=path, reader_config=ReaderConfig())
+    with pytest.raises(ValueError, match="Invalid HDF5 reader options"):
+        reader.read_file(
+            "hdf5_array",
+            file_path=path,
+            reader_config=ReaderConfig(format="hdf5_array", options={"unrecognized": True}),
         )
 
 
-def test_read_csv_rejects_duplicate_combined_headers(tmp_path):
-    csv_path = tmp_path / "duplicate_headers.csv"
-    csv_path.write_text("group,group\nvalue,value\na,1\n")
+def test_polars_reader_rejects_unsupported_formats_and_array_only_hdf5(
+    tmp_path: Path,
+) -> None:
+    """Require explicit conversion when an HDF5 reader does not provide columns."""
+    reader = PolarsTabularFileReader()
+    path = tmp_path / "unread.ext"
+    with pytest.raises(ValueError, match="Polars cannot read format"):
+        reader.read_file("unreadable", file_path=path, reader_config=ReaderConfig())
 
-    with pytest.raises(ValueError, match="duplicate column names"):
-        read_polars_file(
-            TableFormat(),
-            file_path=csv_path,
-            reader_config=ReaderConfig(kwargs={"header_rows": 2}),
+    class ArrayOnlyReader(H5Reader):
+        def read_file(
+            self,
+            format_name: str,
+            /,
+            *,
+            file_path: Path,
+            reader_config: ReaderConfig,
+        ) -> DecodedSources:
+            return {"data": ArraySource(np.array([1.0, 2.0]), None)}
+
+    with pytest.raises(ValueError, match="one named array mapping"):
+        read_polars_h5_file(
+            file_path=path,
+            reader_config=ReaderConfig(format="hdf5"),
+            h5_reader=ArrayOnlyReader(),
         )
+
+
+def test_reader_rejects_empty_and_invalid_named_outputs() -> None:
+    """Require every registered reader output to be a named decoded source."""
+    with pytest.raises(ValueError, match="returned no named sources"):
+        DataReader.name_decoded_sources("empty", {})
+    with pytest.raises(TypeError, match="invalid named source"):
+        DataReader.name_decoded_sources("invalid", {"document": object()})
+    with pytest.raises(TypeError, match="invalid named source"):
+        DataReader.name_decoded_sources("invalid", {1: DocumentSource({"value": 1}, None)})
+
+
+def test_derived_sources_must_follow_their_dependencies(tmp_path: Path) -> None:
+    """Keep declared source composition ordered and fail before reading inputs."""
+    item = DataFile(name="derived", source="not-yet-loaded")
+    with pytest.raises(ValueError, match="must be declared before"):
+        DataReader().read_data_files([item], folder_path=tmp_path)
+
+
+def test_reader_placeholders_reject_missing_and_non_string_paths(tmp_path: Path) -> None:
+    """Validate path and reader options before any file access."""
+    missing_path = DataFile(name="missing", fpath=Path("{input}"))
+    with pytest.raises(ValueError, match="Placeholder \\{input\\} has no configured value"):
+        DataReader.resolve_placeholders(missing_path, placeholders=None)
+    wrong_type = DataFile(name="wrong", fpath=Path("{input}"))
+    with pytest.raises(ValueError, match="must resolve to strings"):
+        DataReader.resolve_placeholders(wrong_type, placeholders={"input": ["not", "a path"]})
+    options = DataFile(
+        name="options",
+        fpath=tmp_path / "unused.json",
+        reader=ReaderConfig(format="json", options={"encoding": "{encoding}"}),
+    )
+    with pytest.raises(ValueError, match="Placeholder \\{encoding\\} has no configured value"):
+        DataReader.resolve_placeholders(options, placeholders=None)

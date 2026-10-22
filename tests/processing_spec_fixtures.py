@@ -114,7 +114,7 @@ def process_tabular_data(
     data_frame: pl.LazyFrame, *, data_file: DataFile, proc_spec: TabularProcessing
 ) -> pl.LazyFrame:
     """Run the spec through the production tabular backend."""
-    result = PolarsTabularBackend().process(data_frame, data_file=data_file, proc_spec=proc_spec)
+    result = PolarsTabularBackend().process(data_frame, processing=proc_spec, sources={}, data_file=data_file)
     if isinstance(result, Err):
         raise result.err()
     return result.unwrap()

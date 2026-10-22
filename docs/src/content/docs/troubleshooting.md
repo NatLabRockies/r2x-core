@@ -49,9 +49,9 @@ This self-contained check shows an existing but empty root:
 (True, [])
 ```
 
-A name missing from `list_data()` explains a `KeyError` from `read_data(name)`; register its actual `DataFile` before reading it.
-If the name is present but the physical file is absent, correct its `relative_fpath` under the root or use an explicit `fpath`.
-Then call `store.read_data(name)` again and inspect its result, not just the registered names.
+A name missing from `list_data()` is absent from the mapping configuration; register its actual `DataFile` before reading it.
+If the name is present but the physical file is absent, correct its `relative_fpath` under the execution folder or use an explicit `fpath`.
+Use `DataReader.read_data_files()` to inspect decoded named sources, or run `build_system()` to execute configured construction. `DataStore` does not read inputs.
 See [file configuration](/r2x-core/how-tos/configure-data-files/) and [DataStore contracts](/r2x-core/references/api/#data-management).
 
 ## A CSV parses incorrectly, a column is missing, or the result is still lazy
@@ -64,10 +64,10 @@ uv run --no-dev python -c "import polars as pl; f=pl.read_csv('inputs/generators
 
 For the shipped input, expect `name`, `capacity_mw`, and `status`, including Alpha 100, Bravo 50 and Retired 25.
 A different header, delimiter, skipped row, or string-valued numeric column needs a matching reader configuration or a corrected source export.
-Reader options go in `ReaderConfig(kwargs=...)`; transformation rules belong in `proc_spec`.
+Reader options go in `ReaderConfig(options=...)`; transformation rules belong in `proc_spec`.
 Compare the raw columns with the requested mappings and filters before adding more processing.
 
-CSV reads in this workflow return a Polars lazy frame. Materialize it with `collect()` before inspecting rows or constructing components.
+The built-in CSV reader returns a typed Polars table source. Inspect its `data` lazy frame with `collect()`; `build_system()` consumes decoded fields and constructs configured components without an application-owned row loop.
 After fixing the reader/specification, rerun the [CSV tutorial](/r2x-core/tutorials/getting-started/): two active generators and 165 MW after scaling prove that filtering and transformation both ran.
 See [processing specifications](/r2x-core/references/processors/).
 Some reshaping requests remain tracked in [issue #132](https://github.com/NatLabRockies/r2x-core/issues/132); check the current source and issue status before assuming a requested processing feature is implemented.

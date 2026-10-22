@@ -15,6 +15,7 @@ from r2x_core.models import (
     AggregateStep,
     ExpressionOperation,
     FilterColumnsStep,
+    JoinStep,
     LiteralExpression,
     LowercaseStep,
     MappingStep,
@@ -315,6 +316,26 @@ def test_mapping_steps_fail_for_missing_exact_column_name(column_name: str) -> N
 
     assert isinstance(result, Err)
     assert f"Column {column_name!r} not found" in str(result.err())
+
+
+def test_mapping_steps_reject_unsupported_expression_types() -> None:
+    """Return explicit errors when a configured expression cannot be compiled."""
+    steps = TypeAdapter(list[MappingStep]).validate_python(
+        [
+            {
+                "op": "select",
+                "columns": {
+                    "converted": {
+                        "op": "cast",
+                        "args": [{"column": "value"}, {"literal": "unknown-type"}],
+                    }
+                },
+            }
+        ]
+    )
+    result = apply_mapping_steps(pl.LazyFrame({"value": [1]}), steps, backend=PolarsTabularBackend())
+    assert isinstance(result, Err)
+    assert "Unsupported data type: unknown-type" in str(result.err())
 
 
 def test_mapping_steps_preserve_exact_column_names() -> None:
@@ -626,6 +647,18 @@ def test_mapping_steps_support_cross_joins_without_join_keys() -> None:
     assert result.unwrap().sort("id", "label").collect().rows() == [(1, "a"), (1, "b"), (2, "a"), (2, "b")]
 
 
+def test_polars_backend_rejects_a_join_without_its_named_source() -> None:
+    """Return an explicit operation error for a missing compatible source."""
+    backend = PolarsTabularBackend()
+    result = backend.apply_mapping_operation(
+        JoinStep(op="join", source="missing", on=["id"], how="left"),
+        pl.LazyFrame({"id": [1]}),
+        source_frames={},
+    )
+    assert isinstance(result, Err)
+    assert "join source 'missing' was not provided" in str(result.err())
+
+
 def test_polars_backend_processes_existing_tabular_configuration(tmp_path: Path) -> None:
     """Existing TabularProcessing uses the same injected backend contract."""
     frame = pl.LazyFrame({"old_name": ["a", "b"]})
@@ -637,9 +670,10 @@ def test_polars_backend_processes_existing_tabular_configuration(tmp_path: Path)
     result = backend.process(
         frame,
         data_file=data_file,
-        proc_spec=TabularProcessing(
+        processing=TabularProcessing(
             steps=[RenameColumnsStep(op="rename_columns", column_mapping={"old_name": "name"})]
         ),
+        sources={},
     )
 
     assert isinstance(result, Ok)

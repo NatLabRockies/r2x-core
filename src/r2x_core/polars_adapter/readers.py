@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from inspect import signature
 from pathlib import Path
 from typing import Any
 
@@ -10,10 +11,11 @@ from loguru import logger
 from pydantic import ValidationError as PydanticValidationError
 
 from ..datafile import ReaderConfig
-from ..file_reader import FileReader
+from ..file_reader import ArraySource, DecodedSources, FileReader, TabularSource
 from ..h5_adapter import H5PyFileReader, H5Reader
 from ..models import StrictConfigModel
-from ..types import FileFormat, H5Format, NonEmptyString, ParquetFormat, PositiveInteger, TableFormat
+from ..type_vocabulary import NonEmptyString, PositiveInteger
+from .backend import PolarsTabularBackend
 
 
 class CSVReaderOptions(StrictConfigModel):
@@ -40,6 +42,7 @@ HEADER_READ_OPTIONS = frozenset(
 def read_polars_table_file(
     *,
     file_path: Path,
+    format_name: str,
     header_rows: int = 1,
     header_separator: str = "|",
     **reader_kwargs: Any,
@@ -49,8 +52,12 @@ def read_polars_table_file(
         msg = "header_rows must be at least 1"
         raise ValueError(msg)
     scan_kwargs = dict(reader_kwargs)
-    if file_path.suffix.lower() == ".tsv":
+    if format_name == "tsv":
         scan_kwargs.setdefault("separator", "\t")
+    unknown = scan_kwargs.keys() - signature(pl.scan_csv).parameters.keys()
+    if unknown:
+        msg = f"Unsupported CSV reader option(s): {sorted(unknown)}"
+        raise ValueError(msg)
     if header_rows == 1:
         logger.debug("Scanning {}", file_path)
         return pl.scan_csv(file_path, **scan_kwargs)
@@ -102,32 +109,33 @@ def read_polars_h5_file(
 ) -> pl.LazyFrame:
     """Read a configured HDF5 table into a Polars lazy frame."""
     reader = H5PyFileReader() if h5_reader is None else h5_reader
-    data = reader.read_file(H5Format(), file_path=file_path, reader_config=reader_config)
-    return pl.DataFrame(data).lazy()
+    source = reader.read_file("hdf5_array", file_path=file_path, reader_config=reader_config)["data"]
+    if not isinstance(source, ArraySource) or not isinstance(source.data, dict):
+        msg = "HDF5 reader must return one named array mapping"
+        raise ValueError(msg)
+    return pl.DataFrame(source.data).lazy()
 
 
-class PolarsTabularFileReader(FileReader[pl.LazyFrame]):
+class PolarsTabularFileReader(FileReader):
     """Read supported tabular files into Polars lazy frames."""
 
     def __init__(self, *, h5_reader: H5Reader | None = None) -> None:
-        """Select the HDF5 format reader used by Polars."""
+        """Select the HDF5 format reader and matching processing backend."""
         self.h5_reader = h5_reader
-
-    def supports_file_type(self, file_type: FileFormat, /) -> bool:
-        """Return whether this reader supports the file format."""
-        return isinstance(file_type, (TableFormat, H5Format, ParquetFormat))
+        self.backend: PolarsTabularBackend = PolarsTabularBackend()
 
     def read_file(
         self,
-        file_type: FileFormat,
+        format_name: str,
         /,
         *,
         file_path: Path,
         reader_config: ReaderConfig,
-    ) -> pl.LazyFrame:
-        """Read a supported file format into a Polars lazy frame."""
-        if isinstance(file_type, TableFormat):
-            reader_kwargs = dict(reader_config.kwargs)
+    ) -> DecodedSources:
+        """Read tabular formats into Polars-backed named sources."""
+        frame: pl.LazyFrame
+        if format_name in {"csv", "tsv"}:
+            reader_kwargs = dict(reader_config.options)
             option_values = {
                 name: reader_kwargs.pop(name)
                 for name in ("header_rows", "header_separator")
@@ -138,19 +146,22 @@ class PolarsTabularFileReader(FileReader[pl.LazyFrame]):
             except PydanticValidationError as error:
                 msg = f"Invalid CSV reader options: {error}"
                 raise ValueError(msg) from error
-            return read_polars_table_file(
+            frame = read_polars_table_file(
                 file_path=file_path,
+                format_name=format_name,
                 header_rows=options.header_rows,
                 header_separator=options.header_separator,
                 **reader_kwargs,
             )
-        if isinstance(file_type, H5Format):
-            return read_polars_h5_file(
+        elif format_name == "hdf5":
+            frame = read_polars_h5_file(
                 file_path=file_path,
                 reader_config=reader_config,
                 h5_reader=self.h5_reader,
             )
-        if isinstance(file_type, ParquetFormat):
-            return pl.scan_parquet(file_path, **reader_config.kwargs)
-        msg = f"Polars cannot read file type {type(file_type).__name__}"
-        raise ValueError(msg)
+        elif format_name == "parquet":
+            frame = pl.scan_parquet(file_path, **reader_config.options)
+        else:
+            msg = f"Polars cannot read format {format_name!r}"
+            raise ValueError(msg)
+        return {"data": TabularSource(frame, self.backend)}

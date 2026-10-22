@@ -53,14 +53,24 @@ Complete API documentation for all r2x-core classes and functions.
 ```
 
 ```{eval-rst}
-.. autoclass:: r2x_core.json_adapter.JSONProcessor
+.. autoclass:: r2x_core.DecodedSource
    :members:
 ```
 
 ```{eval-rst}
-.. autoclass:: r2x_core.TabularBackend
+.. autoclass:: r2x_core.ProcessingSource
    :members:
    :show-inheritance:
+```
+
+```{eval-rst}
+.. autoclass:: r2x_core.SourceProcessor
+   :members:
+```
+
+```{eval-rst}
+.. autoclass:: r2x_core.TabularProcessor
+   :members:
 ```
 
 ```{eval-rst}
@@ -124,22 +134,71 @@ Complete API documentation for all r2x-core classes and functions.
    :no-index:
 ```
 
-## File Types
+## Configured construction
 
 ```{eval-rst}
-.. autoclass:: r2x_core.FileFormat
+.. autofunction:: r2x_core.build_system
+```
+
+```{eval-rst}
+.. autoclass:: r2x_core.ComponentInstruction
    :members:
-   :undoc-members:
-   :show-inheritance:
    :no-index:
 ```
 
 ```{eval-rst}
-.. autoclass:: r2x_core.H5Format
+.. autoclass:: r2x_core.ComponentReference
    :members:
-   :undoc-members:
-   :show-inheritance:
    :no-index:
+```
+
+```{eval-rst}
+.. autoclass:: r2x_core.ComponentOwner
+   :members:
+   :no-index:
+```
+
+```{eval-rst}
+.. autoclass:: r2x_core.TimeSeriesInstruction
+   :members:
+   :no-index:
+```
+
+```{eval-rst}
+.. autoclass:: r2x_core.SupplementalAttributeInstruction
+   :members:
+   :no-index:
+```
+
+```{eval-rst}
+.. autoclass:: r2x_core.ColumnTimeAxis
+   :members:
+   :no-index:
+```
+
+```{eval-rst}
+.. autoclass:: r2x_core.RegularTimeAxis
+   :members:
+   :no-index:
+```
+
+```python doctest
+>>> from r2x_core import ArraySource
+>>> from r2x_core import DecodedSource
+>>> from r2x_core import DecodedSources
+>>> from r2x_core import DocumentSource
+>>> from r2x_core import ProcessingSource
+>>> from r2x_core import SourceProcessor
+>>> from r2x_core import TabularProcessor
+>>> from r2x_core import TabularSource
+>>> from r2x_core import ComponentInstruction
+>>> from r2x_core import ComponentOwner
+>>> from r2x_core import ComponentReference
+>>> from r2x_core import TimeSeriesInstruction
+>>> from r2x_core import SupplementalAttributeInstruction
+>>> from r2x_core import ColumnTimeAxis
+>>> from r2x_core import RegularTimeAxis
+>>> from r2x_core import build_system
 ```
 
 ## Rules and Translation
@@ -209,10 +268,6 @@ True
 
 ```{eval-rst}
 .. autofunction:: r2x_core.utils.components_to_records
-```
-
-```{eval-rst}
-.. autofunction:: r2x_core.utils.create_component
 ```
 
 ```{eval-rst}

@@ -1,0 +1,8 @@
+[
+  {
+    "kind": "component",
+    "source": "generators",
+    "component_type": "Generator",
+    "fields": {"name": "name", "capacity_mw": "capacity_mw"}
+  }
+]

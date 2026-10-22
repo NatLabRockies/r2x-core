@@ -5,20 +5,27 @@ title: Why the workflow has separate data, model, and artifact boundaries
 The [CSV tutorial](/r2x-core/tutorials/getting-started/) crosses three boundaries: source files become typed components, hooks change a system, and serialization makes that result loadable by another process.
 Keeping those boundaries visible makes it easier to locate a failure and choose a useful validation check.
 
-## A reader is not a model parser
+## Source decoding is separate from configured construction
 
-`DataFile` declares where data lives and which processing specification applies.
-`DataStore.read_data()` loads it through `DataReader`; for CSV this yields a lazy Polars frame.
-It does not decide whether a row is a generator, a bus, or a model-specific relationship.
-The parser owns that interpretation and constructs the component classes.
-That separation lets one reader serve multiple model schemas without putting model-specific assumptions into core.
+`DataFile` declares a path, symbolic reader selection, options, and processing.
+`DataReader.read_data_files()` resolves inputs and returns named typed sources.
+`build_system()` executes the configured component, time-series, and
+supplemental-attribute instructions using application models and public
+infrasys APIs. Applications supply those models, reader registrations for
+uncommon formats, and configuration. They do not maintain parallel
+construction or attachment loops.
+
+System-to-System translation remains a separate operation. It continues to use
+translation rules, dependency ordering, supplemental outputs, and the existing
+time-series transfer and replacement behavior.
 
 ```mermaid
 flowchart TD
-  Files[CSV or other native input] --> Reader[DataFile and DataStore]
-  Reader --> Rows[Loaded records or frames]
-  Rows --> Parser[Model package parser]
-  Parser --> Source[Source System with typed components]
+  Files[CSV or other native input] --> Reader[DataFile and DataReader]
+  Reader --> Sources[Named typed decoded sources]
+  Sources --> Build[build_system and three output instructions]
+  Models[Application models and reader registrations] --> Build
+  Build --> Source[System with validated components and attachments]
   Source --> Mapping[R2X translation rules and getters]
   Mapping --> Target[Target System with target component types]
   Target --> Exporter[Target model exporter]

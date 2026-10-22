@@ -1,87 +1,63 @@
 ---
-title: "Attaching Time Series"
+title: "Attach Time Series"
 ---
 
-<span id="attaching-time-series"></span>
+Time-series output is selected by a `time_series` instruction in
+`parser_rules.json`, not by a file extension. A CSV, JSON document, HDF5 array,
+or application-defined source can supply samples if its decoded source exposes
+the configured fields. The standard `build_system` operation constructs
+`SingleTimeSeries` values and attaches them through the public infrasys API.
 
-Use `FileInfo.file_type` to describe whether a file contains static values or
-time-varying data. This semantic type is separate from the physical format
-reported by `DataFile.file_format`.
+## Attaching time series
 
-## Mark time-series inputs
+A `TimeSeriesInstruction` names its source, sample-value field, time axis,
+metadata, units, and component owners. Owners use component type and name.
+`name_field` groups long-form rows so each owner receives only its own samples;
+literal `names` intentionally shares one sample vector across those owners.
 
 ```python doctest
->>> from r2x_core import DataFile, FileInfo, FileType
->>> profiles = DataFile(
-...     name="generation_profiles",
-...     relative_fpath="data/profiles.csv",
-...     info=FileInfo(file_type=FileType.TIME_SERIES, units="MW"),
+>>> from r2x_core import ColumnTimeAxis, ComponentOwner, TimeSeriesInstruction
+>>> load = TimeSeriesInstruction(
+...     kind="time_series",
+...     source="loads",
+...     name="load_mw",
+...     values="load",
+...     time_axis=ColumnTimeAxis(kind="column", column="timestamp"),
+...     units="MW",
+...     metadata={"scenario": "base", "enabled": False},
+...     owners=[ComponentOwner(component_type="Bus", name_field="bus_name")],
 ... )
->>> profiles.info.file_type
-<FileType.TIME_SERIES: 'time_series'>
->>> type(profiles.file_format).__name__
-'TableFormat'
+>>> load.owners[0].name_field
+'bus_name'
+>>> load.metadata["enabled"]
+False
 ```
 
-Use `FileType.STATIC` for component attributes that do not vary over time. It
-is the default, so static files need no special setting:
+A regular axis uses `initial_timestamp` and a positive
+`resolution_seconds`. A column axis must be strictly increasing and regular.
+SingleTimeSeries requires at least two samples. Missing fields, invalid axes,
+unknown owners, and infrasys validation errors fail before that output is
+attached. Explicit null values are not treated as absent fields.
+
+Units are passed as a `ureg.Quantity` when the series is created, so
+`TimeSeriesMetadata.units` records the unit. Other instruction metadata is
+stored as infrasys features, including `False` and `0` values.
+
+## Keep system translation separate
+
+`build_system` executes the three configured ingestion outputs: components,
+time series, and supplemental attributes. System-to-System translation remains
+a separate workflow and retains its dependency ordering, time-series transfer,
+and replacement behavior.
 
 ```python doctest
->>> from r2x_core import DataFile, FileInfo, FileType
->>> generators = DataFile(
-...     name="generators",
-...     relative_fpath="data/generators.csv",
-...     info=FileInfo(description="Generator properties"),
-... )
->>> generators.info.file_type is FileType.STATIC
-True
-```
-
-`DataFile.file_format` checks whether the selected format supports time-series
-data. For example, table, HDF5, and Parquet formats support it, while JSON and
-XML do not. This check concerns metadata semantics. It does not convert tabular
-records into the `infrasys` time-series representation.
-
-## Mark optional inputs
-
-Use `FileRequirement.OPTIONAL` when an absent input should be skipped by the
-reader. Required inputs are the default.
-
-```python doctest
->>> from r2x_core import DataFile, FileInfo, FileRequirement
->>> optional_profiles = DataFile(
-...     name="optional_profiles",
-...     relative_fpath="profiles.csv",
-...     info=FileInfo(requirement=FileRequirement.OPTIONAL),
-... )
->>> optional_profiles.info.requirement
-<FileRequirement.OPTIONAL: 'optional'>
-```
-
-## Transfer time-series metadata
-
-Use [`transfer_time_series_metadata`](/r2x-core/references/api/) to transfer
-time-series metadata from a source system to a target system:
-
-```python doctest
->>> from r2x_core import transfer_time_series_metadata
+>>> from r2x_core import replace_single_time_series, transfer_time_series_metadata
+>>> replace_single_time_series.__doc__.splitlines()[0]
+'Replace exactly one time series association without removing shared data.'
 >>> transfer_time_series_metadata.__doc__.splitlines()[0]
 'Transfer time series metadata for target system.'
 ```
 
-Use [`replace_single_time_series`](/r2x-core/references/api/) to replace one
-target association while preserving backing data that may be shared with the
-source system:
-
-```python doctest
->>> from r2x_core import replace_single_time_series
->>> replace_single_time_series.__doc__.splitlines()[0]
-'Replace exactly one time series association without removing shared data.'
-```
-
-## See also
-
-- [Manage datastores](/r2x-core/how-tos/manage-datastores/)
-- [Read data files](/r2x-core/how-tos/read-data-files/)
-- [`FileInfo`](/r2x-core/references/api/)
-- [`DataFile`](/r2x-core/references/api/)
+See [Build a parser](/r2x-core/how-tos/build-parsers/),
+[Read data files](/r2x-core/how-tos/read-data-files/), and the
+[time-series transfer API](/r2x-core/references/api/).

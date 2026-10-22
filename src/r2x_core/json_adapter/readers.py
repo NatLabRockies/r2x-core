@@ -3,29 +3,32 @@
 import json
 from pathlib import Path
 
+from pydantic import TypeAdapter
+
 from ..datafile import ReaderConfig
-from ..file_reader import FileReader
-from ..types import FileFormat, JSONFormat, JSONValue
+from ..file_reader import DecodedSources, DocumentSource, FileReader
+from ..types import JSONValue
+from .processing import JSONProcessingBackend
 
 
-class JSONFileReader(FileReader[JSONValue]):
+class JSONFileReader(FileReader):
     """Read JSON files into Python JSON values."""
-
-    def supports_file_type(self, file_type: FileFormat, /) -> bool:
-        """Return whether this reader supports JSON format markers."""
-        return isinstance(file_type, JSONFormat)
 
     def read_file(
         self,
-        file_type: FileFormat,
+        format_name: str,
         /,
         *,
         file_path: Path,
         reader_config: ReaderConfig,
-    ) -> JSONValue:
-        """Read one JSON file."""
-        if not self.supports_file_type(file_type):
-            msg = f"JSON reader does not support {type(file_type).__name__}"
+    ) -> DecodedSources:
+        """Read one JSON document into a named source."""
+        if format_name != "json":
+            msg = f"JSON reader cannot read format {format_name!r}"
+            raise ValueError(msg)
+        if reader_config.options:
+            msg = f"JSON reader has no options: {sorted(reader_config.options)}"
             raise ValueError(msg)
         with file_path.open(encoding="utf-8") as file:
-            return json.load(file)
+            value: JSONValue = TypeAdapter(JSONValue).validate_python(json.load(file))
+        return {"data": DocumentSource(value, JSONProcessingBackend())}

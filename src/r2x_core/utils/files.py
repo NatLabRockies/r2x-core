@@ -6,7 +6,7 @@ import os
 import platform
 import shutil
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from loguru import logger
 from rust_ok import Err, Ok, Result
@@ -131,7 +131,10 @@ def get_fpath(data_file: DataFile, *, folder_path: Path) -> Result[Path, ValueEr
         fpath = folder_path / Path(data_file.relative_fpath)
         logger.trace("Resolved relative_fpath={} for file={}", fpath, data_file.name)
         return audit_file(fpath)
-    # DataFile validation guarantees that the final source is an absolute path.
-    fpath = cast(Path, data_file.fpath)
-    logger.trace("Resolved absolute fpath={} for file={}", fpath, data_file.name)
-    return audit_file(fpath)
+    fpath = data_file.fpath
+    if fpath is None:
+        msg = f"DataFile {data_file.name!r} has no physical path"
+        raise ValueError(msg)
+    resolved = fpath if fpath.is_absolute() else folder_path / fpath
+    logger.trace("Resolved fpath={} for file={}", resolved, data_file.name)
+    return audit_file(resolved)

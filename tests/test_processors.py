@@ -9,7 +9,6 @@ import json
 import warnings
 from datetime import datetime, time, timedelta
 from decimal import Decimal
-from functools import partial
 from pathlib import Path
 
 import polars as pl
@@ -40,12 +39,39 @@ from processing_spec_fixtures import (
     process_tabular_data,
     tabular_processing,
 )
+from rust_ok import Err, Ok, Result
 
 from r2x_core.datafile import DataFile
+from r2x_core.models import TabularProcessing
 from r2x_core.polars_adapter import PolarsTabularBackend
-from r2x_core.processors import apply_processing, substitute_placeholders
+from r2x_core.processors import substitute_placeholders
+from r2x_core.reader import DataReader
+from r2x_core.types import FileProcessing
 
-apply_polars_processing = partial(apply_processing, processor=PolarsTabularBackend())
+
+def apply_polars_processing(
+    frame: pl.LazyFrame,
+    *,
+    data_file: DataFile,
+    proc_spec: FileProcessing | None,
+    placeholders: dict[str, object] | None = None,
+) -> Result[pl.LazyFrame, ValueError]:
+    """Exercise the typed Polars processor after canonical config substitution."""
+    if proc_spec is None:
+        return Ok(frame)
+    configured = data_file.model_copy(update={"proc_spec": proc_spec})
+    try:
+        resolved = DataReader.resolve_placeholders(configured, placeholders=placeholders)
+    except ValueError as error:
+        return Err(error)
+    if not isinstance(resolved.proc_spec, TabularProcessing):
+        return Err(ValueError("PolarsTabularBackend requires TabularProcessing"))
+    return PolarsTabularBackend().process(
+        frame,
+        processing=resolved.proc_spec,
+        sources={},
+        data_file=resolved,
+    )
 
 
 @pytest.fixture
@@ -344,42 +370,6 @@ def test_pl_cast_schema_missing_column_is_explicit_error(sample_csv: Path):
         pl_cast_schema(lf, data_file=df_file, proc_spec=proc_spec)
 
 
-def test_apply_processing_with_no_proc_spec(sample_csv: Path):
-    lf = pl.scan_csv(sample_csv)
-    df_file = DataFile(name="test", fpath=sample_csv)
-
-    result = apply_polars_processing(lf, data_file=df_file, proc_spec=None)
-    assert result.is_ok()
-    assert result.unwrap().collect().equals(lf.collect())
-
-
-def test_apply_processing_resolves_the_default_for_direct_callers(sample_csv: Path):
-    """Resolve Polars for the direct apply_processing call pattern used by r2x-reeds."""
-    frame = pl.LazyFrame({"value": [1]})
-    result = apply_processing(
-        frame,
-        data_file=DataFile(name="default-backend", fpath=sample_csv),
-        proc_spec=tabular_processing(column_mapping={"value": "renamed"}),
-    )
-
-    assert result.is_ok()
-    assert result.unwrap().collect_schema().names() == ["renamed"]
-
-
-def test_apply_processing_rejects_unregistered_type(sample_csv: Path):
-    class UnregisteredType:
-        pass
-
-    result = apply_polars_processing(
-        UnregisteredType(),
-        data_file=DataFile(name="test", fpath=sample_csv),
-        proc_spec=tabular_processing(),
-    )
-
-    assert result.is_err()
-    assert str(result.err()) == "PolarsTabularBackend does not support data type UnregisteredType"
-
-
 def test_apply_processing_with_placeholder_substitution(sample_csv: Path):
     lf = pl.scan_csv(sample_csv)
     df_file = DataFile(name="test", fpath=sample_csv)
@@ -398,6 +388,7 @@ def test_apply_processing_placeholder_error(sample_csv: Path):
 
     result = apply_polars_processing(lf, data_file=df_file, proc_spec=proc_spec, placeholders={"year": 2030})
     assert result.is_err()
+    assert "missing" in str(result.err())
 
 
 def test_apply_processing_substitutes_transformation_values(sample_csv: Path):
@@ -417,7 +408,7 @@ def test_apply_processing_substitutes_transformation_values(sample_csv: Path):
 
 
 def test_apply_processing_rejects_invalid_substituted_transformation(sample_csv: Path):
-    """Return a Result error when a placeholder resolves to invalid settings."""
+    """Revalidate substituted operation values before running the processor."""
     proc_spec = tabular_processing(sort_by={"amount": "{direction}"})
     result = apply_polars_processing(
         pl.LazyFrame({"amount": [1]}),
@@ -426,7 +417,7 @@ def test_apply_processing_rejects_invalid_substituted_transformation(sample_csv:
         placeholders={"direction": "sideways"},
     )
     assert result.is_err()
-    assert "Invalid processing specification" in str(result.err())
+    assert "validation error" in str(result.err()).lower()
 
 
 def test_apply_processing_substitutes_typed_transformation_values(sample_csv: Path):
@@ -461,9 +452,8 @@ def test_apply_processing_revalidates_typed_placeholders(
         proc_spec=proc_spec,
         placeholders=placeholders,
     )
-
     assert result.is_err()
-    assert "Invalid processing specification" in str(result.err())
+    assert "validation error" in str(result.err()).lower()
 
 
 def test_json_select_columns_with_nested_list(sample_json_file: Path):
@@ -539,7 +529,7 @@ def test_process_json_data_full_pipeline(sample_json_file: Path):
         key_mapping={"name": "person_name"},
         drop_keys=["status"],
     )
-    result = process_json_data(data, proc_spec=proc_spec)
+    result = process_json_data(data, steps=proc_spec.steps)
 
     assert result is not None
 
@@ -598,13 +588,13 @@ def test_substitute_placeholders_unmatched_braces_are_unchanged(value: str) -> N
     assert result.unwrap() is value
 
 
-def test_substitute_placeholders_preserves_identity_without_changes():
-    """Nested values without placeholders are returned unchanged by identity."""
+def test_substitute_placeholders_preserves_nested_values_without_changes():
+    """Nested values without placeholders retain their data through substitution."""
     value = {"items": ["plain text", 3]}
 
     result = substitute_placeholders(value, placeholders={"x": 1})
 
-    assert result.unwrap() is value
+    assert result.unwrap() == value
 
 
 def test_substitute_placeholders_supports_embedded_values():
@@ -791,17 +781,6 @@ def test_apply_processing_returns_err_for_invalid_transformation(sample_csv: Pat
 
     assert result.is_err()
     assert "filter_columns" in str(result.err())
-
-
-def test_apply_processing_rejects_data_unsupported_by_tabular_backend(sample_csv: Path):
-    result = apply_polars_processing(
-        {"a": 1},
-        data_file=DataFile(name="not-a-frame", fpath=sample_csv),
-        proc_spec=tabular_processing(),
-    )
-
-    assert result.is_err()
-    assert str(result.err()) == "PolarsTabularBackend does not support data type dict"
 
 
 def test_null_pivot_keys_are_rejected(sample_csv: Path):

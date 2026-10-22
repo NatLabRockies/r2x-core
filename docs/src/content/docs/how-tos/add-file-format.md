@@ -23,7 +23,7 @@ implement `DecodedSource` directly. Pair processing with the payload through
 
 The source loader, named transformations, and construction workflow remain
 shared. See [Custom readers and typed sources](/r2x-core/how-tos/custom-readers-and-backends/)
-and the [runnable illustrative RAW example](/r2x-core/examples/psse-raw/).
+and the [runnable illustrative RAW example](https://github.com/NatLabRockies/r2x-core/tree/main/docs/examples/psse-raw).
 The example grammar is deliberately invented and is not PSS/E RAW compatibility.
 
 A new built-in format is appropriate only when the same reader and semantics

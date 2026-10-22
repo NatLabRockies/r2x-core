@@ -25,10 +25,6 @@ class ConfiguredGroupNotFoundError(KeyError):
     """Exception raised when a reader's configured group is missing."""
 
 
-class MultipleFileError(ValueError):
-    """Exception raised when a glob pattern matches multiple files."""
-
-
 class CLIError(R2XCoreError):
     """Error raised during CLI plugin execution."""
 

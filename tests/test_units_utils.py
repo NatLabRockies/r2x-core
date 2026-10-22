@@ -129,6 +129,25 @@ def test_has_units_rejects_incompatible_natural_unit_input() -> None:
         PowerModel(base_power=100.0, power={"value": 50.0, "unit": "kV"})
 
 
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        ({"value": "not numeric", "unit": "MW"}, "value' must be numeric"),
+        ({"value": 1.0, "unit": None}, "unit' must be a non-empty string"),
+        ({"value": 1.0, "unit": ""}, "unit' must be a non-empty string"),
+    ],
+)
+def test_convert_to_internal_rejects_invalid_mapping_values(value: dict[str, object], message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        convert_to_internal(value, UnitSpec(unit="MW"))
+
+
+def test_convert_to_internal_accepts_explicit_per_unit_value() -> None:
+    spec = UnitSpec(unit="pu", base="base_power")
+
+    assert convert_to_internal({"value": 0.8, "unit": "pu"}, spec) == 0.8
+
+
 def test_convert_to_internal_rejects_unknown_units() -> None:
     spec = UnitSpec(unit="pu", base="base_power")
 

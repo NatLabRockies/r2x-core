@@ -1,6 +1,5 @@
 """Tests for H5 readers module."""
 
-import tempfile
 from pathlib import Path
 
 import h5py
@@ -23,622 +22,510 @@ def test_read_h5_file_opens_file_and_reads_configured_columns(tmp_path: Path) ->
     assert result["second"].tolist() == [2, 4]
 
 
-def test_configurable_h5_reader_default_1d():
-    """Test configurable H5 reader with no config (default) and 1D data."""
-    with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as tmp:
-        tmp_path = Path(tmp.name)
+@pytest.mark.parametrize(
+    ("dataset_name", "data", "expected"),
+    [
+        (
+            "test_data",
+            np.array([1.0, 2.0, 3.0, 4.0, 5.0]),
+            {"test_data": np.array([1.0, 2.0, 3.0, 4.0, 5.0])},
+        ),
+        (
+            "test_data",
+            np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]),
+            {
+                "test_data_col_0": np.array([1.0, 3.0, 5.0]),
+                "test_data_col_1": np.array([2.0, 4.0, 6.0]),
+            },
+        ),
+        ("data", np.array([1, 2, 3]), {"data": np.array([1, 2, 3])}),
+    ],
+    ids=["one-dimensional", "two-dimensional", "default-dataset-name"],
+)
+def test_configurable_h5_reader_defaults_to_first_dataset(
+    tmp_path: Path, dataset_name: str, data: np.ndarray, expected: dict[str, np.ndarray]
+) -> None:
+    h5_path = tmp_path / "default.h5"
+    with h5py.File(h5_path, "w") as output:
+        output.create_dataset(dataset_name, data=data)
 
-    try:
-        # Create a simple H5 file with 1D data
-        with h5py.File(str(tmp_path), "w") as f:
-            f.create_dataset("test_data", data=np.array([1.0, 2.0, 3.0, 4.0, 5.0]))
+    with h5py.File(h5_path, "r") as input_file:
+        result = configurable_h5_reader(input_file)
 
-        # Read it with no config (uses default)
-        with h5py.File(str(tmp_path), "r") as f:
-            result = configurable_h5_reader(f)
-
-        assert "test_data" in result
-        assert len(result["test_data"]) == 5
-        assert result["test_data"][0] == 1.0
-    finally:
-        tmp_path.unlink()
-
-
-def test_configurable_h5_reader_default_2d():
-    """Test configurable H5 reader with no config (default) and 2D data."""
-    with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as tmp:
-        tmp_path = Path(tmp.name)
-
-    try:
-        # Create a simple H5 file with 2D data
-        with h5py.File(str(tmp_path), "w") as f:
-            data = np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
-            f.create_dataset("test_data", data=data)
-
-        # Read it with no config (uses default)
-        with h5py.File(str(tmp_path), "r") as f:
-            result = configurable_h5_reader(f)
-
-        assert "test_data_col_0" in result
-        assert "test_data_col_1" in result
-        assert len(result["test_data_col_0"]) == 3
-        assert result["test_data_col_0"][0] == 1.0
-        assert result["test_data_col_1"][1] == 4.0
-    finally:
-        tmp_path.unlink()
+    assert list(result) == list(expected)
+    for name, values in expected.items():
+        np.testing.assert_array_equal(result[name], values)
 
 
-def test_configurable_h5_reader_with_columns_and_datetime():
-    """Test configurable H5 reader with columns and datetime parsing."""
-    with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as tmp:
-        tmp_path = Path(tmp.name)
+def test_default_h5_reader_preserves_a_first_group(tmp_path: Path):
+    h5_path = tmp_path / "group.h5"
+    with h5py.File(h5_path, "w") as output:
+        output.create_group("metadata")
 
-    try:
-        # Create an H5 file with columns, data, and datetime
-        with h5py.File(str(tmp_path), "w") as f:
-            columns = np.array(["region1", "region2"], dtype="S")
-            data = np.array([[100.0, 150.0], [120.0, 160.0], [110.0, 155.0]])
-            dt_strings = np.array(
+    with h5py.File(h5_path, "r") as input_file:
+        result = configurable_h5_reader(input_file)
+
+    assert list(result) == ["metadata"]
+    assert result["metadata"][0].startswith("<HDF5 group")
+
+
+@pytest.mark.parametrize(
+    ("columns", "data", "datetimes", "years", "expected"),
+    [
+        pytest.param(
+            np.array([b"region1", b"region2"]),
+            np.array([[100.0, 150.0], [120.0, 160.0], [110.0, 155.0]]),
+            np.array(
                 [
-                    "2007-01-01T00:00:00-06:00",
-                    "2007-01-01T01:00:00-06:00",
-                    "2007-01-01T02:00:00-06:00",
-                ],
-                dtype="S",
-            )
-            solve_years = np.array([2030, 2030, 2030])
+                    b"2007-01-01T00:00:00-06:00",
+                    b"2007-01-01T01:00:00-06:00",
+                    b"2007-01-01T02:00:00-06:00",
+                ]
+            ),
+            np.array([2030, 2030, 2030]),
+            {
+                "region1": np.array([100.0, 120.0, 110.0]),
+                "region2": np.array([150.0, 160.0, 155.0]),
+                "datetime": np.array(
+                    ["2007-01-01T00:00:00", "2007-01-01T01:00:00", "2007-01-01T02:00:00"],
+                    dtype="datetime64[us]",
+                ),
+                "solve_year": np.array([2030, 2030, 2030]),
+            },
+            id="with-solve-year",
+        ),
+        pytest.param(
+            np.array([b"cf1", b"cf2"]),
+            np.array([[0.5, 0.6], [0.7, 0.8]]),
+            np.array([b"2007-01-01T00:00:00-06:00", b"2007-01-01T01:00:00-06:00"]),
+            None,
+            {
+                "cf1": np.array([0.5, 0.7]),
+                "cf2": np.array([0.6, 0.8]),
+                "datetime": np.array(["2007-01-01T00:00:00", "2007-01-01T01:00:00"], dtype="datetime64[us]"),
+            },
+            id="without-solve-year",
+        ),
+    ],
+)
+def test_configurable_h5_reader_with_columns_and_datetime(
+    tmp_path: Path,
+    columns: np.ndarray,
+    data: np.ndarray,
+    datetimes: np.ndarray,
+    years: np.ndarray | None,
+    expected: dict[str, np.ndarray],
+) -> None:
+    h5_path = tmp_path / "reader.h5"
+    with h5py.File(h5_path, "w") as h5_file:
+        h5_file.create_dataset("columns", data=columns)
+        h5_file.create_dataset("data", data=data)
+        h5_file.create_dataset("index_datetime", data=datetimes)
+        if years is not None:
+            h5_file.create_dataset("index_year", data=years)
 
-            f.create_dataset("columns", data=columns)
-            f.create_dataset("data", data=data)
-            f.create_dataset("index_datetime", data=dt_strings)
-            f.create_dataset("index_year", data=solve_years)
+    with h5py.File(h5_path, "r") as h5_file:
+        result = configurable_h5_reader(
+            h5_file,
+            data_key="data",
+            columns_key="columns",
+            datetime_key="index_datetime",
+            additional_keys=["index_year"] if years is not None else [],
+        )
 
-        # Read it with configuration (ReEDS-style via config)
-        with h5py.File(str(tmp_path), "r") as f:
-            result = configurable_h5_reader(
-                f,
-                data_key="data",
-                columns_key="columns",
-                datetime_key="index_datetime",
-                additional_keys=["index_year"],
-            )
-
-        assert "region1" in result
-        assert "region2" in result
-        assert "datetime" in result
-        assert "solve_year" in result
-        assert len(result["region1"]) == 3
-        assert result["region1"][0] == 100.0
-        assert result["solve_year"][0] == 2030
-    finally:
-        tmp_path.unlink()
-
-
-def test_configurable_h5_reader_without_solve_year():
-    """Test configurable H5 reader without solve_year."""
-    with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as tmp:
-        tmp_path = Path(tmp.name)
-
-    try:
-        # Create an H5 file without solve_year
-        with h5py.File(str(tmp_path), "w") as f:
-            columns = np.array(["cf1", "cf2"], dtype="S")
-            data = np.array([[0.5, 0.6], [0.7, 0.8]])
-            dt_strings = np.array(["2007-01-01T00:00:00-06:00", "2007-01-01T01:00:00-06:00"], dtype="S")
-
-            f.create_dataset("columns", data=columns)
-            f.create_dataset("data", data=data)
-            f.create_dataset("index_datetime", data=dt_strings)
-
-        # Read it with configuration
-        with h5py.File(str(tmp_path), "r") as f:
-            result = configurable_h5_reader(
-                f,
-                data_key="data",
-                columns_key="columns",
-                datetime_key="index_datetime",
-            )
-
-        assert "cf1" in result
-        assert "cf2" in result
-        assert "datetime" in result
-        assert "solve_year" not in result
-    finally:
-        tmp_path.unlink()
+    assert result.keys() == expected.keys()
+    for name, values in expected.items():
+        np.testing.assert_array_equal(result[name], values)
 
 
-def test_configurable_h5_reader_custom_keys():
+def test_configurable_h5_reader_custom_keys(tmp_path: Path):
     """Test configurable H5 reader with custom dataset keys."""
-    with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as tmp:
-        tmp_path = Path(tmp.name)
+    h5_path = tmp_path / "reader.h5"
 
-    try:
-        # Create a custom H5 file structure
-        with h5py.File(str(tmp_path), "w") as f:
-            col_names = np.array(["col_a", "col_b"], dtype="S")
-            values = np.array([[1.0, 2.0], [3.0, 4.0]])
-            timestamps = np.array([0, 1])
-            metadata = np.array([100])
+    # Create a custom H5 file structure
+    with h5py.File(str(h5_path), "w") as f:
+        col_names = np.array(["col_a", "col_b"], dtype="S")
+        values = np.array([[1.0, 2.0], [3.0, 4.0]])
+        timestamps = np.array([0, 1])
+        metadata = np.array([100])
 
-            f.create_dataset("column_names", data=col_names)
-            f.create_dataset("values", data=values)
-            f.create_dataset("timestamps", data=timestamps)
-            f.create_dataset("extra_info", data=metadata)
+        f.create_dataset("column_names", data=col_names)
+        f.create_dataset("values", data=values)
+        f.create_dataset("timestamps", data=timestamps)
+        f.create_dataset("extra_info", data=metadata)
 
-        # Read it with custom configuration
-        with h5py.File(str(tmp_path), "r") as f:
-            result = configurable_h5_reader(
-                f,
-                data_key="values",
-                columns_key="column_names",
-                index_key="timestamps",
-                additional_keys=["extra_info"],
-            )
+    # Read it with custom configuration
+    with h5py.File(str(h5_path), "r") as f:
+        result = configurable_h5_reader(
+            f,
+            data_key="values",
+            columns_key="column_names",
+            index_key="timestamps",
+            additional_keys=["extra_info"],
+        )
 
-        assert "col_a" in result
-        assert "col_b" in result
-        assert "timestamps" in result
-        assert "extra_info" in result
-        assert result["col_a"][0] == 1.0
-        assert result["timestamps"][1] == 1
-    finally:
-        tmp_path.unlink()
+    assert "col_a" in result
+    assert "col_b" in result
+    assert "timestamps" in result
+    assert "extra_info" in result
+    assert result["col_a"][0] == 1.0
+    assert result["timestamps"][1] == 1
 
 
-def test_configurable_h5_reader_no_config_defaults():
-    """Test that omitting all config parameters uses default behavior."""
-    with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as tmp:
-        tmp_path = Path(tmp.name)
+@pytest.mark.parametrize(
+    ("data_key", "data", "columns", "expected"),
+    [
+        pytest.param(
+            "my_data",
+            np.array([10.0, 20.0, 30.0]),
+            None,
+            {"my_data": np.array([10.0, 20.0, 30.0])},
+            id="1d-without-columns",
+        ),
+        pytest.param(
+            "values",
+            np.array([[1.0, 2.0], [3.0, 4.0]]),
+            None,
+            {"values_col_0": np.array([1.0, 3.0]), "values_col_1": np.array([2.0, 4.0])},
+            id="2d-without-columns",
+        ),
+        pytest.param(
+            "data",
+            np.array([1.0, 2.0, 3.0]),
+            np.array([b"single_col"]),
+            {"single_col": np.array([1.0, 2.0, 3.0])},
+            id="1d-with-column-label",
+        ),
+    ],
+)
+def test_configurable_h5_reader_reads_row_data(
+    tmp_path: Path,
+    data_key: str,
+    data: np.ndarray,
+    columns: np.ndarray | None,
+    expected: dict[str, np.ndarray],
+) -> None:
+    h5_path = tmp_path / "reader.h5"
+    with h5py.File(h5_path, "w") as h5_file:
+        h5_file.create_dataset(data_key, data=data)
+        if columns is not None:
+            h5_file.create_dataset("columns", data=columns)
 
-    try:
-        # Create a simple H5 file
-        with h5py.File(str(tmp_path), "w") as f:
-            f.create_dataset("data", data=np.array([1, 2, 3]))
+    with h5py.File(h5_path, "r") as h5_file:
+        result = configurable_h5_reader(
+            h5_file,
+            data_key=data_key,
+            columns_key="columns" if columns is not None else None,
+        )
 
-        # Read it without any config
-        with h5py.File(str(tmp_path), "r") as f:
-            result = configurable_h5_reader(f)
-
-        assert "data" in result
-        assert len(result["data"]) == 3
-    finally:
-        tmp_path.unlink()
-
-
-def test_1d_data_with_columns():
-    """Test 1D data when columns_key is provided (line 47)."""
-    with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as tmp:
-        tmp_path = Path(tmp.name)
-
-    try:
-        with h5py.File(str(tmp_path), "w") as f:
-            columns = np.array(["single_col"], dtype="S")
-            data = np.array([1.0, 2.0, 3.0])
-            f.create_dataset("columns", data=columns)
-            f.create_dataset("data", data=data)
-
-        with h5py.File(str(tmp_path), "r") as f:
-            result = configurable_h5_reader(
-                f,
-                data_key="data",
-                columns_key="columns",
-            )
-
-        assert "single_col" in result
-        assert len(result["single_col"]) == 3
-    finally:
-        tmp_path.unlink()
-
-
-def test_1d_data_without_columns_key():
-    """Test 1D data without columns_key (lines 50-51)."""
-    with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as tmp:
-        tmp_path = Path(tmp.name)
-
-    try:
-        with h5py.File(str(tmp_path), "w") as f:
-            data = np.array([10.0, 20.0, 30.0])
-            f.create_dataset("my_data", data=data)
-
-        with h5py.File(str(tmp_path), "r") as f:
-            result = configurable_h5_reader(
-                f,
-                data_key="my_data",
-            )
-
-        assert "my_data" in result
-        assert len(result["my_data"]) == 3
-    finally:
-        tmp_path.unlink()
+    assert list(result) == list(expected)
+    for name, values in expected.items():
+        np.testing.assert_array_equal(result[name], values)
 
 
-def test_2d_data_without_columns_key():
-    """Test 2D data without columns_key (line 52)."""
-    with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as tmp:
-        tmp_path = Path(tmp.name)
+@pytest.mark.parametrize(
+    ("data", "timestamps", "strip_timezone", "expected"),
+    [
+        pytest.param(
+            np.array([1.0, 2.0]),
+            np.array([1609459200, 1609545600]),
+            True,
+            np.array([1609459200, 1609545600]),
+            id="numeric-values",
+        ),
+        pytest.param(
+            np.array([1.0, 2.0]),
+            np.array(["2007-01-01T00:00:00-06:00", "2007-01-01T01:00:00-06:00"], dtype="S"),
+            False,
+            np.array(["2007-01-01T06:00:00", "2007-01-01T07:00:00"], dtype="datetime64[us]"),
+            id="timezone-normalized-to-utc",
+        ),
+        pytest.param(
+            np.array([1.0]),
+            np.bytes_("2024-01-01T00:00:00Z"),
+            True,
+            np.array(["2024-01-01T00:00:00"], dtype="datetime64[us]"),
+            id="scalar-bytes",
+        ),
+    ],
+)
+def test_h5_reader_parses_datetime_inputs(
+    tmp_path: Path, data: np.ndarray, timestamps: np.ndarray, strip_timezone: bool, expected: np.ndarray
+) -> None:
+    h5_path = tmp_path / "reader.h5"
+    with h5py.File(h5_path, "w") as h5_file:
+        h5_file.create_dataset("data", data=data)
+        h5_file.create_dataset("time", data=timestamps)
 
-    try:
-        with h5py.File(str(tmp_path), "w") as f:
-            data = np.array([[1.0, 2.0], [3.0, 4.0]])
-            f.create_dataset("values", data=data)
+    with h5py.File(h5_path, "r") as h5_file:
+        result = configurable_h5_reader(
+            h5_file,
+            data_key="data",
+            datetime_key="time",
+            strip_timezone=strip_timezone,
+        )
 
-        with h5py.File(str(tmp_path), "r") as f:
-            result = configurable_h5_reader(
-                f,
-                data_key="values",
-            )
-
-        assert "values_col_0" in result
-        assert "values_col_1" in result
-        assert result["values_col_0"][0] == 1.0
-    finally:
-        tmp_path.unlink()
-
-
-def test_non_string_datetime():
-    """Test datetime data that's not strings (line 64)."""
-    with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as tmp:
-        tmp_path = Path(tmp.name)
-
-    try:
-        with h5py.File(str(tmp_path), "w") as f:
-            data = np.array([1.0, 2.0])
-            dt_numeric = np.array([1609459200, 1609545600])
-            f.create_dataset("data", data=data)
-            f.create_dataset("time", data=dt_numeric)
-
-        with h5py.File(str(tmp_path), "r") as f:
-            result = configurable_h5_reader(
-                f,
-                data_key="data",
-                datetime_key="time",
-            )
-
-        assert "datetime" in result
-        assert len(result["datetime"]) == 2
-    finally:
-        tmp_path.unlink()
+    np.testing.assert_array_equal(result["datetime"], expected)
 
 
-def test_datetime_with_timezone_kept():
-    """Test datetime parsing with timezone kept (lines 118-119)."""
-    with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as tmp:
-        tmp_path = Path(tmp.name)
-
-    try:
-        with h5py.File(str(tmp_path), "w") as f:
-            data = np.array([1.0, 2.0])
-            dt_strings = np.array(
-                ["2007-01-01T00:00:00-06:00", "2007-01-01T01:00:00-06:00"],
-                dtype="S",
-            )
-            f.create_dataset("data", data=data)
-            f.create_dataset("time", data=dt_strings)
-
-        with h5py.File(str(tmp_path), "r") as f:
-            result = configurable_h5_reader(
-                f,
-                data_key="data",
-                datetime_key="time",
-                strip_timezone=False,
-            )
-
-        assert "datetime" in result
-    finally:
-        tmp_path.unlink()
-
-
-def test_datetime_parsing_error():
+def test_datetime_parsing_error(tmp_path: Path):
     """Test datetime parsing error handling (lines 121-123)."""
-    with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as tmp:
-        tmp_path = Path(tmp.name)
+    h5_path = tmp_path / "reader.h5"
 
-    try:
-        with h5py.File(str(tmp_path), "w") as f:
-            data = np.array([1.0, 2.0])
-            dt_strings = np.array(["invalid-datetime", "also-invalid"], dtype="S")
-            f.create_dataset("data", data=data)
-            f.create_dataset("time", data=dt_strings)
+    with h5py.File(str(h5_path), "w") as f:
+        data = np.array([1.0, 2.0])
+        dt_strings = np.array(["invalid-datetime", "also-invalid"], dtype="S")
+        f.create_dataset("data", data=data)
+        f.create_dataset("time", data=dt_strings)
 
-        with (
-            h5py.File(str(tmp_path), "r") as f,
-            pytest.raises(ValueError, match="Failed to parse datetime string"),
-        ):
-            configurable_h5_reader(
-                f,
-                data_key="data",
-                datetime_key="time",
-            )
-    finally:
-        tmp_path.unlink()
+    with (
+        h5py.File(str(h5_path), "r") as f,
+        pytest.raises(ValueError, match="Failed to parse datetime string"),
+    ):
+        configurable_h5_reader(
+            f,
+            data_key="data",
+            datetime_key="time",
+        )
 
 
-def test_format_column_name_year():
+def test_format_column_name_year(tmp_path: Path):
     """Test format_column_name for year variations."""
-    with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as tmp:
-        tmp_path = Path(tmp.name)
+    h5_path = tmp_path / "reader.h5"
 
-    try:
-        with h5py.File(str(tmp_path), "w") as f:
-            data = np.array([1.0, 2.0])
-            f.create_dataset("data", data=data)
-            f.create_dataset("model_year", data=np.array([2030, 2035]))
+    with h5py.File(str(h5_path), "w") as f:
+        data = np.array([1.0, 2.0])
+        f.create_dataset("data", data=data)
+        f.create_dataset("model_year", data=np.array([2030, 2035]))
 
-        with h5py.File(str(tmp_path), "r") as f:
-            result = configurable_h5_reader(
-                f,
-                data_key="data",
-                additional_keys=["model_year"],
-            )
+    with h5py.File(str(h5_path), "r") as f:
+        result = configurable_h5_reader(
+            f,
+            data_key="data",
+            additional_keys=["model_year"],
+        )
 
-        assert "year" in result
-    finally:
-        tmp_path.unlink()
+    assert "year" in result
 
 
-def test_h5_reader_index_names_resolves_numeric_indices():
-    """Test that index_names dataset resolves index_0, index_1 to meaningful column names.
-
-    This test verifies the fix for the issue where newer ReEDS runs use generic
-    index keys (index_0, index_1) instead of named keys (index_datetime, index_year).
-    The index_names dataset provides the mapping, and the reader should automatically
-    apply it to produce columns named "solve_year" instead of "1".
-
-    Issue: formatting a generic index name returned "1" instead of "solve_year".
-    Fix: Reader now checks for index_names dataset and maps index_N to actual names.
-    """
-    with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as tmp:
-        tmp_path = Path(tmp.name)
-
-    try:
-        # Create H5 file mimicking newer ReEDS format
-        with h5py.File(str(tmp_path), "w") as f:
-            columns = np.array([b"region1", b"region2"], dtype="S")
-            data = np.array([[100.0, 200.0], [150.0, 250.0], [175.0, 275.0]])
-            dt_strings = np.array(
-                [
-                    "2007-01-01T00:00:00-06:00",
-                    "2007-01-01T01:00:00-06:00",
-                    "2007-01-01T02:00:00-06:00",
-                ],
-                dtype="S",
-            )
-            solve_years = np.array([2030, 2030, 2030])
-
-            # Store actual index names in metadata (newer ReEDS format)
-            # index_0 contains datetime strings → maps to "index_datetime"
-            # index_1 contains years → maps to "index_year" → becomes "solve_year"
-            index_names = np.array([b"index_datetime", b"index_year"], dtype="S")
-
-            f.create_dataset("columns", data=columns)
-            f.create_dataset("data", data=data)
-            f.create_dataset("index_0", data=dt_strings)
-            f.create_dataset("index_1", data=solve_years)
-            f.create_dataset("index_names", data=index_names)
-
-        # Read with automatic index_names resolution
-        with h5py.File(str(tmp_path), "r") as f:
-            result = configurable_h5_reader(
-                f,
-                data_key="data",
-                columns_key="columns",
-                datetime_key="index_0",
-                additional_keys=["index_1"],
-            )
-
-        # ASSERTION: The issue is fixed - column should be "solve_year", not "1"
-        assert "solve_year" in result, f"Expected 'solve_year' column, got: {list(result.keys())}"
-        assert "1" not in result, f"Column should not be named '1', got: {list(result.keys())}"
-
-        # Verify the data is correct
-        assert len(result["solve_year"]) == 3
-        assert result["solve_year"][0] == 2030
-        assert result["solve_year"][1] == 2030
-        assert result["solve_year"][2] == 2030
-
-        # Verify other expected columns
-        assert "region1" in result
-        assert "region2" in result
-        assert "datetime" in result
-        assert len(result["datetime"]) == 3
-
-    finally:
-        tmp_path.unlink()
-
-
-def test_h5_reader_respects_user_overrides_for_index_names():
-    """Ensure explicit column_name_mapping can override index dataset names."""
-    with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as tmp:
-        tmp_path = Path(tmp.name)
-
-    try:
-        with h5py.File(str(tmp_path), "w") as f:
-            columns = np.array([b"col1", b"col2"], dtype="S")
-            data = np.array([[10.0, 20.0], [30.0, 40.0]])
-            dt_strings = np.array(["2024-01-01T00:00:00Z", "2024-01-01T01:00:00Z"], dtype="S")
-            years = np.array([2030, 2035])
-
-            f.create_dataset("columns", data=columns)
-            f.create_dataset("data", data=data)
-            f.create_dataset("index_datetime", data=dt_strings)
-            f.create_dataset("index_year", data=years)
-
-        with h5py.File(str(tmp_path), "r") as f:
-            result = configurable_h5_reader(
-                f,
-                data_key="data",
-                columns_key="columns",
-                datetime_key="index_datetime",
-                datetime_column_name="custom_datetime",
-                additional_keys=["index_year"],
-                column_name_mapping={
+@pytest.mark.parametrize(
+    ("datasets", "reader_options", "expected"),
+    [
+        pytest.param(
+            {
+                "columns": np.array([b"region1", b"region2"]),
+                "data": np.array([[100.0, 200.0], [150.0, 250.0], [175.0, 275.0]]),
+                "index_0": np.array(
+                    [
+                        b"2007-01-01T00:00:00-06:00",
+                        b"2007-01-01T01:00:00-06:00",
+                        b"2007-01-01T02:00:00-06:00",
+                    ]
+                ),
+                "index_1": np.array([2030, 2030, 2030]),
+                "index_names": np.array([b"index_datetime", b"index_year"]),
+            },
+            {"datetime_key": "index_0", "additional_keys": ["index_1"]},
+            {
+                "region1": np.array([100.0, 150.0, 175.0]),
+                "region2": np.array([200.0, 250.0, 275.0]),
+                "datetime": np.array(
+                    ["2007-01-01T00:00:00", "2007-01-01T01:00:00", "2007-01-01T02:00:00"],
+                    dtype="datetime64[us]",
+                ),
+                "solve_year": np.array([2030, 2030, 2030]),
+            },
+            id="numeric-index-names",
+        ),
+        pytest.param(
+            {
+                "columns": np.array([b"col1", b"col2"]),
+                "data": np.array([[10.0, 20.0], [30.0, 40.0]]),
+                "index_datetime": np.array([b"2024-01-01T00:00:00Z", b"2024-01-01T01:00:00Z"]),
+                "index_year": np.array([2030, 2035]),
+            },
+            {
+                "datetime_key": "index_datetime",
+                "datetime_column_name": "custom_datetime",
+                "additional_keys": ["index_year"],
+                "column_name_mapping": {
                     "index_datetime": "custom_datetime",
                     "index_year": "planning_year",
                 },
-            )
+            },
+            {
+                "col1": np.array([10.0, 30.0]),
+                "col2": np.array([20.0, 40.0]),
+                "custom_datetime": np.array(
+                    ["2024-01-01T00:00:00", "2024-01-01T01:00:00"], dtype="datetime64[us]"
+                ),
+                "planning_year": np.array([2030, 2035]),
+            },
+            id="user-overrides",
+        ),
+    ],
+)
+def test_h5_reader_maps_index_names(
+    tmp_path: Path,
+    datasets: dict[str, np.ndarray],
+    reader_options: dict[str, object],
+    expected: dict[str, np.ndarray],
+) -> None:
+    """Resolve automatic index names and explicit column-name overrides."""
+    h5_path = tmp_path / "reader.h5"
+    with h5py.File(h5_path, "w") as h5_file:
+        for name, values in datasets.items():
+            h5_file.create_dataset(name, data=values)
 
-        assert "custom_datetime" in result
-        assert "planning_year" in result
-        assert "solve_year" not in result
-        assert list(result["planning_year"]) == [2030, 2035]
+    with h5py.File(h5_path, "r") as h5_file:
+        result = configurable_h5_reader(
+            h5_file,
+            data_key="data",
+            columns_key="columns",
+            **reader_options,
+        )
 
-    finally:
-        tmp_path.unlink()
+    assert result.keys() == expected.keys()
+    for name, values in expected.items():
+        np.testing.assert_array_equal(result[name], values)
 
 
-def test_h5_reader_missing_index_dataset_raises_key_error():
+def test_h5_reader_missing_index_dataset_raises_key_error(tmp_path: Path):
     """Ensure missing referenced index datasets raise KeyError (line 53)."""
-    with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as tmp:
-        tmp_path = Path(tmp.name)
+    h5_path = tmp_path / "reader.h5"
 
-    try:
-        with h5py.File(str(tmp_path), "w") as f:
-            columns = np.array([b"col1"], dtype="S")
-            data = np.array([[10.0], [20.0]])
-            f.create_dataset("columns", data=columns)
-            f.create_dataset("data", data=data)
-            # reference index_0 but do not create the dataset to trigger the error
-            f.create_dataset("index_names", data=np.array([b"0"], dtype="S"))
+    with h5py.File(str(h5_path), "w") as f:
+        columns = np.array([b"col1"], dtype="S")
+        data = np.array([[10.0], [20.0]])
+        f.create_dataset("columns", data=columns)
+        f.create_dataset("data", data=data)
+        # reference index_0 but do not create the dataset to trigger the error
+        f.create_dataset("index_names", data=np.array([b"0"], dtype="S"))
 
-        with h5py.File(str(tmp_path), "r") as f, pytest.raises(KeyError, match="index_0"):
+    with h5py.File(str(h5_path), "r") as f, pytest.raises(KeyError, match="index_0"):
+        configurable_h5_reader(
+            f,
+            data_key="data",
+            columns_key="columns",
+            datetime_key="index_0",
+        )
+
+
+@pytest.mark.parametrize(
+    ("columns", "values", "decode_bytes", "expected"),
+    [
+        pytest.param(
+            np.array([b"i", b"r", b"Value"]),
+            {"i": np.array([b"gas", b"coal"]), "r": np.array([b"r1", b"r2"]), "Value": np.array([3.0, 4.0])},
+            True,
+            {"i": ["gas", "coal"], "r": ["r1", "r2"], "Value": np.array([3.0, 4.0])},
+            id="multiple-columns",
+        ),
+        pytest.param(
+            np.array([b"Value"]), {"Value": 3.0}, True, {"Value": np.array([3.0])}, id="scalar-numeric"
+        ),
+        pytest.param(np.array([b"i"]), {"i": np.bytes_("gas")}, True, {"i": ["gas"]}, id="scalar-string"),
+        pytest.param(
+            np.array([b"label"]),
+            {"label": np.array([b"gas"])},
+            False,
+            {"label": [b"gas"]},
+            id="preserve-bytes",
+        ),
+    ],
+)
+def test_h5_reader_reads_columnar_group_datasets(
+    tmp_path: Path,
+    columns: np.ndarray,
+    values: dict[str, object],
+    decode_bytes: bool,
+    expected: dict[str, object],
+) -> None:
+    h5_path = tmp_path / "reader.h5"
+    with h5py.File(h5_path, "w") as h5_file:
+        group = h5_file.create_group("group")
+        group.create_dataset("columns", data=columns)
+        for name, value in values.items():
+            group.create_dataset(name, data=value)
+
+    with h5py.File(h5_path, "r") as h5_file:
+        result = configurable_h5_reader(
+            h5_file,
+            group_key="group",
+            columns_key="columns",
+            columns_as_datasets=True,
+            decode_bytes=decode_bytes,
+        )
+
+    assert set(result) == set(expected)
+    for name, value in expected.items():
+        np.testing.assert_array_equal(np.asarray(result[name]), np.asarray(value))
+
+
+def test_h5_reader_group_validation_errors(tmp_path: Path):
+    """Reject missing groups, column metadata, and column datasets."""
+    h5_path = tmp_path / "reader.h5"
+
+    with h5py.File(str(h5_path), "w") as f:
+        f.create_dataset("not_a_group", data=np.array([1.0]))
+        group = f.create_group("group")
+        group.create_dataset("columns", data=np.array([b"missing"]))
+
+    with h5py.File(str(h5_path), "r") as f:
+        with pytest.raises(ConfiguredGroupNotFoundError, match="missing_group"):
             configurable_h5_reader(
                 f,
-                data_key="data",
-                columns_key="columns",
-                datetime_key="index_0",
-            )
-    finally:
-        tmp_path.unlink()
-
-
-def test_h5_reader_reads_columnar_group_datasets():
-    """Read ReEDS-style groups whose columns are individual datasets."""
-    with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as tmp:
-        tmp_path = Path(tmp.name)
-
-    try:
-        with h5py.File(str(tmp_path), "w") as f:
-            group = f.create_group("fuel_price")
-            group.create_dataset("columns", data=np.array([b"i", b"r", b"Value"]))
-            group.create_dataset("i", data=np.array([b"gas", b"coal"]))
-            group.create_dataset("r", data=np.array([b"r1", b"r2"]))
-            group.create_dataset("Value", data=np.array([3.0, 4.0]))
-
-        with h5py.File(str(tmp_path), "r") as f:
-            result = configurable_h5_reader(
-                f,
-                group_key="fuel_price",
+                group_key="missing_group",
                 columns_key="columns",
                 columns_as_datasets=True,
             )
-
-        assert result["i"] == ["gas", "coal"]
-        assert result["r"] == ["r1", "r2"]
-        np.testing.assert_array_equal(result["Value"], np.array([3.0, 4.0]))
-    finally:
-        tmp_path.unlink()
-
-
-def test_h5_reader_group_validation_errors():
-    """Reject missing groups, column metadata, and column datasets."""
-    with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as tmp:
-        tmp_path = Path(tmp.name)
-
-    try:
-        with h5py.File(str(tmp_path), "w") as f:
-            f.create_dataset("not_a_group", data=np.array([1.0]))
-            group = f.create_group("group")
-            group.create_dataset("columns", data=np.array([b"missing"]))
-
-        with h5py.File(str(tmp_path), "r") as f:
-            with pytest.raises(ConfiguredGroupNotFoundError, match="missing_group"):
-                configurable_h5_reader(
-                    f,
-                    group_key="missing_group",
-                    columns_key="columns",
-                    columns_as_datasets=True,
-                )
-            with pytest.raises(TypeError, match="not_a_group"):
-                configurable_h5_reader(f, group_key="not_a_group")
-            with pytest.raises(KeyError, match="missing"):
-                configurable_h5_reader(
-                    f,
-                    group_key="group",
-                    columns_key="columns",
-                    columns_as_datasets=True,
-                )
-            with pytest.raises(ValueError, match="columns_key is required"):
-                configurable_h5_reader(f, group_key="group", columns_as_datasets=True)
-            with pytest.raises(ValueError, match="columns path 'missing/columns' not found"):
-                configurable_h5_reader(
-                    f,
-                    group_key="group",
-                    columns_key="missing/columns",
-                    columns_as_datasets=True,
-                )
-    finally:
-        tmp_path.unlink()
-
-
-def test_h5_reader_columnar_group_reads_scalar_dataset():
-    """Normalize scalar column datasets to one-row arrays."""
-    with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as tmp:
-        tmp_path = Path(tmp.name)
-
-    try:
-        with h5py.File(str(tmp_path), "w") as f:
-            group = f.create_group("group")
-            group.create_dataset("columns", data=np.array([b"Value"]))
-            group.create_dataset("Value", data=np.array(3.0))
-
-        with h5py.File(str(tmp_path), "r") as f:
-            result = configurable_h5_reader(
+        with pytest.raises(TypeError, match="not_a_group"):
+            configurable_h5_reader(f, group_key="not_a_group")
+        with pytest.raises(KeyError, match="missing"):
+            configurable_h5_reader(
                 f,
                 group_key="group",
                 columns_key="columns",
                 columns_as_datasets=True,
             )
-
-        np.testing.assert_array_equal(result["Value"], np.array([3.0]))
-    finally:
-        tmp_path.unlink()
-
-
-def test_h5_reader_columnar_group_reads_scalar_string_dataset():
-    """Normalize decoded scalar string column datasets to one-row lists."""
-    with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as tmp:
-        tmp_path = Path(tmp.name)
-
-    try:
-        with h5py.File(str(tmp_path), "w") as f:
-            group = f.create_group("group")
-            group.create_dataset("columns", data=np.array([b"i"]))
-            group.create_dataset("i", data=np.bytes_("gas"))
-
-        with h5py.File(str(tmp_path), "r") as f:
-            result = configurable_h5_reader(
+        with pytest.raises(ValueError, match="columns_key is required"):
+            configurable_h5_reader(f, group_key="group", columns_as_datasets=True)
+        with pytest.raises(ValueError, match="columns path 'missing/columns' not found"):
+            configurable_h5_reader(
                 f,
                 group_key="group",
-                columns_key="columns",
+                columns_key="missing/columns",
                 columns_as_datasets=True,
             )
 
-        assert result["i"] == ["gas"]
-    finally:
-        tmp_path.unlink()
+
+def test_h5_reader_requires_a_list_for_additional_keys(tmp_path):
+    h5_path = tmp_path / "additional-keys.h5"
+    with h5py.File(h5_path, "w") as h5_file:
+        h5_file.create_dataset("data", data=np.array([1.0]))
+        h5_file.create_dataset("extra", data=np.array([2.0]))
+
+    with h5py.File(h5_path, "r") as h5_file:
+        direct_result = configurable_h5_reader(h5_file, data_key="data", additional_keys=["extra"])
+        with pytest.raises(ValueError, match="additional_keys"):
+            configurable_h5_reader(h5_file, data_key="data", additional_keys=("extra",))
+
+    file_result = read_h5_file(file_path=h5_path, data_key="data", additional_keys=["extra"])
+    with pytest.raises(ValueError, match="additional_keys"):
+        read_h5_file(file_path=h5_path, data_key="data", additional_keys=("extra",))
+
+    np.testing.assert_array_equal(direct_result["extra"], np.array([2.0]))
+    np.testing.assert_array_equal(file_result["extra"], np.array([2.0]))
 
 
-def test_h5_reader_rejects_invalid_reader_keys(tmp_path):
-    """Reject invalid key types before opening configured datasets."""
+def test_h5_reader_rejects_non_string_column_mapping_key(tmp_path):
+    """Reject malformed mapping keys at the direct reader boundary."""
     h5_path = tmp_path / "data.h5"
     with h5py.File(h5_path, "w") as h5_file:
         h5_file.create_dataset("data", data=np.array([1.0]))
 
-    with h5py.File(h5_path, "r") as h5_file:
-        with pytest.raises(ValueError, match="index_names_key must be a string"):
-            configurable_h5_reader(h5_file, data_key="data", index_names_key=1)
-        with pytest.raises(ValueError, match="data_key is required"):
-            configurable_h5_reader(h5_file, data_key=1, columns_key="columns")
+    with h5py.File(h5_path, "r") as h5_file, pytest.raises(ValueError, match="column_name_mapping"):
+        configurable_h5_reader(h5_file, data_key="data", column_name_mapping={1: "value"})
 
 
 def test_h5_reader_missing_data_key_raises_key_error(tmp_path):
@@ -649,36 +536,6 @@ def test_h5_reader_missing_data_key_raises_key_error(tmp_path):
 
     with h5py.File(h5_path, "r") as h5_file, pytest.raises(KeyError, match="missing"):
         configurable_h5_reader(h5_file, data_key="missing")
-
-
-def test_h5_reader_validates_reader_configuration(tmp_path):
-    """Reject invalid configuration values before reading datasets."""
-    h5_path = tmp_path / "data.h5"
-    with h5py.File(h5_path, "w") as h5_file:
-        h5_file.create_dataset("data", data=np.array([1.0]))
-        h5_file.create_dataset("columns", data=np.array([b"value"]))
-
-    invalid_options = [
-        ({"group_key": 1}, "group_key must be a string"),
-        ({"columns_as_datasets": "yes"}, "columns_as_datasets must be a boolean"),
-        ({"data_key": ""}, "data_key is required"),
-        ({"columns_key": 1}, "columns_key must be a string"),
-        ({"decode_bytes": "yes"}, "decode_bytes must be a boolean"),
-        ({"datetime_key": 1}, "datetime_key must be a string"),
-        ({"datetime_column_name": 1}, "datetime_column_name must be a string"),
-        ({"strip_timezone": "yes"}, "strip_timezone must be a boolean"),
-        ({"index_key": 1}, "index_key must be a string"),
-        ({"additional_keys": "data"}, "additional_keys must be a list"),
-        ({"additional_keys": [1]}, "additional_keys must be a list"),
-        ({"column_name_mapping": []}, "column_name_mapping must be a dictionary"),
-        ({"column_name_mapping": {1: "value"}}, "column_name_mapping must map strings"),
-    ]
-
-    with h5py.File(h5_path, "r") as h5_file:
-        for options, message in invalid_options:
-            reader_options = {"data_key": "data", **options}
-            with pytest.raises(ValueError, match=message):
-                configurable_h5_reader(h5_file, **reader_options)
 
 
 def test_h5_reader_validates_column_shape_and_group_columns(tmp_path):
@@ -706,33 +563,63 @@ def test_h5_reader_validates_column_shape_and_group_columns(tmp_path):
             )
 
 
-def test_h5_reader_decodes_or_preserves_column_labels(tmp_path):
-    """Honor decode_bytes for row-oriented column labels."""
+@pytest.mark.parametrize(
+    ("columns", "decode_bytes", "expected"),
+    [
+        pytest.param(
+            np.array([b"one", b"two"]),
+            True,
+            {"one": np.array([1.0]), "two": np.array([2.0])},
+            id="decode-bytes",
+        ),
+        pytest.param(
+            np.array([b"one", b"two"]),
+            False,
+            {"one": np.array([1.0]), "two": np.array([2.0])},
+            id="preserve-bytes",
+        ),
+        pytest.param(
+            np.array([10, 20]),
+            True,
+            {"10": np.array([1.0]), "20": np.array([2.0])},
+            id="numeric-labels",
+        ),
+    ],
+)
+def test_h5_reader_reads_row_oriented_column_metadata(
+    tmp_path: Path, columns: np.ndarray, decode_bytes: bool, expected: dict[str, np.ndarray]
+) -> None:
     h5_path = tmp_path / "data.h5"
     with h5py.File(h5_path, "w") as h5_file:
         h5_file.create_dataset("data", data=np.array([[1.0, 2.0]]))
-        h5_file.create_dataset("columns", data=np.array([b"one", b"two"]))
+        h5_file.create_dataset("columns", data=columns)
 
     with h5py.File(h5_path, "r") as h5_file:
-        decoded = configurable_h5_reader(h5_file, data_key="data", columns_key="columns")
-        preserved = configurable_h5_reader(
+        result = configurable_h5_reader(
             h5_file,
             data_key="data",
             columns_key="columns",
-            decode_bytes=False,
+            decode_bytes=decode_bytes,
         )
 
-    assert set(decoded) == {"one", "two"}
-    assert set(preserved) == {"one", "two"}
+    assert set(result) == set(expected)
+    for name, values in expected.items():
+        np.testing.assert_array_equal(result[name], values)
 
 
-def test_h5_reader_honors_decode_bytes_for_index_names(tmp_path):
-    """Use byte index labels to resolve datasets when decoding is disabled."""
+@pytest.mark.parametrize(
+    ("index_names_key", "decode_bytes"),
+    [
+        pytest.param("index_names", False, id="preserve-byte-labels"),
+        pytest.param("names", True, id="custom-metadata-key"),
+    ],
+)
+def test_h5_reader_resolves_index_names(index_names_key: str, decode_bytes: bool, tmp_path: Path) -> None:
     h5_path = tmp_path / "data.h5"
     with h5py.File(h5_path, "w") as h5_file:
         h5_file.create_dataset("data", data=np.array([[1.0]]))
         h5_file.create_dataset("columns", data=np.array([b"value"]))
-        h5_file.create_dataset("index_names", data=np.array([b"index_year"]))
+        h5_file.create_dataset(index_names_key, data=np.array([b"index_year"]))
         h5_file.create_dataset("index_0", data=np.array([2030]))
 
     with h5py.File(h5_path, "r") as h5_file:
@@ -740,8 +627,9 @@ def test_h5_reader_honors_decode_bytes_for_index_names(tmp_path):
             h5_file,
             data_key="data",
             columns_key="columns",
+            index_names_key=index_names_key,
             additional_keys=["index_0"],
-            decode_bytes=False,
+            decode_bytes=decode_bytes,
         )
 
     np.testing.assert_array_equal(result["solve_year"], np.array([2030]))
@@ -767,21 +655,6 @@ def test_h5_reader_supports_nested_column_metadata_path(tmp_path):
     np.testing.assert_array_equal(result["Value"], np.array([3.0]))
 
 
-def test_h5_reader_handles_scalar_datetime_dataset(tmp_path):
-    """Normalize a scalar datetime dataset before parsing it."""
-    h5_path = tmp_path / "data.h5"
-    with h5py.File(h5_path, "w") as h5_file:
-        h5_file.create_dataset("data", data=np.array([1.0]))
-        h5_file.create_dataset("time", data=np.bytes_("2024-01-01T00:00:00Z"))
-
-    with h5py.File(h5_path, "r") as h5_file:
-        result = configurable_h5_reader(h5_file, data_key="data", datetime_key="time")
-
-    np.testing.assert_array_equal(
-        result["datetime"], np.array(["2024-01-01T00:00:00"], dtype="datetime64[us]")
-    )
-
-
 @pytest.mark.parametrize("scope_key", [None, "empty"])
 def test_h5_reader_rejects_empty_default_scope(tmp_path, scope_key):
     """Raise a clear error when default reading has no HDF5 entries."""
@@ -792,61 +665,6 @@ def test_h5_reader_rejects_empty_default_scope(tmp_path, scope_key):
 
     with h5py.File(h5_path, "r") as h5_file, pytest.raises(ValueError, match="contains no datasets"):
         configurable_h5_reader(h5_file, group_key=scope_key)
-
-
-def test_h5_reader_reads_non_string_column_metadata(tmp_path):
-    """Read numeric column metadata without calling HDF5 string decoding."""
-    h5_path = tmp_path / "data.h5"
-    with h5py.File(h5_path, "w") as h5_file:
-        h5_file.create_dataset("data", data=np.array([[1.0, 2.0]]))
-        h5_file.create_dataset("columns", data=np.array([10, 20]))
-
-    with h5py.File(h5_path, "r") as h5_file:
-        result = configurable_h5_reader(h5_file, data_key="data", columns_key="columns")
-
-    np.testing.assert_array_equal(result["10"], np.array([1.0]))
-    np.testing.assert_array_equal(result["20"], np.array([2.0]))
-
-
-def test_h5_reader_reads_custom_index_names_key(tmp_path):
-    """Use a configured dataset name for generic index metadata."""
-    h5_path = tmp_path / "data.h5"
-    with h5py.File(h5_path, "w") as h5_file:
-        h5_file.create_dataset("data", data=np.array([[1.0]]))
-        h5_file.create_dataset("columns", data=np.array([b"value"]))
-        h5_file.create_dataset("names", data=np.array([b"index_year"]))
-        h5_file.create_dataset("index_0", data=np.array([2030]))
-
-    with h5py.File(h5_path, "r") as h5_file:
-        result = configurable_h5_reader(
-            h5_file,
-            data_key="data",
-            columns_key="columns",
-            index_names_key="names",
-            additional_keys=["index_0"],
-        )
-
-    assert result["solve_year"].tolist() == [2030]
-
-
-def test_h5_reader_preserves_columnar_bytes_when_decoding_disabled(tmp_path):
-    """Honor decode_bytes for columnar string datasets and labels."""
-    h5_path = tmp_path / "data.h5"
-    with h5py.File(h5_path, "w") as h5_file:
-        group = h5_file.create_group("group")
-        group.create_dataset("columns", data=np.array([b"label"]))
-        group.create_dataset("label", data=np.array([b"gas"]))
-
-    with h5py.File(h5_path, "r") as h5_file:
-        result = configurable_h5_reader(
-            h5_file,
-            group_key="group",
-            columns_key="columns",
-            columns_as_datasets=True,
-            decode_bytes=False,
-        )
-
-    assert result["label"] == [b"gas"]
 
 
 def test_h5_reader_skips_missing_additional_dataset(tmp_path):

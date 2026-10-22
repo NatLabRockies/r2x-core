@@ -149,14 +149,6 @@ section-order = [
 # Cyclomatic complexity threshold
 max-complexity = 10
 
-[tool.coverage.run]
-omit = [
-  "src/r2x_core/parser.py",
-  "src/r2x_core/exporter.py",
-  "src/r2x_core/upgrader.py",
-  "src/r2x_core/context.py",
-]
-
 [tool.coverage.report]
 exclude_lines = [
   "pragma: no cover",
@@ -169,4 +161,4 @@ exclude_lines = [
   "@abstract",
 ]
 precision = 2
-fail_under = 97
+fail_under = 98

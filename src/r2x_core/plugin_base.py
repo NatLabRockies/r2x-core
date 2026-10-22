@@ -352,10 +352,15 @@ class Plugin(ABC, Generic[ConfigT]):
 
             if isinstance(result, Err):
                 msg = f"{plugin_name} {hook_spec.phase} failed: {result.error}"
+                if isinstance(result.error, BaseException):
+                    raise PluginError(msg) from result.error
                 raise PluginError(msg)
+            if not isinstance(result, Ok):
+                msg = f"{plugin_name} {hook_spec.name} must return Ok or Err, got {type(result).__name__}"
+                raise TypeError(msg)
 
-            # Update context if this hook produces a result
-            if hook_spec.context_attribute and isinstance(result, Ok):
+            # Update context if this hook produces a result.
+            if hook_spec.context_attribute:
                 setattr(self.ctx, hook_spec.context_attribute, result.value)
 
         logger.info("Plugin {} completed successfully", plugin_name)

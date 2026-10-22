@@ -306,3 +306,12 @@ def test_resolve_getter_callable_passthrough():
     result = resolve_getter(passthrough_getter)
     assert result.is_ok()
     assert result.unwrap() is passthrough_getter
+
+
+def test_resolve_getter_rejects_noncallable_nonstring_values():
+    from r2x_core.getters import resolve_getter
+
+    result = resolve_getter(42)  # type: ignore[arg-type]
+
+    assert result.is_err()
+    assert isinstance(result.err(), TypeError)

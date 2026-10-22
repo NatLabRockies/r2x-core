@@ -160,7 +160,8 @@ class DataReader:
         result = source.process(spec, sources=sources, data_file=data_file)
         if is_ok(result):
             return result.value
-        raise ReaderError(result.err())
+        error = result.err()
+        raise ReaderError(error) from error
 
     @staticmethod
     def resolve_placeholders(

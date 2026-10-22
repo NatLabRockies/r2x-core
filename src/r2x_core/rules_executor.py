@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from dataclasses import dataclass
+from graphlib import CycleError, TopologicalSorter
+from typing import TYPE_CHECKING, cast
+from uuid import UUID
 
 from infrasys import Component, SupplementalAttribute
-from infrasys.exceptions import ISNotStored
+from infrasys.exceptions import ISAlreadyAttached, ISNotStored, ISOperationNotAllowed
 from loguru import logger
 from rust_ok import Err, Ok, Result, is_err
 
@@ -21,7 +24,11 @@ from .utils.rules import (
     evaluate_rule_filter,
     resolve_component_type,
     sort_rules_by_dependencies,
+    value_error_from,
 )
+
+if TYPE_CHECKING:
+    from .system import System
 
 
 def apply_rules_to_context(context: PluginContext) -> TranslationResult:
@@ -166,9 +173,10 @@ def apply_single_rule(
         supplemental_class_result = resolve_supplemental_class(supplemental_rule.target_type, context=context)
         if is_err(supplemental_class_result):
             return Err(
-                ValueError(
+                value_error_from(
                     f"Rule '{rule.name or rule}', supplemental target "
-                    f"'{supplemental_rule.target_type}': {supplemental_class_result.err()}"
+                    f"'{supplemental_rule.target_type}': {supplemental_class_result.err()}",
+                    supplemental_class_result.err(),
                 )
             )
         supplemental_classes.append(supplemental_class_result.unwrap())
@@ -188,7 +196,9 @@ def apply_single_rule(
                 if not evaluate_rule_filter(src_component, rule_filter=rule.filter, context=context):
                     continue
             except ValueError as exc:
-                return Err(ValueError(f"Failed to evaluate filter for {src_component.label}: {exc}"))
+                return Err(
+                    value_error_from(f"Failed to evaluate filter for {src_component.label}: {exc}", exc)
+                )
         found_component = True
         for target_class in resolved_targets:
             outputs_result = create_rule_outputs(
@@ -199,8 +209,8 @@ def apply_single_rule(
                 context=context,
                 regenerate_uuid=should_regenerate_uuid,
             ).map_err(
-                lambda error, source_label=src_component.label: ValueError(
-                    f"Rule '{rule.name or rule}', source '{source_label}': {error}"
+                lambda error, source_label=src_component.label: value_error_from(
+                    f"Rule '{rule.name or rule}', source '{source_label}': {error}", error
                 )
             )
             if is_err(outputs_result):
@@ -210,8 +220,9 @@ def apply_single_rule(
             attach_result = attach_rule_outputs(outputs, src_component, context)
             if is_err(attach_result):
                 return Err(
-                    ValueError(
-                        f"Rule '{rule.name or rule}', source '{src_component.label}': {attach_result.err()}"
+                    value_error_from(
+                        f"Rule '{rule.name or rule}', source '{src_component.label}': {attach_result.err()}",
+                        attach_result.err(),
                     )
                 )
 
@@ -236,7 +247,7 @@ def resolve_component_class(
 ) -> Result[type[Component | SupplementalAttribute], ValueError]:
     """Resolve a named type and verify it is an infrasys component-compatible class."""
     class_result = resolve_component_type(type_name, context=context).map_err(
-        lambda e: ValueError(f"Failed to resolve {label} type '{type_name}': {e}")
+        lambda error: value_error_from(f"Failed to resolve {label} type '{type_name}': {error}", error)
     )
     if is_err(class_result):
         return Err(class_result.err())
@@ -289,12 +300,86 @@ def resolve_supplemental_class(
     return Ok(resolved_class)
 
 
+@dataclass(frozen=True)
+class ComponentRollbackNode:
+    """Store one graph node's original component, children, and ownership state."""
+
+    component: Component
+    children: tuple[UUID, ...]
+    owned: bool
+
+
+@dataclass(frozen=True)
+class ComponentRollbackPlan:
+    """Capture one primary's UUID-keyed graph and pre-attachment ownership."""
+
+    nodes: dict[UUID, ComponentRollbackNode]
+    order: tuple[UUID, ...]
+
+
+def component_rollback_plan(primary: Component, target_system: System) -> ComponentRollbackPlan:
+    """Capture the proposed graph and its operation-owned nodes before attachment."""
+    nodes: dict[UUID, ComponentRollbackNode] = {}
+    pending = [primary]
+
+    while pending:
+        component = pending.pop()
+        existing_node = nodes.get(component.uuid)
+        if existing_node is not None:
+            if existing_node.component is not component:
+                msg = f"Composed component graph contains distinct objects with UUID {component.uuid}"
+                raise ValueError(msg)
+            continue
+
+        try:
+            stored_component = target_system.get_component_by_uuid(component.uuid)
+        except ISNotStored:
+            owned = True
+        else:
+            if stored_component is not component:
+                msg = (
+                    f"Composed component UUID {component.uuid} refers to a different object "
+                    "already stored in the target system"
+                )
+                raise ValueError(msg)
+            owned = False
+
+        children: list[Component] = []
+        for field_name in type(component).model_fields:
+            value = getattr(component, field_name)
+            if isinstance(value, Component):
+                children.append(value)
+            elif isinstance(value, list):
+                component_values = [item for item in value if isinstance(item, Component)]
+                if component_values and len(component_values) != len(value):
+                    msg = (
+                        f"Component field '{type(component).__name__}.{field_name}' "
+                        "mixes Component and non-Component values"
+                    )
+                    raise ValueError(msg)
+                children.extend(component_values)
+
+        child_uuids = tuple(dict.fromkeys(child.uuid for child in children))
+        nodes[component.uuid] = ComponentRollbackNode(component, child_uuids, owned)
+        pending.extend(reversed(children))
+
+    try:
+        child_first_order = tuple(
+            TopologicalSorter({uuid: node.children for uuid, node in nodes.items()}).static_order()
+        )
+    except CycleError as error:
+        msg = f"Composed component graph for '{primary.label}' contains a cycle"
+        raise ValueError(msg) from error
+
+    return ComponentRollbackPlan(nodes, tuple(reversed(child_first_order)))
+
+
 def attach_rule_outputs(
     outputs: RuleOutputs,
     source_component: Component,
     context: PluginContext,
 ) -> Result[None, ValueError]:
-    """Attach a primary output and its supplemental attributes as one operation."""
+    """Attach outputs and roll back only newly stored composed components."""
     target_system = context.target_system
     if target_system is None:
         return Err(ValueError("target_system must be set in context"))
@@ -314,126 +399,110 @@ def attach_rule_outputs(
             target_system.get_supplemental_attribute_by_uuid(supplemental_attribute.uuid)
         except ISNotStored:
             continue
-        except Exception as error:
-            return Err(
-                ValueError(
-                    f"Failed to inspect supplemental output UUID {supplemental_attribute.uuid}: {error}"
-                )
-            )
         return Err(
             ValueError(
                 f"Supplemental output UUID {supplemental_attribute.uuid} is already stored in target system"
             )
         )
 
+    component_plan: ComponentRollbackPlan | None = None
     attached_supplemental: list[SupplementalAttribute] = []
-    primary_attached = False
-
-    def fail_with_rollback(error: ValueError) -> Result[None, ValueError]:
-        """Return the attachment error after attempting to remove partial outputs."""
-        rollback_result = rollback_rule_outputs(outputs, attached_supplemental, primary_attached, context)
-        if rollback_result.is_err():
-            return Err(ValueError(f"{error}; {rollback_result.err()}"))
-        return Err(error)
+    attachment_context = "Failed to attach rule outputs"
 
     try:
-        attach_result = attach_component(outputs.primary, source_component, context)
-        if attach_result.is_err():
-            return fail_with_rollback(attach_result.err())
-        primary_attached = isinstance(outputs.primary, Component)
+        if isinstance(outputs.primary, Component):
+            owner_component = outputs.primary
+            attachment_context = f"Failed to attach component '{outputs.primary.label}'"
+            component_plan = component_rollback_plan(outputs.primary, target_system)
+            target_system.add_component(outputs.primary)
+        else:
+            try:
+                owner_component = target_system.get_component_by_uuid(source_component.uuid)
+            except ISNotStored as error:
+                msg = (
+                    "Cannot attach supplemental attribute: target component with UUID "
+                    f"{source_component.uuid} not found in target system"
+                )
+                logger.error("{}: {}", msg, error)
+                raise ValueError(msg) from error
+
+            attachment_context = f"Failed to attach supplemental attribute '{outputs.primary.label}'"
+            target_system.add_supplemental_attribute(owner_component, outputs.primary)
+            attached_supplemental.append(outputs.primary)
 
         for supplemental_attribute in outputs.supplemental_attributes:
-            attach_result = attach_component(supplemental_attribute, outputs.primary, context)
-            if attach_result.is_err():
-                return fail_with_rollback(attach_result.err())
+            attachment_context = f"Failed to attach supplemental attribute '{supplemental_attribute.label}'"
+            target_system.add_supplemental_attribute(owner_component, supplemental_attribute)
             attached_supplemental.append(supplemental_attribute)
             logger.trace(
                 "Attached supplemental attribute {} to {}",
                 type(supplemental_attribute).__name__,
-                outputs.primary.label,
+                owner_component.label,
             )
     except Exception as error:
-        return fail_with_rollback(ValueError(f"Failed to attach rule outputs: {error}"))
+        rollback_errors = rollback_rule_outputs(
+            target_system,
+            component_plan,
+            attached_supplemental,
+        )
+        expected_failure = isinstance(error, (ValueError, ISAlreadyAttached, ISOperationNotAllowed))
+        attachment_failure = f"{attachment_context}: {error}"
+        if rollback_errors:
+            rollback_details = "; ".join(
+                f"{label}: {rollback_error}" for label, rollback_error in rollback_errors
+            )
+            failure_causes = ExceptionGroup(
+                f"{attachment_context}; rollback failures: {rollback_details}",
+                [error, *(rollback_error for _, rollback_error in rollback_errors)],
+            )
+            if expected_failure:
+                message = f"{attachment_failure}; Failed to roll back rule outputs: {rollback_details}"
+                return Err(value_error_from(message, failure_causes))
+            raise failure_causes from error
+
+        if expected_failure:
+            return Err(value_error_from(attachment_failure, error))
+        raise
 
     return Ok(None)
 
 
 def rollback_rule_outputs(
-    outputs: RuleOutputs,
-    supplemental_attributes: list[SupplementalAttribute],
-    primary_attached: bool,
-    context: PluginContext,
-) -> Result[None, ValueError]:
-    """Remove outputs already attached before a later attachment failed."""
-    target_system = context.target_system
-    if target_system is None:
-        return Ok(None)
-
-    rollback_errors: list[str] = []
-    for supplemental_attribute in reversed(supplemental_attributes):
+    target_system: System,
+    component_plan: ComponentRollbackPlan | None,
+    attached_supplemental: list[SupplementalAttribute],
+) -> list[tuple[str, Exception]]:
+    """Remove attached outputs and operation-owned components without cascading."""
+    rollback_errors: list[tuple[str, Exception]] = []
+    for supplemental_attribute in reversed(attached_supplemental):
         try:
             target_system.remove_supplemental_attribute(supplemental_attribute)
         except Exception as error:
-            rollback_errors.append(f"supplemental attribute: {error}")
+            rollback_errors.append(("supplemental attribute", error))
 
-    if primary_attached:
+    if component_plan is None:
+        return rollback_errors
+
+    blocked_uuids: set[UUID] = set()
+    for component_uuid in component_plan.order:
+        node = component_plan.nodes[component_uuid]
+        if component_uuid in blocked_uuids:
+            blocked_uuids.update(node.children)
+            continue
+        if not node.owned:
+            continue
+
         try:
-            target_system.remove_component(cast(Component, outputs.primary))
+            try:
+                stored_component = target_system.get_component_by_uuid(component_uuid)
+            except ISNotStored:
+                continue
+            if stored_component is not node.component:
+                msg = f"Component UUID {component_uuid} is stored by a different object during rollback"
+                raise ISAlreadyAttached(msg)
+            target_system.remove_component(node.component, cascade_down=False)
         except Exception as error:
-            rollback_errors.append(f"primary component: {error}")
+            rollback_errors.append(("component", error))
+            blocked_uuids.update(node.children)
 
-    if rollback_errors:
-        return Err(ValueError(f"Failed to roll back rule outputs: {'; '.join(rollback_errors)}"))
-    return Ok(None)
-
-
-def attach_component(
-    component: Any,
-    source_component: Any,
-    context: PluginContext,
-) -> Result[None, ValueError]:
-    """Attach a component to the target system.
-
-    For regular components, adds them directly to the system.
-    For supplemental attributes, finds the corresponding target component
-    and attaches the supplemental attribute to it.
-
-    Parameters
-    ----------
-    component : Any
-        The component or supplemental attribute to attach
-    source_component : Any
-        The source component that was converted
-    context : PluginContext
-        The plugin context
-
-    Returns
-    -------
-    Result[None, ValueError]
-        Ok if attachment succeeds, Err otherwise
-    """
-    if context.target_system is None:
-        return Err(ValueError("target_system must be set in context"))
-    if not isinstance(component, SupplementalAttribute):
-        context.target_system.add_component(component)
-        return Ok(None)
-
-    # Find the target component that corresponds to the source component
-    # We look for a component with the same UUID in the target system
-    try:
-        target_component = context.target_system.get_component_by_uuid(source_component.uuid)
-    except Exception as e:
-        logger.error(
-            "Failed to find target component with UUID {} for supplemental attribute attachment: {}",
-            source_component.uuid,
-            e,
-        )
-        return Err(
-            ValueError(
-                f"Cannot attach supplemental attribute: target component with UUID "
-                f"{source_component.uuid} not found in target system"
-            )
-        )
-
-    context.target_system.add_supplemental_attribute(target_component, component)
-    return Ok(None)
+    return rollback_errors

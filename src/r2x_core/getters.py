@@ -3,16 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, TypeAlias, TypeVar
+from typing import Any, TypeAlias, TypeVar
 
 from loguru import logger
-from rust_ok import Err, Ok
+from rust_ok import Err, Ok, Result
 
-if TYPE_CHECKING:
-    from rust_ok import Result
-
-
-GetterFunc: TypeAlias = Callable[..., Any]
+GetterFunc: TypeAlias = Callable[..., Result[Any, ValueError]]
 
 
 F = TypeVar("F", bound=GetterFunc)
@@ -57,16 +53,18 @@ def resolve_getter(getter: GetterFunc | str) -> Result[GetterFunc, TypeError]:
     """Resolve a getter reference to a callable."""
     from .utils.rules import build_attr_getter
 
+    if isinstance(getter, str):
+        if getter in GETTER_REGISTRY:
+            return Ok(GETTER_REGISTRY[getter])
+        if "." not in getter:
+            logger.warning(
+                "Getter '{}' not found in registry; ensure it is imported before loading rules. Falling back to attribute lookup.",
+                getter,
+            )
+        return Ok(build_attr_getter(getter.split(".")))
     if callable(getter):
         return Ok(getter)
-    if getter in GETTER_REGISTRY:
-        return Ok(GETTER_REGISTRY[getter])
-    if "." not in getter:
-        logger.warning(
-            "Getter '{}' not found in registry; ensure it is imported before loading rules. Falling back to attribute lookup.",
-            getter,
-        )
-    return Ok(build_attr_getter(getter.split(".")))
+    return Err(TypeError(f"Getter must be callable or str, got {type(getter).__name__}"))
 
 
 def resolve_rule_getters(getters_dict: dict[str, Any]) -> Result[dict[str, GetterFunc], TypeError]:

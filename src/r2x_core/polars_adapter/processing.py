@@ -101,7 +101,7 @@ def apply_polars_step(
                 schema_names, list(step.filter_by), operation="filter_columns", data_file=data_file
             )
             filters = [pl_build_filter_expr(column, value=value) for column, value in step.filter_by.items()]
-            data_frame = data_frame.filter(all_filters(filters))
+            data_frame = data_frame.filter(pl.all_horizontal(filters) if filters else pl.lit(True))
         case SelectStep():
             data_frame = data_frame.select(
                 [
@@ -265,16 +265,6 @@ def apply_polars_step(
             msg = f"Unsupported table processing operation: {type(step).__name__}"
             raise ValueError(msg)
     return data_frame
-
-
-def all_filters(filters: list[pl.Expr]) -> pl.Expr:
-    """Combine one or more Polars predicates with logical AND."""
-    if not filters:
-        return pl.lit(True)
-    combined = filters[0]
-    for predicate in filters[1:]:
-        combined = combined & predicate
-    return combined
 
 
 def replace_values(data_frame: pl.LazyFrame, *, step: ReplaceValuesStep) -> pl.LazyFrame:

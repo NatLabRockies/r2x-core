@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
-from r2x_core.utils.files import backup_folder, get_r2x_cache_path, resolve_glob_pattern
+from r2x_core.utils.files import backup_folder, get_r2x_cache_path, resolve_glob_pattern, resolve_path
 
 
 def test_backup_folder(tmp_path, caplog):
@@ -113,6 +113,17 @@ def test_backup_folder_preserves_contents(tmp_path):
     backup_path = tmp_path / "folder_backup"
     assert backup_path.exists()
     assert (backup_path / "file1.txt").read_text() == "content1"
+
+
+def test_resolve_path_handles_relative_absolute_and_optional_paths(tmp_path: Path) -> None:
+    existing = tmp_path / "data.csv"
+    existing.write_text("value\n1\n", encoding="utf-8")
+
+    assert resolve_path("data.csv", base_folder=tmp_path).unwrap() == existing
+    assert resolve_path(existing, base_folder=Path("/unused")).unwrap() == existing
+    missing = resolve_path("missing.csv", base_folder=tmp_path, must_exist=False)
+    assert missing.unwrap() == tmp_path / "missing.csv"
+    assert isinstance(resolve_path("missing.csv", base_folder=tmp_path).err(), FileNotFoundError)
 
 
 def test_resolve_glob_pattern_rejects_non_pattern(tmp_path):

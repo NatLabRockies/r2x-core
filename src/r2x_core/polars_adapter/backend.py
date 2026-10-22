@@ -114,6 +114,8 @@ class PolarsTabularBackend:
                     frame = output
                 case _:
                     frame = apply_polars_step(frame, data_file=data_file, step=step)
-        except (ValueError, TypeError, pl.exceptions.PolarsError) as error:
-            return Err(ValueError(f"Mapping operation {step.op!r} failed: {error}"))
+        except (ValueError, pl.exceptions.PolarsError) as error:
+            contextual_error = ValueError(f"Mapping operation {step.op!r} failed: {error}")
+            contextual_error.__cause__ = error
+            return Err(contextual_error)
         return Ok(frame)

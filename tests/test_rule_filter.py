@@ -165,3 +165,15 @@ def test_rule_filter_models_reject_invalid_shapes() -> None:
         GetterFilter(getter=123, op="eq", values=["gas"])
     with pytest.raises(ValidationError):
         AnyOfFilter(filters=[])
+
+
+def test_getter_filter_rejects_plain_value_result() -> None:
+    def invalid_getter(source: object, *, context: PluginContext) -> int:
+        _ = source, context
+        return 42
+
+    filt = GetterFilter(getter=invalid_getter, op="eq", values=[42])
+    context = PluginContext(config=PluginConfig(models=FIXTURE_MODEL_MODULES))
+
+    with pytest.raises(TypeError, match="Filter getter must return Ok or Err, got int"):
+        filt.matches(Dummy(), context=context)

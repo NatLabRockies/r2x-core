@@ -11,6 +11,8 @@ from pydantic import BaseModel, TypeAdapter, ValidationError
 from rust_ok import Err, Ok
 
 from r2x_core import DataFile, TabularProcessing
+from r2x_core.exceptions import ReaderError
+from r2x_core.file_reader import TabularSource
 from r2x_core.models import (
     AggregateStep,
     ExpressionOperation,
@@ -24,6 +26,7 @@ from r2x_core.models import (
     SelectStep,
 )
 from r2x_core.polars_adapter import PolarsTabularBackend, compile_polars_expression
+from r2x_core.reader import DataReader
 from r2x_core.tabular_backend import apply_mapping_steps
 from r2x_core.types import AggregationFunction, MappingExpressionOperator
 
@@ -526,6 +529,44 @@ def test_custom_handlers_must_respect_their_polars_type_contract(
 
     assert isinstance(result, Err)
     assert message in str(result.err())
+
+
+@pytest.mark.parametrize("error_type", [ValueError, TypeError, RuntimeError])
+def test_custom_handler_errors_keep_causes_at_reader_boundary(error_type: type[Exception]) -> None:
+    failure = error_type("custom handler failed")
+
+    class EmptyOptions(BaseModel):
+        pass
+
+    class RaisingHandler:
+        options_model: type[EmptyOptions] = EmptyOptions
+        input_type: type[pl.LazyFrame] = pl.LazyFrame
+        output_type: type[pl.LazyFrame] = pl.LazyFrame
+
+        def apply(self, value: pl.LazyFrame, *, options: EmptyOptions) -> pl.LazyFrame:
+            _ = value, options
+            raise failure
+
+    backend = PolarsTabularBackend(step_handlers={"failure": RaisingHandler()})
+    source = TabularSource(pl.LazyFrame({"value": [1]}), backend)
+    steps = TypeAdapter(list[MappingStep]).validate_python([{"op": "custom", "handler": "failure"}])
+    data_file = DataFile(
+        name="items",
+        source="items",
+        proc_spec=TabularProcessing(steps=steps),
+    )
+
+    if error_type is ValueError:
+        with pytest.raises(ReaderError) as raised:
+            DataReader.process_source(source, data_file=data_file, sources={"items": source})
+        operation_error = raised.value.__cause__
+        assert isinstance(operation_error, ValueError)
+        assert "Mapping operation 'custom' failed" in str(operation_error)
+        assert operation_error.__cause__ is failure
+    else:
+        with pytest.raises(error_type) as raised:
+            DataReader.process_source(source, data_file=data_file, sources={"items": source})
+        assert raised.value is failure
 
 
 def test_lowercase_and_empty_column_filters_have_defined_behavior() -> None:

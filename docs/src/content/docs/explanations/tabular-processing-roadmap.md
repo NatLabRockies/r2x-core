@@ -52,9 +52,10 @@ Its `kind` tag is `"json"`.
 
 Strict models reject unknown fields, and each tagged step has a closed schema.
 For example, column renaming and filtering are separate operations rather than
-optional fields whose interaction depends on a global execution order. A
-processing error is returned as a `Result` by the backend and surfaced by
-`DataReader` as a `ReaderError`.
+optional fields whose interaction depends on a global execution order.
+Expected `ValueError` and Polars failures remain `Result` errors with their
+causes. `DataReader` chains `ReaderError` from them. Callback `TypeError` and
+other programming defects propagate unchanged.
 
 See the [processor reference](/r2x-core/references/processors/) for the
 supported steps and [custom readers and backends](/r2x-core/how-tos/custom-readers-and-backends/)

@@ -18,11 +18,16 @@ from r2x_core import PluginConfig, PluginContext, Rule
 from r2x_core.utils import (
     build_attr_getter,
     build_component_kwargs,
-    build_target_fields,
     create_rule_outputs,
-    create_target_component,
     resolve_component_type,
 )
+
+
+def test_utils_reports_unknown_lazy_exports():
+    import r2x_core.utils as utilities
+
+    with pytest.raises(AttributeError, match="missing_utility"):
+        assert utilities.missing_utility is None
 
 
 def test_resolve_component_type_success(context_example):
@@ -112,7 +117,7 @@ def test_make_attr_getter_traverses_chain():
     assert result.unwrap() == 99
 
 
-def test_build_target_fields_applies_defaults_and_getters(context_example):
+def test_build_component_kwargs_applies_defaults_and_getters(context_example):
     """Missing attributes fall back to defaults and getters override values."""
 
     class Source:
@@ -132,7 +137,7 @@ def test_build_target_fields_applies_defaults_and_getters(context_example):
         defaults={"demand_mw": 0.0},
     )
 
-    result = build_target_fields(Source(), rule=rule, context=context_example)
+    result = build_component_kwargs(Source(), rule=rule, context=context_example)
 
     assert result.is_ok()
     fields = result.unwrap()
@@ -156,13 +161,13 @@ def test_field_mapping_reads_a_source_property_once(context_example: PluginConte
         field_map={"measurement": "reading"},
     )
 
-    result = build_target_fields(Source(name="source"), rule=rule, context=context_example)
+    result = build_component_kwargs(Source(name="source"), rule=rule, context=context_example)
 
     assert result.unwrap() == {"measurement": 10}
     assert next(readings) == 20
 
 
-def test_build_target_fields_reports_source_field_typo(context_example):
+def test_build_component_kwargs_reports_source_field_typo(context_example):
     """Unknown configured source fields produce a direct error."""
 
     class Source:
@@ -175,12 +180,12 @@ def test_build_target_fields_reports_source_field_typo(context_example):
         field_map={"required": "missing_attr"},
     )
 
-    result = build_target_fields(Source(), rule=rule, context=context_example)
+    result = build_component_kwargs(Source(), rule=rule, context=context_example)
     assert result.is_err()
     assert str(result.err()) == "Source Source has no attribute 'missing_attr'"
 
 
-def test_build_target_fields_missing_attribute_uses_default(context_example):
+def test_build_component_kwargs_missing_attribute_uses_default(context_example):
     """Missing source attributes use configured defaults when available."""
 
     class Source:
@@ -194,13 +199,13 @@ def test_build_target_fields_missing_attribute_uses_default(context_example):
         defaults={"required": "fallback"},
     )
 
-    result = build_target_fields(Source(), rule=rule, context=context_example)
+    result = build_component_kwargs(Source(), rule=rule, context=context_example)
 
     assert result.is_ok()
     assert result.unwrap() == {"required": "fallback"}
 
 
-def test_build_target_fields_getter_error_without_default(context_example):
+def test_build_component_kwargs_getter_error_without_default(context_example):
     """Getter failures propagate when no default is defined."""
 
     class Source:
@@ -218,7 +223,7 @@ def test_build_target_fields_getter_error_without_default(context_example):
         getters={"computed": faulty_getter},
     )
 
-    result = build_target_fields(Source(), rule=rule, context=context_example)
+    result = build_component_kwargs(Source(), rule=rule, context=context_example)
     assert result.is_err()
     assert "failed" in str(result.err()).lower()
 
@@ -249,18 +254,6 @@ def test_supplemental_attribute_rule_rejects_non_callable_getters():
 
     with pytest.raises(TypeError, match="must be callable"):
         SupplementalAttributeRule(target_type="LocationInfo", getters={"field": "path"})
-
-
-def test_create_target_component_instantiates_class():
-    """create_target_component simply instantiates the provided class."""
-
-    class Dummy(NodeComponent):
-        """Subclass to ensure kwargs are forwarded."""
-
-    dummy = create_target_component(Dummy, kwargs={"name": "node_x"})
-
-    assert isinstance(dummy, Dummy)
-    assert dummy.name == "node_x"
 
 
 def test_build_component_kwargs_from_parser_record(context_example):
@@ -325,7 +318,7 @@ def test_make_attr_getter_returns_none_when_chain_breaks():
     assert result.unwrap() is None
 
 
-def test_build_target_fields_skips_multifield_mappings(context_example):
+def test_build_component_kwargs_skips_multifield_mappings(context_example):
     """Multi-field mappings in field_map are skipped for direct assignment."""
 
     class Source:
@@ -345,7 +338,7 @@ def test_build_target_fields_skips_multifield_mappings(context_example):
         getters={"coords": coords_getter},
     )
 
-    result = build_target_fields(Source(), rule=rule, context=context_example)
+    result = build_component_kwargs(Source(), rule=rule, context=context_example)
 
     assert result.is_ok()
     kwargs = result.unwrap()
@@ -393,7 +386,7 @@ def test_build_component_kwargs_getter_error_optional(context_example):
     assert result.unwrap() == {}
 
 
-def test_build_target_fields_getter_error_uses_default(context_example):
+def test_build_component_kwargs_getter_error_uses_default(context_example):
     """Getter failures fall back to defaults when defined."""
 
     class Source:
@@ -412,7 +405,7 @@ def test_build_target_fields_getter_error_uses_default(context_example):
         defaults={"computed": "fallback_value"},
     )
 
-    result = build_target_fields(Source(), rule=rule, context=context_example)
+    result = build_component_kwargs(Source(), rule=rule, context=context_example)
 
     assert result.is_ok()
     kwargs = result.unwrap()
@@ -451,7 +444,10 @@ def test_create_rule_outputs_regenerates_primary_uuid(context_example):
         regenerate_uuid=True,
     )
     assert result.is_ok()
-    assert result.unwrap().primary.uuid != "source-uuid"
+    primary = result.unwrap().primary
+    assert isinstance(primary, NodeComponent)
+    assert primary.name == "node"
+    assert primary.uuid != "source-uuid"
 
 
 def test_create_rule_outputs_reports_primary_validation_error(context_example):
@@ -598,3 +594,19 @@ def test_evaluate_rule_filter_geq_non_numeric():
     filt = FieldFilter(field="capacity", op="geq", values=[100])
 
     assert not evaluate_rule_filter(Component(), rule_filter=filt)
+
+
+def test_build_component_kwargs_rejects_getter_without_result(context_example):
+    def invalid_getter(source: object, *, context: object) -> int:
+        _ = source, context
+        return 42
+
+    rule = Rule(
+        source_type="SourceType",
+        target_type="TargetType",
+        version=1,
+        getters={"computed": invalid_getter},
+    )
+
+    with pytest.raises(TypeError, match="Getter for 'computed' must return Ok or Err, got int"):
+        build_component_kwargs(object(), rule=rule, context=context_example)

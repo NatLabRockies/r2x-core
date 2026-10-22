@@ -4,8 +4,9 @@ title: "Read HDF5 Files"
 
 The built-in `hdf5` reader turns configured datasets and column layouts into a
 Polars table source. Use `hdf5_array` when an output should retain native array
-samples. Reader options are validated by the HDF5 reader and belong in
-`ReaderConfig.options`.
+samples. Reader options are strictly validated without coercion and belong in
+`ReaderConfig.options`. Boolean options must be booleans, unknown options are
+rejected, and a supplied `data_key` must be non-empty.
 
 ## Reading HDF5 data files
 

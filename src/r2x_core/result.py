@@ -3,20 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Generic
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .rules import Rule
-
-from .types import FrameT
-
-
-@dataclass
-class TabularTransformResult(Generic[FrameT]):
-    """A transformed tabular frame and its ordered output column names."""
-
-    data_frame: FrameT
-    schema_names: list[str]
 
 
 @dataclass(frozen=True, slots=True)

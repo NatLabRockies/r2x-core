@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import importlib
-from collections import deque
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from graphlib import CycleError, TopologicalSorter
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from infrasys import Component, SupplementalAttribute
-from pydantic import ValidationError as PydanticValidationError
 from rust_ok import Err, Ok, Result
 
 
@@ -29,6 +28,13 @@ if TYPE_CHECKING:
 
 
 COMPONENT_TYPE_CACHE: dict[tuple[tuple[str, ...], str], type] = {}
+
+
+def value_error_from(message: str, cause: BaseException) -> ValueError:
+    """Build contextual error text while retaining its originating exception."""
+    error = ValueError(message)
+    error.__cause__ = cause
+    return error
 
 
 def resolve_component_type(type_name: str, *, context: PluginContext) -> Result[type, TypeError]:
@@ -56,13 +62,6 @@ def resolve_component_type(type_name: str, *, context: PluginContext) -> Result[
     return Err(TypeError(f"Component type '{type_name}' not found in modules: {modules_to_search}"))
 
 
-def create_target_component(
-    target_class: type[Component] | type[SupplementalAttribute], *, kwargs: dict[str, Any]
-) -> Component | SupplementalAttribute:
-    """Instantiate a component or supplemental attribute with the provided fields."""
-    return target_class(**kwargs)
-
-
 def build_attr_getter(chain: list[str]) -> RuleGetter:
     """Create a getter that walks nested attributes and returns a Result."""
 
@@ -77,16 +76,6 @@ def build_attr_getter(chain: list[str]) -> RuleGetter:
         return Ok(val)
 
     return attribute_chain_getter
-
-
-def build_target_fields(
-    source_component: Component | Mapping[str, Any],
-    *,
-    rule: Rule,
-    context: PluginContext,
-) -> Result[dict[str, Any], ValueError]:
-    """Build a field mapping for the target component."""
-    return build_component_kwargs(source_component, rule=rule, context=context)
 
 
 def to_attr_source(source_component: Component | Mapping[str, Any]) -> Component | SimpleNamespace:
@@ -159,7 +148,13 @@ def build_component_kwargs(
                 if target_field in defaults:
                     kwargs[target_field] = defaults[target_field]
                 elif not allow_missing:
-                    return Err(ValueError(f"Getter for '{target_field}' failed: {e}"))
+                    error = ValueError(f"Getter for '{target_field}' failed: {e}")
+                    if isinstance(e, BaseException):
+                        error.__cause__ = e
+                    return Err(error)
+            case _:
+                msg = f"Getter for '{target_field}' must return Ok or Err, got {type(result).__name__}"
+                raise TypeError(msg)
 
     for target_field, default_value in defaults.items():
         if target_field not in kwargs:
@@ -187,9 +182,10 @@ def create_rule_outputs(
             )
         )
 
-    fields_result = build_target_fields(source_component, rule=rule, context=context)
+    fields_result = build_component_kwargs(source_component, rule=rule, context=context)
     if fields_result.is_err():
-        return Err(ValueError(f"primary target: {fields_result.err()}"))
+        error = fields_result.err()
+        return Err(value_error_from(f"primary target: {error}", error))
 
     primary_kwargs = fields_result.unwrap()
     if regenerate_uuid and "uuid" in primary_kwargs:
@@ -197,9 +193,9 @@ def create_rule_outputs(
         primary_kwargs["uuid"] = str(uuid4())
 
     try:
-        primary = create_target_component(target_class, kwargs=primary_kwargs)
-    except (PydanticValidationError, TypeError, ValueError) as error:
-        return Err(ValueError(f"primary target '{target_class.__name__}': {error}"))
+        primary = target_class(**primary_kwargs)
+    except ValueError as error:
+        return Err(value_error_from(f"primary target '{target_class.__name__}': {error}", error))
 
     supplemental_attributes: list[SupplementalAttribute] = []
     for supplemental_rule, supplemental_class in zip(supplemental_rules, supplemental_classes, strict=True):
@@ -210,8 +206,9 @@ def create_rule_outputs(
             allow_missing=supplemental_rule.optional,
         )
         if fields_result.is_err():
+            error = fields_result.err()
             return Err(
-                ValueError(f"supplemental target '{supplemental_rule.target_type}': {fields_result.err()}")
+                value_error_from(f"supplemental target '{supplemental_rule.target_type}': {error}", error)
             )
 
         supplemental_kwargs = fields_result.unwrap()
@@ -221,14 +218,11 @@ def create_rule_outputs(
             continue
 
         try:
-            supplemental_attributes.append(
-                cast(
-                    SupplementalAttribute,
-                    create_target_component(supplemental_class, kwargs=supplemental_kwargs),
-                )
+            supplemental_attributes.append(supplemental_class(**supplemental_kwargs))
+        except ValueError as error:
+            return Err(
+                value_error_from(f"supplemental target '{supplemental_rule.target_type}': {error}", error)
             )
-        except (PydanticValidationError, TypeError, ValueError) as error:
-            return Err(ValueError(f"supplemental target '{supplemental_rule.target_type}': {error}"))
 
     return Ok(RuleOutputs(primary=primary, supplemental_attributes=tuple(supplemental_attributes)))
 
@@ -267,7 +261,12 @@ def evaluate_rule_filter(
                 candidate = value
             case Err(error):
                 msg = f"Filter getter failed: {error}"
+                if isinstance(error, BaseException):
+                    raise ValueError(msg) from error
                 raise ValueError(msg)
+            case _:
+                msg = f"Filter getter must return Ok or Err, got {type(result).__name__}"
+                raise TypeError(msg)
     elif isinstance(rule_filter, FieldFilter):
         candidate = getattr(component, rule_filter.field, None)
     else:
@@ -327,32 +326,22 @@ def sort_rules_by_dependencies(rules: list[Rule]) -> Result[list[Rule], ValueErr
         else:
             unnamed_rules.append(rule)
 
-    in_degree: dict[str, int] = dict.fromkeys(named_rules, 0)
-    adjacency: dict[str, list[str]] = {name: [] for name in named_rules}
-
+    sorter = TopologicalSorter()
+    for name in named_rules:
+        sorter.add(name)
     for name, rule in named_rules.items():
-        if rule.depends_on:
-            for dep in rule.depends_on:
-                if dep not in named_rules:
-                    return Err(ValueError(f"Rule '{name}' depends on unknown rule '{dep}'"))
-                adjacency[dep].append(name)
-                in_degree[name] += 1
+        dependencies = rule.depends_on or ()
+        for dep in dependencies:
+            if dep not in named_rules:
+                return Err(ValueError(f"Rule '{name}' depends on unknown rule '{dep}'"))
+        sorter.add(name, *dependencies)
 
-    queue: deque[str] = deque(name for name, degree in in_degree.items() if degree == 0)
     sorted_names: list[str] = []
-
-    while queue:
-        current = queue.popleft()
-        sorted_names.append(current)
-
-        for neighbor in adjacency[current]:
-            in_degree[neighbor] -= 1
-            if in_degree[neighbor] == 0:
-                queue.append(neighbor)
-
-    if len(sorted_names) != len(named_rules):
-        unsorted = set(named_rules.keys()) - set(sorted_names)
-        return Err(ValueError(f"Circular dependencies detected in rules: {', '.join(unsorted)}"))
+    try:
+        sorted_names.extend(sorter.static_order())
+    except CycleError as error:
+        cycle = error.args[1][:-1]
+        return Err(value_error_from(f"Circular dependencies detected in rules: {', '.join(cycle)}", error))
 
     unnamed_no_deps = [rule for rule in unnamed_rules if not rule.depends_on]
     unnamed_with_deps = [rule for rule in unnamed_rules if rule.depends_on]
@@ -364,7 +353,10 @@ def sort_rules_by_dependencies(rules: list[Rule]) -> Result[list[Rule], ValueErr
         for dep in deps:
             if dep not in named_rules:
                 return Err(ValueError(f"Rule depends on unknown rule '{dep}'"))
-        dep_indices = [sorted_rules.index(named_rules[dep]) for dep in deps]
+        dep_indices = [
+            next(index for index, candidate in enumerate(sorted_rules) if candidate is named_rules[dep])
+            for dep in deps
+        ]
         insert_index = max(dep_indices, default=-1) + 1
         sorted_rules.insert(insert_index, rule)
 

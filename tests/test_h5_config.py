@@ -8,7 +8,7 @@ import pytest
 
 from r2x_core import DataFile, DataReader
 from r2x_core.datafile import ReaderConfig
-from r2x_core.h5_adapter.readers import configurable_h5_reader
+from r2x_core.h5_adapter.readers import configurable_h5_reader, read_h5_file
 
 
 def test_hdf5_reader_configuration_roundtrip(tmp_path: Path) -> None:
@@ -38,10 +38,56 @@ def test_hdf5_layout_errors_are_explicit(tmp_path: Path) -> None:
     path = tmp_path / "data.h5"
     with h5py.File(path, "w") as output:
         output.create_dataset("values", data=np.array([1, 2]))
-        with pytest.raises(ValueError, match="columns_key must be a string"):
+        with pytest.raises(ValueError, match="columns_key"):
             configurable_h5_reader(output, data_key="values", columns_key=1)
         with pytest.raises(ValueError, match="columns_key is required"):
             configurable_h5_reader(output, columns_as_datasets=True)
+
+
+@pytest.mark.parametrize(
+    ("invalid_options", "field"),
+    [
+        ({"group_key": 1}, "group_key"),
+        ({"columns_as_datasets": "yes"}, "columns_as_datasets"),
+        ({"data_key": ""}, "data_key"),
+        ({"data_key": 1}, "data_key"),
+        ({"index_names_key": 1}, "index_names_key"),
+        ({"columns_key": 1}, "columns_key"),
+        ({"decode_bytes": "yes"}, "decode_bytes"),
+        ({"datetime_key": 1}, "datetime_key"),
+        ({"datetime_column_name": 1}, "datetime_column_name"),
+        ({"strip_timezone": "yes"}, "strip_timezone"),
+        ({"index_key": 1}, "index_key"),
+        ({"additional_keys": "data"}, "additional_keys"),
+        ({"additional_keys": [1]}, "additional_keys"),
+        ({"column_name_mapping": {"data": 1}}, "column_name_mapping"),
+        ({"column_name_mapping": []}, "column_name_mapping"),
+        ({"unknown_option": True}, "unknown_option"),
+    ],
+)
+def test_hdf5_options_are_strict_for_direct_and_data_reader_paths(
+    tmp_path: Path, invalid_options: dict[str, object], field: str
+) -> None:
+    path = tmp_path / "strict-options.h5"
+    with h5py.File(path, "w") as output:
+        output.create_dataset("data", data=np.array([1, 2]))
+
+    reader_options = {"data_key": "data", **invalid_options}
+    with h5py.File(path, "r") as input_file, pytest.raises(ValueError, match=field):
+        configurable_h5_reader(input_file, **reader_options)
+    with pytest.raises(ValueError, match=field):
+        read_h5_file(file_path=path, **reader_options)
+
+    item = DataFile(
+        name="data",
+        fpath=path,
+        reader=ReaderConfig(
+            format="hdf5_array",
+            options=reader_options,
+        ),
+    )
+    with pytest.raises(ValueError, match=field):
+        DataReader().read_data_files([item], folder_path=tmp_path)
 
 
 def test_hdf5_mapping_reads_columns_datetime_and_additional_keys(tmp_path: Path) -> None:

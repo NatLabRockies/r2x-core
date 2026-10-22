@@ -135,6 +135,19 @@ def test_json_and_xml_decoders_preserve_native_documents(json_file: Path, xml_fi
         xml_source.fields()
 
 
+@pytest.mark.parametrize(
+    ("reader", "format_name"),
+    [(JSONFileReader(), "json"), (XMLFileReader(), "xml")],
+)
+def test_document_readers_reject_unsupported_options(
+    json_file: Path, reader: JSONFileReader | XMLFileReader, format_name: str
+) -> None:
+    config = ReaderConfig(format=format_name, options={"unsupported": True})
+
+    with pytest.raises(ValueError, match="has no options"):
+        reader.read_file(format_name, file_path=json_file, reader_config=config)
+
+
 def test_document_readers_reject_wrong_formats_and_invalid_json(tmp_path: Path, json_file: Path) -> None:
     with pytest.raises(ValueError, match="cannot read format"):
         JSONFileReader().read_file("xml", file_path=json_file, reader_config=ReaderConfig())

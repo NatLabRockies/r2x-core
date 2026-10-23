@@ -14,6 +14,12 @@ A `TimeSeriesInstruction` names its source, sample-value field, time axis,
 metadata, units, and component owners. Owners use component type and name.
 `name_field` groups long-form rows so each owner receives only its own samples;
 literal `names` intentionally shares one sample vector across those owners.
+`metadata_columns` maps row fields to infrasys feature names and partitions samples
+by both resolved owners and the mapped values. Each mapped value must be an exact
+built-in string, boolean, integer, or finite float. Missing fields, nulls,
+non-finite numbers, and non-scalar values fail. Boolean and integer values are
+distinct. Literal and mapped feature names cannot overlap. `context`, `self`, and
+`time_series` are reserved infrasys arguments.
 
 ```python doctest
 >>> from r2x_core import ColumnTimeAxis, ComponentOwner, TimeSeriesInstruction
@@ -25,19 +31,25 @@ literal `names` intentionally shares one sample vector across those owners.
 ...     time_axis=ColumnTimeAxis(kind="column", column="timestamp"),
 ...     units="MW",
 ...     metadata={"scenario": "base", "enabled": False},
+...     metadata_columns={"weather_year": "weather_year"},
 ...     owners=[ComponentOwner(component_type="Bus", name_field="bus_name")],
 ... )
 >>> load.owners[0].name_field
 'bus_name'
 >>> load.metadata["enabled"]
 False
+>>> load.metadata_columns["weather_year"]
+'weather_year'
 ```
 
 A regular axis uses `initial_timestamp` and a positive
 `resolution_seconds`. A column axis must be strictly increasing and regular.
-SingleTimeSeries requires at least two samples. Missing fields, invalid axes,
-unknown owners, and infrasys validation errors fail before that output is
-attached. Explicit null values are not treated as absent fields.
+Core preserves source order and does not sort or coerce timestamps.
+SingleTimeSeries requires at least two samples. By default, an empty source is
+an error. Set `skip_if_empty=true` for an explicitly optional series that should
+be absent when its source has no rows. Nonempty sources with missing fields,
+invalid axes, unknown owners, or infrasys validation errors still fail before
+that output is attached. Explicit null values are not treated as absent fields.
 
 Units are passed as a `ureg.Quantity` when the series is created, so
 `TimeSeriesMetadata.units` records the unit. Other instruction metadata is

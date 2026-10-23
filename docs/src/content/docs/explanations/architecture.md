@@ -79,7 +79,7 @@ sequenceDiagram
 ```
 
 `DataReader.read_data_files` is the public source-loading and composition seam.
-Its decode cache is local to one call and keyed by canonical path, symbolic
+Its decode cache is local to one call and keyed by resolved path, symbolic
 format, and options. Named dependencies, including joins across separately
 decoded compatible sources, are resolved in core. No requested operations mean
 pass-through. Requested unsupported operations fail explicitly.
@@ -92,7 +92,7 @@ in declaration order and fail fast. Earlier attachments are not rolled back if
 a later instruction fails.
 
 `DataStore` manages mapping configuration and upgrade handlers; it does not
-read files. A configured handler runs on the canonical build/read path when a
+read files. A configured handler runs on the configured build/read path when a
 required input is missing, followed by one retry. `System.from_json` and
 serialized-system loading remain separate from file ingestion.
 

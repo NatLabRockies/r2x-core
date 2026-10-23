@@ -1,7 +1,8 @@
-"""Ensure canonical construction retains configured input upgrades."""
+"""Ensure configured system construction retains input upgrades."""
 
 from pathlib import Path
 
+import pytest
 from fixtures.ingestion_models import PSSEBus
 
 from r2x_core import DataStore, PluginConfig, PluginContext, build_system
@@ -11,6 +12,7 @@ class UpgradeConfig(PluginConfig):
     """Configuration model used by the upgrade integration test."""
 
 
+@pytest.mark.polars
 def test_build_system_runs_upgrade_handler_when_input_is_missing(tmp_path: Path) -> None:
     """Retry configured reads after the handler updates the input directory."""
     config_dir = tmp_path / "config"

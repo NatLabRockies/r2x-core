@@ -110,7 +110,7 @@ class ProvenanceInfo(BaseModel):
 
     @field_serializer("source_system_uuid")
     def serialize_uuid(self, value: UUID) -> str:
-        """Render the UUID as its canonical hex-with-dashes string for JSON output."""
+        """Render the UUID as a hyphenated string for JSON output."""
         return str(value)
 
 
@@ -216,8 +216,8 @@ class ProvenanceBuilder:
         for source_component in self.iter_untranslated_source_components():
             # deepcopy_component uses model_dump() then re-instantiates, so
             # composed sub-components on `copy` are fresh instances that hold
-            # the same uuid as their source counterparts but do not point at
-            # the target-side canonical instance. Reverse translation will
+            # the same UUID as their source counterparts but do not point at
+            # the existing target component instance. Reverse translation will
             # need to re-link composed refs by uuid; the executor's normal
             # auto_add_composed_components path already de-duplicates by uuid
             # so this does not corrupt the target's component graph.
@@ -225,7 +225,7 @@ class ProvenanceBuilder:
             try:
                 target_system.add_component(copy)
             except ISAlreadyAttached as exc:
-                # Infrasys owns the canonical UUID uniqueness check. Keep the
+                # Infrasys owns UUID uniqueness checks. Keep the
                 # preserve-source-specific message while avoiding a duplicate
                 # preflight lookup for every preserved component.
                 msg = (

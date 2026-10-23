@@ -6,6 +6,9 @@ import sys
 from pathlib import Path
 
 import polars as pl
+import pytest
+
+pytestmark = pytest.mark.polars
 
 
 def test_reader_and_processor_contracts_are_public() -> None:
@@ -15,7 +18,9 @@ def test_reader_and_processor_contracts_are_public() -> None:
         FileReader,
         H5PyFileReader,
         H5Reader,
+        InlineTable,
         SourceProcessor,
+        SourceSelection,
         TabularProcessor,
         TabularSource,
     )
@@ -25,6 +30,7 @@ def test_reader_and_processor_contracts_are_public() -> None:
     source = TabularSource(pl.LazyFrame({"value": [1]}), PolarsTabularBackend())
     assert isinstance(source, DecodedSource)
     assert source.values("value") == [1]
+    assert InlineTable and SourceSelection
     assert callable(JSONProcessingBackend)
     assert callable(SourceProcessor)
     assert callable(TabularProcessor)

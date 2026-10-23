@@ -1,4 +1,4 @@
-"""Exercise typed placeholders in the canonical reader processing route."""
+"""Exercise typed placeholders in configured reader processing."""
 
 import json
 from pathlib import Path
@@ -11,6 +11,8 @@ from r2x_core.exceptions import ReaderError
 from r2x_core.file_reader import TabularSource
 from r2x_core.reader import DataReader
 from r2x_core.types import JSONValue
+
+pytestmark = pytest.mark.polars
 
 
 def read_table(

@@ -59,6 +59,8 @@ from r2x_core.reader import DataReader
 from r2x_core.system import System
 from r2x_core.types import FileProcessing, JSONValue
 
+pytestmark = pytest.mark.polars
+
 
 class DummyRawOptions(StrictConfigModel):
     """Validate options owned by the illustrative decoder."""
@@ -142,6 +144,9 @@ class ConcreteDocumentSource(DecodedSource):
 
     def fields(self) -> list[str]:
         return ["value"]
+
+    def is_empty(self) -> bool:
+        return False
 
     def iter_rows(self) -> list[Mapping[str, object]]:
         return [{"value": 3}]
@@ -303,23 +308,13 @@ def test_build_system_reads_and_attaches_components_attributes_and_time_series(t
                         "steps": [
                             {
                                 "op": "filter",
-                                "predicate": {
-                                    "op": "eq",
-                                    "args": [{"column": "status"}, {"literal": 1}],
-                                },
+                                "predicate": {"eq": ["status", 1]},
                             },
                             {"op": "join", "source": "bus_names", "how": "left", "on": ["bus_number"]},
                             {
                                 "op": "with_columns",
                                 "columns": {
-                                    "name": {
-                                        "op": "concat_str",
-                                        "args": [
-                                            {"column": "bus_name"},
-                                            {"literal": "_"},
-                                            {"column": "machine_id"},
-                                        ],
-                                    }
+                                    "name": {"concat_str": ["bus_name", {"literal": "_"}, "machine_id"]}
                                 },
                             },
                         ],
@@ -409,6 +404,58 @@ def test_build_system_reads_and_attaches_components_attributes_and_time_series(t
     metadata = system.list_time_series_metadata(buses["NORTH"], name="load_mw")
     assert metadata[0].units.units == "megawatt"
     assert metadata[0].features == {"enabled": False, "scenario": "base"}
+
+    from pydantic import TypeAdapter
+
+    from r2x_core import build_system_from_sources
+    from r2x_core.models import ParserInstruction
+
+    data_files = [
+        DataFile.model_validate(record)
+        for record in json.loads((config_dir / "file_mapping.json").read_bytes())
+    ]
+    sources = DataReader(file_readers={"dummy_raw": DummyRawReader()}).read_data_files(
+        data_files, folder_path=config_dir
+    )
+    instructions = TypeAdapter(list[ParserInstruction]).validate_python(
+        json.loads((config_dir / "parser_rules.json").read_bytes())
+    )
+    source_config = PluginConfig(
+        models=("fixtures.ingestion_models",),
+        config_path_override=tmp_path / "no-config-files",
+    )
+    from_sources = build_system_from_sources(
+        sources,
+        config=source_config,
+        instructions=instructions,
+        name="dummy-psse",
+    )
+
+    assert not source_config.config_path_override.exists()
+    assert sorted(
+        (bus.name, bus.number, bus.base_kv) for bus in from_sources.get_components(PSSEBus)
+    ) == sorted((bus.name, bus.number, bus.base_kv) for bus in system.get_components(PSSEBus))
+    assert sorted(
+        (generator.name, generator.bus.name, generator.active_power_mw, generator.available)
+        for generator in from_sources.get_components(PSSEGenerator)
+    ) == sorted(
+        (generator.name, generator.bus.name, generator.active_power_mw, generator.available)
+        for generator in system.get_components(PSSEGenerator)
+    )
+    for bus_name in ("NORTH", "SOUTH"):
+        source_bus = from_sources.get_component(PSSEBus, bus_name)
+        file_bus = system.get_component(PSSEBus, bus_name)
+        assert [
+            attribute.region
+            for attribute in from_sources.get_supplemental_attributes_with_component(source_bus)
+        ] == [attribute.region for attribute in system.get_supplemental_attributes_with_component(file_bus)]
+    source_series = from_sources.get_time_series(from_sources.get_component(PSSEBus, "NORTH"), name="load_mw")
+    np.testing.assert_array_equal(source_series.data_array, series.data_array)
+    source_metadata = from_sources.list_time_series_metadata(
+        from_sources.get_component(PSSEBus, "NORTH"), name="load_mw"
+    )[0]
+    assert source_metadata.units.units == metadata[0].units.units
+    assert source_metadata.features == metadata[0].features
 
 
 def test_custom_document_processor_and_reader_options(tmp_path: Path) -> None:
@@ -579,6 +626,25 @@ def test_decoded_qualified_names_cannot_be_replaced_by_derived_sources(tmp_path:
 
     with pytest.raises(ValueError, match=r"Duplicate named source 'case\.buses'"):
         DataReader(file_readers={"dummy_raw": DummyRawReader()}).read_data_files(files, folder_path=tmp_path)
+
+
+def test_multi_output_reader_cannot_overwrite_an_initial_source(tmp_path: Path) -> None:
+    """Reject qualified physical outputs that collide with a seed source."""
+    path = tmp_path / "case.raw"
+    path.write_text("BUS,1,NORTH,230\nGEN,1,1,10,1\n", encoding="utf-8")
+    initial_sources: DecodedSources = {
+        "case.generators": TabularSource(pl.DataFrame({"value": [2]}).lazy(), PolarsTabularBackend())
+    }
+    reader = DataReader(file_readers={"dummy_raw": DummyRawReader()})
+
+    with pytest.raises(ValueError, match=r"Duplicate named source 'case\.generators'"):
+        reader.read_data_files(
+            [DataFile(name="case", fpath=path, reader=ReaderConfig(format="dummy_raw"))],
+            folder_path=tmp_path,
+            initial_sources=initial_sources,
+        )
+
+    assert initial_sources["case.generators"].values("value") == [2]
 
 
 def test_decoded_sources_cannot_overwrite_an_existing_derived_name(tmp_path: Path) -> None:
@@ -1151,15 +1217,24 @@ def test_output_instruction_models_reject_conflicting_or_reserved_fields() -> No
             fields={"bus": "bus_name"},
             references={"bus": {"component_type": "PSSEBus", "name_field": "bus_name"}},
         )
-    with pytest.raises(ValidationError, match="reserved infrasys 'context'"):
+    time_series_options: dict[str, object] = {
+        "kind": "time_series",
+        "source": "loads",
+        "name": "load",
+        "values": "value",
+        "time_axis": {"kind": "regular", "initial_timestamp": "2024-01-01", "resolution_seconds": 3600},
+        "owners": [{"component_type": "PSSEBus", "name": "NORTH"}],
+    }
+    for reserved in ("context", "time_series", "self"):
+        with pytest.raises(ValidationError, match="reserved"):
+            TimeSeriesInstruction(**time_series_options, metadata={reserved: "not-a-feature"})
+        with pytest.raises(ValidationError, match="reserved"):
+            TimeSeriesInstruction(**time_series_options, metadata_columns={reserved: reserved})
+    with pytest.raises(ValidationError, match="metadata keys overlap"):
         TimeSeriesInstruction(
-            kind="time_series",
-            source="loads",
-            name="load",
-            values="value",
-            time_axis={"kind": "regular", "initial_timestamp": "2024-01-01", "resolution_seconds": 3600},
-            owners=[{"component_type": "PSSEBus", "name": "NORTH"}],
-            metadata={"context": "not-a-feature"},
+            **time_series_options,
+            metadata={"weather_year": 2012},
+            metadata_columns={"weather_year": "weather_year"},
         )
 
 
@@ -1250,6 +1325,14 @@ def test_builders_reject_unknown_mappings_and_empty_owner_groups(tmp_path: Path)
             source=TabularSource(empty_columns, PolarsTabularBackend()),
             config=config,
         )
+    optional_series = empty_series.model_copy(update={"name": "optional", "skip_if_empty": True})
+    attach_time_series(
+        system,
+        optional_series,
+        source=TabularSource(empty_columns, PolarsTabularBackend()),
+        config=config,
+    )
+    assert system.list_time_series_metadata(bus, name="optional") == []
 
     empty_values = TimeSeriesInstruction(
         kind="time_series",
@@ -1265,4 +1348,328 @@ def test_builders_reject_unknown_mappings_and_empty_owner_groups(tmp_path: Path)
             empty_values,
             source=ArraySource({"load": np.array([])}, None),
             config=config,
+        )
+
+
+def test_time_series_partitions_interleaved_rows_by_owner_and_metadata() -> None:
+    """Build independent series by owner and row metadata without conflating bool and int."""
+    from r2x_core import build_system_from_sources
+
+    buses = DocumentSource(
+        [
+            {"name": "NORTH", "number": 101, "base_kv": 230.0},
+            {"name": "SOUTH", "number": 102, "base_kv": 115.0},
+        ],
+        None,
+    )
+    timestamps = ["2024-01-01T00:00:00", "2024-01-01T01:00:00"]
+    profiles = DocumentSource(
+        [
+            {
+                "bus_name": "NORTH",
+                "timestamp": timestamps[0],
+                "load": 1.0,
+                "solve_year": 2030,
+                "scenario": False,
+            },
+            {
+                "bus_name": "SOUTH",
+                "timestamp": timestamps[0],
+                "load": 10.0,
+                "solve_year": 2030,
+                "scenario": False,
+            },
+            {"bus_name": "NORTH", "timestamp": timestamps[0], "load": 2.0, "solve_year": 2030, "scenario": 0},
+            {
+                "bus_name": "NORTH",
+                "timestamp": timestamps[1],
+                "load": 3.0,
+                "solve_year": 2030,
+                "scenario": False,
+            },
+            {
+                "bus_name": "SOUTH",
+                "timestamp": timestamps[1],
+                "load": 11.0,
+                "solve_year": 2030,
+                "scenario": False,
+            },
+            {"bus_name": "NORTH", "timestamp": timestamps[1], "load": 4.0, "solve_year": 2030, "scenario": 0},
+            {
+                "bus_name": "NORTH",
+                "timestamp": timestamps[0],
+                "load": 7.0,
+                "solve_year": 2030,
+                "scenario": 1.5,
+            },
+            {
+                "bus_name": "NORTH",
+                "timestamp": timestamps[1],
+                "load": 8.0,
+                "solve_year": 2030,
+                "scenario": 1.5,
+            },
+            {
+                "bus_name": "NORTH",
+                "timestamp": timestamps[0],
+                "load": 9.0,
+                "solve_year": 2030,
+                "scenario": "baseline",
+            },
+            {
+                "bus_name": "NORTH",
+                "timestamp": timestamps[1],
+                "load": 10.0,
+                "solve_year": 2030,
+                "scenario": "baseline",
+            },
+            {
+                "bus_name": "NORTH",
+                "timestamp": timestamps[0],
+                "load": 5.0,
+                "solve_year": 2040,
+                "scenario": False,
+            },
+            {
+                "bus_name": "NORTH",
+                "timestamp": timestamps[1],
+                "load": 6.0,
+                "solve_year": 2040,
+                "scenario": False,
+            },
+        ],
+        None,
+    )
+    shared = DocumentSource(
+        [
+            {"timestamp": timestamps[0], "load": 100.0, "scenario": False},
+            {"timestamp": timestamps[1], "load": 101.0, "scenario": False},
+            {"timestamp": timestamps[0], "load": 200.0, "scenario": 0},
+            {"timestamp": timestamps[1], "load": 201.0, "scenario": 0},
+        ],
+        None,
+    )
+    config = PluginConfig(
+        models=("fixtures.ingestion_models",),
+        config_path_override=Path("missing-config-directory"),
+    )
+    instructions = [
+        ComponentInstruction(
+            kind="component",
+            source="buses",
+            component_type="PSSEBus",
+            fields={"name": "name", "number": "number", "base_kv": "base_kv"},
+        ),
+        TimeSeriesInstruction(
+            kind="time_series",
+            source="profiles",
+            name="load",
+            values="load",
+            time_axis=ColumnTimeAxis(kind="column", column="timestamp", resolution_seconds=3600),
+            metadata_columns={"solve_year": "solve_year", "scenario": "scenario"},
+            owners=[ComponentOwner(component_type="PSSEBus", name_field="bus_name")],
+        ),
+        TimeSeriesInstruction(
+            kind="time_series",
+            source="shared",
+            name="shared_load",
+            values="load",
+            time_axis=ColumnTimeAxis(kind="column", column="timestamp", resolution_seconds=3600),
+            metadata_columns={"scenario": "scenario"},
+            owners=[ComponentOwner(component_type="PSSEBus", names=["NORTH", "SOUTH"])],
+        ),
+    ]
+
+    system = build_system_from_sources(
+        {"buses": buses, "profiles": profiles, "shared": shared},
+        config=config,
+        instructions=instructions,
+        name="partitioned-series",
+    )
+
+    north = system.get_component(PSSEBus, "NORTH")
+    south = system.get_component(PSSEBus, "SOUTH")
+    north_profiles = system.list_time_series_metadata(north, name="load")
+    assert {
+        (item.features["solve_year"], type(item.features["scenario"]), item.features["scenario"])
+        for item in north_profiles
+    } == {
+        (2030, bool, False),
+        (2030, int, 0),
+        (2030, float, 1.5),
+        (2030, str, "baseline"),
+        (2040, bool, False),
+    }
+    np.testing.assert_array_equal(
+        system.get_time_series(north, name="load", solve_year=2030, scenario=False).data_array,
+        [1.0, 3.0],
+    )
+    np.testing.assert_array_equal(
+        system.get_time_series(north, name="load", solve_year=2030, scenario=0).data_array,
+        [2.0, 4.0],
+    )
+    np.testing.assert_array_equal(
+        system.get_time_series(south, name="load", solve_year=2030, scenario=False).data_array,
+        [10.0, 11.0],
+    )
+    np.testing.assert_array_equal(
+        system.get_time_series(north, name="load", solve_year=2030, scenario=1.5).data_array,
+        [7.0, 8.0],
+    )
+    np.testing.assert_array_equal(
+        system.get_time_series(north, name="load", solve_year=2030, scenario="baseline").data_array,
+        [9.0, 10.0],
+    )
+    for owner in (north, south):
+        np.testing.assert_array_equal(
+            system.get_time_series(owner, name="shared_load", scenario=False).data_array,
+            [100.0, 101.0],
+        )
+        np.testing.assert_array_equal(
+            system.get_time_series(owner, name="shared_load", scenario=0).data_array,
+            [200.0, 201.0],
+        )
+
+
+@pytest.mark.parametrize(
+    ("values", "message"),
+    [
+        ([None, None], "non-null finite JSON scalar"),
+        ([float("nan"), float("nan")], "non-null finite JSON scalar"),
+        ([float("inf"), float("inf")], "non-null finite JSON scalar"),
+        ([float("-inf"), float("-inf")], "non-null finite JSON scalar"),
+        ([[], []], "non-null finite JSON scalar"),
+        ([{}, {}], "non-null finite JSON scalar"),
+    ],
+    ids=["null", "nan", "infinity", "negative-infinity", "array", "object"],
+)
+def test_time_series_rejects_unsupported_row_metadata(values: list[object], message: str) -> None:
+    """Reject values that cannot safely identify a JSON feature partition."""
+    from r2x_core import build_system_from_sources
+
+    config = PluginConfig(models=("fixtures.ingestion_models",))
+    system_sources = {
+        "buses": DocumentSource([{"name": "NORTH", "number": 101, "base_kv": 230.0}], None),
+        "loads": DocumentSource(
+            [{"load": 1.0, "scenario": values[0]}, {"load": 2.0, "scenario": values[1]}], None
+        ),
+    }
+    instructions = [
+        ComponentInstruction(
+            kind="component",
+            source="buses",
+            component_type="PSSEBus",
+            fields={"name": "name", "number": "number", "base_kv": "base_kv"},
+        ),
+        TimeSeriesInstruction(
+            kind="time_series",
+            source="loads",
+            name="load",
+            values="load",
+            time_axis=RegularTimeAxis(
+                kind="regular",
+                initial_timestamp="2024-01-01",
+                resolution_seconds=3600,
+            ),
+            metadata_columns={"scenario": "scenario"},
+            owners=[ComponentOwner(component_type="PSSEBus", name="NORTH")],
+        ),
+    ]
+
+    with pytest.raises(ValueError, match=message):
+        build_system_from_sources(
+            system_sources, config=config, instructions=instructions, name="invalid-feature"
+        )
+
+
+def test_prepared_builder_does_not_sort_partitioned_time_axis() -> None:
+    """Reject non-increasing timestamps within each owner/metadata partition."""
+    from r2x_core import build_system_from_sources
+
+    sources = {
+        "buses": DocumentSource([{"name": "NORTH", "number": 101, "base_kv": 230.0}], None),
+        "loads": DocumentSource(
+            [
+                {"name": "NORTH", "timestamp": "2024-01-01T01:00:00", "load": 1.0, "year": 2030},
+                {"name": "NORTH", "timestamp": "2024-01-01T00:00:00", "load": 2.0, "year": 2030},
+            ],
+            None,
+        ),
+    }
+    instructions = [
+        ComponentInstruction(
+            kind="component",
+            source="buses",
+            component_type="PSSEBus",
+            fields={"name": "name", "number": "number", "base_kv": "base_kv"},
+        ),
+        TimeSeriesInstruction(
+            kind="time_series",
+            source="loads",
+            name="load",
+            values="load",
+            time_axis=ColumnTimeAxis(kind="column", column="timestamp"),
+            metadata_columns={"year": "year"},
+            owners=[ComponentOwner(component_type="PSSEBus", name_field="name")],
+        ),
+    ]
+
+    with pytest.raises(ValueError, match="strictly increasing"):
+        build_system_from_sources(
+            sources,
+            config=PluginConfig(models=("fixtures.ingestion_models",)),
+            instructions=instructions,
+            name="unordered-series",
+        )
+
+
+def test_time_series_partition_rejects_string_enum_metadata() -> None:
+    """Reject string subclasses before they can form duplicate JSON feature groups."""
+    from enum import StrEnum
+
+    from r2x_core import build_system_from_sources
+
+    class Scenario(StrEnum):
+        BASE = "base"
+
+    sources = {
+        "buses": DocumentSource([{"name": "NORTH", "number": 101, "base_kv": 230.0}], None),
+        "loads": DocumentSource(
+            [
+                {"load": 1.0, "scenario": Scenario.BASE},
+                {"load": 2.0, "scenario": Scenario.BASE},
+                {"load": 3.0, "scenario": "base"},
+                {"load": 4.0, "scenario": "base"},
+            ],
+            None,
+        ),
+    }
+    instructions = [
+        ComponentInstruction(
+            kind="component",
+            source="buses",
+            component_type="PSSEBus",
+            fields={"name": "name", "number": "number", "base_kv": "base_kv"},
+        ),
+        TimeSeriesInstruction(
+            kind="time_series",
+            source="loads",
+            name="load",
+            values="load",
+            time_axis=RegularTimeAxis(
+                kind="regular",
+                initial_timestamp="2024-01-01",
+                resolution_seconds=3600,
+            ),
+            metadata_columns={"scenario": "scenario"},
+            owners=[ComponentOwner(component_type="PSSEBus", name="NORTH")],
+        ),
+    ]
+
+    with pytest.raises(ValueError, match="non-null finite JSON scalar"):
+        build_system_from_sources(
+            sources,
+            config=PluginConfig(models=("fixtures.ingestion_models",)),
+            instructions=instructions,
+            name="enum-feature",
         )

@@ -8,6 +8,25 @@ reader registrations, then describe construction and attachment in
 `parser_rules.json`. `build_system` executes the configured component,
 time-series, and supplemental-attribute instructions in declaration order.
 
+If an application has already decoded and processed its sources, call
+`build_system_from_sources(sources, config=..., instructions=..., name=...)`
+with `DecodedSources` and validated typed instructions. It uses the same output
+engine without reading configuration or input files. Missing sources, fields,
+references, invalid models, or time axes raise their validation errors. Outputs
+attached before a later failure are not rolled back.
+
+```python doctest
+>>> from r2x_core import PluginConfig, build_system_from_sources
+>>> prepared = build_system_from_sources(
+...     {},
+...     config=PluginConfig(),
+...     instructions=[],
+...     name="prepared",
+... )
+>>> prepared.name
+'prepared'
+```
+
 ## Parser basics
 
 This example creates a temporary application model module so the model resolver

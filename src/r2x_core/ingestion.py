@@ -7,6 +7,7 @@ import itertools
 import json
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime, timedelta
+from math import isfinite
 from typing import TypeAlias, TypeVar
 
 import numpy as np
@@ -15,7 +16,7 @@ from infrasys.exceptions import ISNotStored, ISOperationNotAllowed
 from pydantic import TypeAdapter
 from rust_ok import is_ok
 
-from .file_reader import DecodedSource, FileReader
+from .file_reader import DecodedSource, DecodedSources, FileReader
 from .models import (
     ColumnTimeAxis,
     ComponentInstruction,
@@ -35,6 +36,12 @@ from .units import ureg
 
 ModelT = TypeVar("ModelT", Component, SupplementalAttribute)
 Record: TypeAlias = Mapping[str, object]
+MetadataScalar: TypeAlias = str | bool | int | float
+OwnerKey: TypeAlias = tuple[tuple[type[Component], str], ...]
+PartitionKey: TypeAlias = tuple[
+    OwnerKey,
+    tuple[tuple[str, type[MetadataScalar], MetadataScalar], ...],
+]
 
 
 def build_system(
@@ -69,6 +76,30 @@ def build_system(
         sources = reader.read_data_files(
             store.data_files.values(), folder_path=store.folder, placeholders=placeholders
         )
+    return build_system_from_sources(
+        sources,
+        config=config,
+        instructions=instructions,
+        name=name,
+    )
+
+
+def build_system_from_sources(
+    sources: DecodedSources,
+    /,
+    *,
+    config: PluginConfig,
+    instructions: Sequence[ParserInstruction],
+    name: str,
+) -> System:
+    """Construct one System from already decoded sources and typed instructions.
+
+    This operation performs no configuration or input-file I/O. It resolves
+    model classes through ``config.models`` and applies instructions in order.
+    Missing source fields, invalid models, references, metadata, or time axes
+    raise their original validation errors. Outputs attached before a later
+    failure are not rolled back.
+    """
     system = System(name=name)
     identities: set[tuple[type[Component], str]] = set()
     for instruction in instructions:
@@ -191,32 +222,47 @@ def attach_time_series(
     source: DecodedSource,
     config: PluginConfig,
 ) -> None:
-    """Attach regular samples once per selected owner group."""
-    fields = [instruction.values]
+    """Attach regular samples partitioned by owner and row-derived metadata."""
+    fields = [instruction.values, *instruction.metadata_columns.values()]
     if isinstance(instruction.time_axis, ColumnTimeAxis):
         fields.append(instruction.time_axis.column)
     fields.extend(owner.name_field for owner in instruction.owners if owner.name_field)
     require_fields(source, fields)
+    if instruction.skip_if_empty and source.is_empty():
+        return
 
-    if any(owner.name_field for owner in instruction.owners):
-        groups: dict[tuple[tuple[type[Component], str], ...], tuple[list[Component], list[Record]]] = {}
+    if any(owner.name_field for owner in instruction.owners) or instruction.metadata_columns:
+        groups: dict[PartitionKey, tuple[list[Component], list[Record], dict[str, MetadataScalar]]] = {}
         for row in source.iter_rows():
             owners = resolve_owners(system, instruction.owners, config=config, rows=(row,))
-            key = tuple((type(owner), owner.name) for owner in owners)
+            owner_key = tuple((type(owner), owner.name) for owner in owners)
+            row_metadata = {
+                feature: metadata_scalar(required_value(row, field), feature=feature)
+                for feature, field in instruction.metadata_columns.items()
+            }
+            metadata_key = tuple((feature, type(value), value) for feature, value in row_metadata.items())
+            key = owner_key, metadata_key
             if key not in groups:
-                groups[key] = owners, []
+                groups[key] = owners, [], row_metadata
             groups[key][1].append(row)
         if not groups:
             msg = "Time-series source has no samples"
             raise ValueError(msg)
-        for owners, rows in groups.values():
+        for owners, rows, row_metadata in groups.values():
             values = [required_value(row, instruction.values) for row in rows]
             axis_values = (
                 [required_value(row, instruction.time_axis.column) for row in rows]
                 if isinstance(instruction.time_axis, ColumnTimeAxis)
                 else None
             )
-            attach_series(system, instruction, owners, values, axis_values)
+            attach_series(
+                system,
+                instruction,
+                owners,
+                values,
+                axis_values,
+                metadata=instruction.metadata | row_metadata,
+            )
         return
 
     owners = resolve_owners(system, instruction.owners, config=config, rows=())
@@ -226,7 +272,21 @@ def attach_time_series(
         if isinstance(instruction.time_axis, ColumnTimeAxis)
         else None
     )
-    attach_series(system, instruction, owners, values, axis_values)
+    attach_series(system, instruction, owners, values, axis_values, metadata=instruction.metadata)
+
+
+def metadata_scalar(value: object, *, feature: str) -> MetadataScalar:
+    """Validate a row-derived infrasys feature as a finite JSON scalar."""
+    if type(value) is str:
+        return value
+    if type(value) is bool:
+        return value
+    if type(value) is int:
+        return value
+    if type(value) is float and isfinite(value):
+        return value
+    msg = f"Time-series metadata column for {feature!r} must contain a non-null finite JSON scalar"
+    raise ValueError(msg)
 
 
 def attach_series(
@@ -235,6 +295,8 @@ def attach_series(
     owners: Sequence[Component],
     values: Sequence[object],
     axis_values: Sequence[object] | None,
+    *,
+    metadata: Mapping[str, JSONValue],
 ) -> None:
     """Validate samples and axis, then attach one series to the selected owners."""
     if not values:
@@ -249,7 +311,7 @@ def attach_series(
         initial_timestamp=initial,
         resolution=resolution,
     )
-    system.add_time_series(series, *owners, context=None, **instruction.metadata)
+    system.add_time_series(series, *owners, context=None, **metadata)
 
 
 def resolve_owners(

@@ -33,6 +33,11 @@ class DecodedSource(ABC):
         ...
 
     @abstractmethod
+    def is_empty(self) -> bool:
+        """Report whether this decoded source contains records."""
+        ...
+
+    @abstractmethod
     def iter_rows(self) -> Iterable[Record]:
         """Iterate records for component and supplemental construction."""
         ...
@@ -75,6 +80,10 @@ class TabularProcessor(SourceProcessor[SourceDataT], Protocol[SourceDataT]):
 
     def column_names(self, data: SourceDataT, /) -> list[str]:
         """Return table fields without converting the representation."""
+        ...
+
+    def is_empty(self, data: SourceDataT, /) -> bool:
+        """Report whether the table contains records without collecting all rows."""
         ...
 
     def iter_rows(self, data: SourceDataT, /) -> Iterable[Record]:
@@ -121,6 +130,10 @@ class TabularSource(ProcessingSource[SourceDataT], Generic[SourceDataT]):
         """Return table fields using the paired processor."""
         return self.processor.column_names(self.data)
 
+    def is_empty(self) -> bool:
+        """Check whether the table has any records through its paired processor."""
+        return self.processor.is_empty(self.data)
+
     def iter_rows(self) -> Iterable[Record]:
         """Yield table records using the paired processor."""
         return self.processor.iter_rows(self.data)
@@ -140,6 +153,10 @@ class DocumentSource(ProcessingSource[DocumentDataT], Generic[DocumentDataT]):
         if isinstance(value, dict):
             return list(value)
         return list(dict.fromkeys(key for row in value for key in row))
+
+    def is_empty(self) -> bool:
+        """Report whether the JSON document contains records."""
+        return next(iter(self.iter_rows()), None) is None
 
     def iter_rows(self) -> Iterable[Record]:
         """Iterate JSON object records."""
@@ -190,6 +207,10 @@ class ArraySource(ProcessingSource[ArrayDataT], Generic[ArrayDataT]):
             return ["data"]
         msg = "Array sources require named one-dimensional arrays"
         raise ValueError(msg)
+
+    def is_empty(self) -> bool:
+        """Report whether aligned array fields contain any records."""
+        return next(iter(self.iter_rows()), None) is None
 
     def iter_rows(self) -> Iterable[Record]:
         """Iterate aligned array fields as records."""

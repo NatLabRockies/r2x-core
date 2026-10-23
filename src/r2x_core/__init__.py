@@ -22,7 +22,7 @@ __version__ = version("r2x_core")
 
 # ── Eager for IDEs / type checkers (dead code at runtime) ──────────
 if TYPE_CHECKING:
-    from .datafile import DataFile, FileInfo, ReaderConfig
+    from .datafile import DataFile, FileInfo, InlineTable, ReaderConfig, SourceSelection
     from .exceptions import (
         CLIError,
         ComponentCreationError,
@@ -43,7 +43,7 @@ if TYPE_CHECKING:
     )
     from .getters import getter, resolve_getter
     from .h5_adapter import H5PyFileReader, H5Reader
-    from .ingestion import build_system
+    from .ingestion import build_system, build_system_from_sources
     from .models import (
         ColumnTimeAxis,
         ComponentInstruction,
@@ -51,6 +51,7 @@ if TYPE_CHECKING:
         ComponentReference,
         JSONProcessing,
         RegularTimeAxis,
+        SourcePredicate,
         SplitColumnSpec,
         SupplementalAttributeInstruction,
         TabularProcessing,
@@ -96,6 +97,9 @@ LAZY_IMPORTS: dict[str, str] = {
     "DataFile": ".datafile",
     "DataReader": ".reader",
     "FileInfo": ".datafile",
+    "InlineTable": ".datafile",
+    "SourceSelection": ".datafile",
+    "SourcePredicate": ".models",
     "JSONProcessing": ".models",
     "ReaderConfig": ".datafile",
     "SplitColumnSpec": ".models",
@@ -117,6 +121,7 @@ LAZY_IMPORTS: dict[str, str] = {
     "SupplementalAttributeInstruction": ".models",
     "TimeSeriesInstruction": ".models",
     "build_system": ".ingestion",
+    "build_system_from_sources": ".ingestion",
     "FileRequirement": ".types",
     "FileType": ".types",
     "CLIError": ".exceptions",
@@ -218,6 +223,7 @@ __all__ = [
     "H5Reader",
     "HasPerUnit",
     "HasUnits",
+    "InlineTable",
     "JSONProcessing",
     "Ok",
     "Plugin",
@@ -232,7 +238,9 @@ __all__ = [
     "RuleFilter",
     "RuleResult",
     "SemanticVersioningStrategy",
+    "SourcePredicate",
     "SourceProcessor",
+    "SourceSelection",
     "SplitColumnSpec",
     "SupplementalAttributeInstruction",
     "SupplementalAttributeRule",
@@ -254,6 +262,7 @@ __all__ = [
     "apply_single_rule",
     "attach_rule_outputs",
     "build_system",
+    "build_system_from_sources",
     "components_to_records",
     "export_components_to_csv",
     "expose_plugin",

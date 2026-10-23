@@ -15,6 +15,7 @@ from r2x_core.exceptions import ReaderError
 from r2x_core.file_reader import TabularSource
 from r2x_core.models import (
     AggregateStep,
+    Expression,
     ExpressionOperation,
     FilterColumnsStep,
     JoinStep,
@@ -30,13 +31,76 @@ from r2x_core.reader import DataReader
 from r2x_core.tabular_backend import apply_mapping_steps
 from r2x_core.types import AggregationFunction, MappingExpressionOperator
 
+pytestmark = pytest.mark.polars
+
+
+@pytest.mark.parametrize("json_input", [False, True])
+def test_compact_expression_schema_round_trips_and_names_exact_columns(json_input: bool) -> None:
+    adapter = TypeAdapter(Expression)
+    payload = {"multiply": ["^load$", 2]}
+
+    expression = (
+        adapter.validate_json(json.dumps(payload)) if json_input else adapter.validate_python(payload)
+    )
+    frame = pl.DataFrame({"^load$": [5], "load": [100]})
+    actual = frame.select(compile_polars_expression(expression, column_names=frame.columns)).item()
+    schema = adapter.json_schema()
+    operation_schema = schema["$defs"]["ExpressionOperation"]
+
+    assert actual == 10
+    assert adapter.dump_python(expression, mode="json") == payload
+    assert adapter.validate_json(adapter.dump_json(expression)) == expression
+    assert operation_schema["minProperties"] == operation_schema["maxProperties"] == 1
+    assert "multiply" in operation_schema["propertyNames"]["enum"]
+    for legacy in ({"column": "^load$"}, {"op": "multiply", "args": ["^load$", 2]}):
+        with pytest.raises(ValidationError):
+            adapter.validate_python(legacy)
+        with pytest.raises(ValidationError):
+            adapter.validate_json(json.dumps(legacy))
+
+
+@pytest.mark.parametrize("payload", [{}, {"add": [1, 2], "multiply": [3, 4]}])
+@pytest.mark.parametrize("json_input", [False, True])
+def test_compact_expression_rejects_zero_or_multiple_operations(
+    payload: dict[str, list[int]], json_input: bool
+) -> None:
+    adapter = TypeAdapter(Expression)
+
+    with pytest.raises(ValidationError):
+        if json_input:
+            adapter.validate_json(json.dumps(payload))
+        else:
+            adapter.validate_python(payload)
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        ("op", "column-value"),
+        ({"literal": "op"}, "op"),
+        (1, 1),
+        ({"literal": 1}, 1),
+        (1.5, 1.5),
+        ({"literal": 1.5}, 1.5),
+        (True, True),
+        ({"literal": True}, True),
+        (None, None),
+        ({"literal": None}, None),
+    ],
+)
+def test_compact_expressions_preserve_column_and_scalar_types(payload: object, expected: object) -> None:
+    adapter = TypeAdapter(Expression)
+    expression = adapter.validate_python(payload)
+    frame = pl.DataFrame({"op": ["column-value"]})
+    result = frame.select(compile_polars_expression(expression, column_names=frame.columns)).item()
+
+    assert type(result) is type(expected)
+    assert result == expected
+
 
 @pytest.mark.parametrize("json_input", [False, True])
 def test_expression_operators_are_enums_with_string_json_values(json_input: bool) -> None:
-    payload = {
-        "op": "divide",
-        "args": [{"op": "sum", "args": [{"column": "load"}]}, {"literal": 2}],
-    }
+    payload = {"divide": [{"sum": ["load"]}, 2]}
     expression = (
         ExpressionOperation.model_validate_json(json.dumps(payload))
         if json_input
@@ -53,10 +117,7 @@ def test_expression_operators_are_enums_with_string_json_values(json_input: bool
 
 
 def test_enum_expression_operators_compile_to_polars() -> None:
-    expression = ExpressionOperation(
-        op=MappingExpressionOperator.DIVIDE,
-        args=[LiteralExpression(literal=12), LiteralExpression(literal=3)],
-    )
+    expression = ExpressionOperation.model_validate({"divide": [12, 3]})
 
     result = pl.select(compile_polars_expression(expression, column_names=[]))
 
@@ -74,9 +135,7 @@ def test_enum_expression_operators_compile_to_polars() -> None:
     ],
 )
 def test_datetime_mapping_expression_accepts_each_valid_arity(parts: list[int], expected: datetime) -> None:
-    expression = ExpressionOperation.model_validate(
-        {"op": "datetime", "args": [{"literal": part} for part in parts]}
-    )
+    expression = ExpressionOperation.model_validate({"datetime": parts})
 
     result = pl.select(compile_polars_expression(expression, column_names=[]))
 
@@ -103,7 +162,7 @@ def test_mapping_expression_supports_every_declared_aggregation(
     function: AggregationFunction, expected: object
 ) -> None:
     frame = pl.DataFrame({"value": [2, None, 4]})
-    expression = ExpressionOperation.model_validate({"op": function.value, "args": [{"column": "value"}]})
+    expression = ExpressionOperation.model_validate({function.value: ["value"]})
     compiled = compile_polars_expression(expression, column_names=frame.columns)
 
     assert frame.select(compiled.alias("result")).item() == expected
@@ -114,10 +173,10 @@ def test_mapping_expression_supports_every_declared_aggregation(
 def test_aggregation_expressions_require_one_operand(
     function: AggregationFunction, argument_count: int
 ) -> None:
-    arguments = [{"literal": value} for value in range(argument_count)]
+    arguments = list(range(argument_count))
 
     with pytest.raises(ValidationError) as exc_info:
-        ExpressionOperation.model_validate({"op": function.value, "args": arguments})
+        ExpressionOperation.model_validate({function.value: arguments})
 
     if argument_count == 2:
         assert f"{function.value} expects exactly one argument" in str(exc_info.value)
@@ -126,7 +185,7 @@ def test_aggregation_expressions_require_one_operand(
 @pytest.mark.parametrize("operator", ["unknown", "DIVIDE", ""])
 def test_expression_schema_rejects_unknown_operators(operator: str) -> None:
     with pytest.raises(ValidationError):
-        ExpressionOperation.model_validate({"op": operator, "args": [{"literal": 12}, {"literal": 3}]})
+        ExpressionOperation.model_validate({operator: [12, 3]})
 
 
 @pytest.mark.parametrize(
@@ -140,7 +199,7 @@ def test_expression_schema_rejects_unknown_operators(operator: str) -> None:
 )
 def test_binary_expression_operators_require_two_arguments(operator: MappingExpressionOperator) -> None:
     with pytest.raises(ValidationError, match=f"{operator.value} expects exactly two arguments"):
-        ExpressionOperation(op=operator, args=[LiteralExpression(literal=1)])
+        ExpressionOperation.model_validate({operator.value: [1]})
 
 
 @pytest.mark.parametrize(
@@ -160,161 +219,109 @@ def test_binary_expression_operators_require_two_arguments(operator: MappingExpr
 )
 def test_unary_and_datetime_expressions_reject_invalid_argument_counts(
     operator: AggregationFunction | MappingExpressionOperator,
-    arguments: list[LiteralExpression],
+    arguments: list[Expression],
     message: str,
 ) -> None:
     with pytest.raises(ValidationError, match=message):
-        ExpressionOperation(op=operator, args=arguments)
+        ExpressionOperation.model_validate({operator.value: arguments})
 
 
 @pytest.mark.parametrize(
     ("expression", "expected"),
     [
         (
-            {
-                "op": "and",
-                "args": [
-                    {"op": "le", "args": [{"column": "left"}, {"column": "right"}]},
-                    {"op": "gt", "args": [{"column": "right"}, {"literal": 4}]},
-                ],
-            },
+            {"and": [{"le": ["left", "right"]}, {"gt": ["right", 4]}]},
             [False, True],
         ),
         (
-            {"op": "any", "args": [{"op": "is_null", "args": [{"column": "maybe"}]}]},
+            {"any": [{"is_null": ["maybe"]}]},
             [True, False],
         ),
         (
-            {
-                "op": "cast",
-                "args": [
-                    {"op": "strip_chars", "args": [{"column": "raw"}]},
-                    {"literal": "Int64"},
-                ],
-            },
+            {"cast": [{"strip_chars": ["raw"]}, {"literal": "Int64"}]},
             [4, 6],
         ),
         (
-            {"op": "coalesce", "args": [{"column": "maybe"}, {"literal": "fallback"}]},
+            {"coalesce": ["maybe", {"literal": "fallback"}]},
             ["fallback", "ready"],
         ),
         (
-            {"op": "concat_list", "args": [{"column": "left"}, {"column": "right"}]},
+            {"concat_list": ["left", "right"]},
             [[2, 3], [5, 7]],
         ),
         (
-            {
-                "op": "concat_str",
-                "args": [{"column": "left"}, {"literal": ":"}, {"column": "right"}],
-            },
+            {"concat_str": ["left", {"literal": ":"}, "right"]},
             ["2:3", "5:7"],
         ),
         (
-            {
-                "op": "datetime",
-                "args": [
-                    {"column": "year"},
-                    {"column": "month"},
-                    {"column": "day"},
-                    {"column": "hour"},
-                ],
-            },
+            {"datetime": ["year", "month", "day", "hour"]},
             [datetime(2024, 1, 2), datetime(2025, 2, 3, 1)],
         ),
         (
-            {"op": "divide", "args": [{"column": "left"}, {"column": "right"}]},
+            {"divide": ["left", "right"]},
             pytest.approx([2 / 3, 5 / 7]),
         ),
         (
-            {"op": "eq", "args": [{"column": "left"}, {"literal": 2}]},
+            {"eq": ["left", 2]},
             [True, False],
         ),
         (
-            {"op": "gt", "args": [{"column": "left"}, {"literal": 3}]},
+            {"gt": ["left", 3]},
             [False, True],
         ),
         (
-            {"op": "is_null", "args": [{"column": "maybe"}]},
+            {"is_null": ["maybe"]},
             [True, False],
         ),
         (
-            {"op": "le", "args": [{"column": "left"}, {"column": "right"}]},
+            {"le": ["left", "right"]},
             [True, True],
         ),
         (
-            {
-                "op": "list_get",
-                "args": [
-                    {"op": "concat_list", "args": [{"column": "left"}, {"column": "right"}]},
-                    {"literal": 1},
-                ],
-            },
+            {"list_get": [{"concat_list": ["left", "right"]}, 1]},
             [3, 7],
         ),
         (
-            {"op": "list_get", "args": [{"column": "short_list"}, {"literal": 1}]},
+            {"list_get": ["short_list", 1]},
             [None, None],
         ),
         (
-            {
-                "op": "list_sort",
-                "args": [{"op": "concat_list", "args": [{"column": "right"}, {"column": "left"}]}],
-            },
+            {"list_sort": [{"concat_list": ["right", "left"]}]},
             [[2, 3], [5, 7]],
         ),
         (
-            {"op": "lowercase", "args": [{"column": "text"}]},
+            {"lowercase": ["text"]},
             [" a-b ", "x-y"],
         ),
-        ({"op": "max", "args": [{"column": "left"}]}, [5]),
-        ({"op": "mean", "args": [{"column": "left"}]}, [3.5]),
+        ({"max": ["left"]}, [5]),
+        ({"mean": ["left"]}, [3.5]),
         (
-            {"op": "multiply", "args": [{"column": "left"}, {"column": "right"}]},
+            {"multiply": ["left", "right"]},
             [6, 35],
         ),
         (
-            {"op": "split", "args": [{"column": "text"}, {"literal": "-"}]},
+            {"split": ["text", {"literal": "-"}]},
             [[" A", "B "], ["X", "y"]],
         ),
         (
-            {"op": "strip_chars", "args": [{"column": "raw"}]},
+            {"strip_chars": ["raw"]},
             ["4", "6"],
         ),
         (
-            {"op": "struct", "args": [{"column": "left"}, {"column": "right"}]},
+            {"struct": ["left", "right"]},
             [{"left": 2, "right": 3}, {"left": 5, "right": 7}],
         ),
         (
-            {"op": "subtract", "args": [{"column": "right"}, {"column": "left"}]},
+            {"subtract": ["right", "left"]},
             [1, 2],
         ),
-        ({"op": "sum", "args": [{"column": "left"}]}, [7]),
+        ({"sum": ["left"]}, [7]),
         (
-            {
-                "op": "when",
-                "args": [
-                    {"op": "eq", "args": [{"column": "left"}, {"literal": 2}]},
-                    {"literal": "yes"},
-                    {"literal": "no"},
-                ],
-            },
+            {"when": [{"eq": ["left", 2]}, {"literal": "yes"}, {"literal": "no"}]},
             ["yes", "no"],
         ),
         (
-            {
-                "op": "year",
-                "args": [
-                    {
-                        "op": "datetime",
-                        "args": [
-                            {"column": "year"},
-                            {"column": "month"},
-                            {"column": "day"},
-                            {"column": "hour"},
-                        ],
-                    }
-                ],
-            },
+            {"year": [{"datetime": ["year", "month", "day", "hour"]}]},
             [2024, 2025],
         ),
     ],
@@ -353,9 +360,9 @@ def test_mapping_steps_preserve_regex_shaped_column_names() -> None:
             {
                 "op": "select",
                 "columns": {
-                    "regex_name": {"column": "^load$"},
-                    "wildcard_name": {"column": "*"},
-                    "doubled": {"op": "multiply", "args": [{"column": "^load$"}, {"literal": 2}]},
+                    "regex_name": "^load$",
+                    "wildcard_name": "*",
+                    "doubled": {"multiply": ["^load$", 2]},
                 },
             }
         ]
@@ -740,12 +747,42 @@ def test_pivot_resolves_pattern_shaped_group_key_period_and_value_columns() -> N
         ]
     )
 
-    result = apply_mapping_steps(frame, steps, backend=PolarsTabularBackend()).unwrap().collect()
+    processed = apply_mapping_steps(frame, steps, backend=PolarsTabularBackend()).unwrap()
+    assert isinstance(processed, pl.LazyFrame)
+    result = processed.collect()
 
     assert result.columns == ["^key$", "2020", "2021"]
     assert sorted(result.to_dicts(), key=lambda row: row["^key$"]) == [
         {"^key$": "a", "2020": 1, "2021": 2},
         {"^key$": "b", "2020": 3, "2021": 0},
+    ]
+
+
+def test_pivot_restores_multiple_pattern_shaped_value_names() -> None:
+    frame = pl.LazyFrame(
+        {
+            "^key$": ["a", "a"],
+            "^period$": [2020, 2021],
+            "^load$": [1, 2],
+            "^capacity$": [10, 20],
+        }
+    )
+    steps = TypeAdapter(list[MappingStep]).validate_python(
+        [
+            {
+                "op": "pivot",
+                "pivot_on": "^period$",
+                "group_by": ["^key$"],
+                "aggregate_on": {"^load$": "sum", "^capacity$": "sum"},
+            }
+        ]
+    )
+
+    result = apply_mapping_steps(frame, steps, backend=PolarsTabularBackend()).unwrap().collect()
+
+    assert result.columns == ["^key$", "^load$_2020", "^load$_2021", "^capacity$_2020", "^capacity$_2021"]
+    assert result.to_dicts() == [
+        {"^key$": "a", "^load$_2020": 1, "^load$_2021": 2, "^capacity$_2020": 10, "^capacity$_2021": 20}
     ]
 
 
@@ -766,7 +803,7 @@ def test_group_by_uses_exact_pattern_shaped_key_and_value_names() -> None:
             {
                 "op": "group_by",
                 "by": ["^key$"],
-                "agg": {"total": {"op": "sum", "args": [{"column": "^load$"}]}},
+                "agg": {"total": {"sum": ["^load$"]}},
             }
         ]
     )
@@ -798,7 +835,7 @@ def test_join_uses_exact_pattern_shaped_key_and_preserves_coalescing() -> None:
 def test_mapping_steps_fail_for_missing_exact_column_name(column_name: str) -> None:
     frame = pl.LazyFrame({"load": [10.0]})
     steps = TypeAdapter(list[MappingStep]).validate_python(
-        [{"op": "select", "columns": {"result": {"column": column_name}}}]
+        [{"op": "select", "columns": {"result": column_name}}]
     )
 
     result = apply_mapping_steps(frame, steps, backend=PolarsTabularBackend())
@@ -813,12 +850,7 @@ def test_mapping_steps_reject_unsupported_expression_types() -> None:
         [
             {
                 "op": "select",
-                "columns": {
-                    "converted": {
-                        "op": "cast",
-                        "args": [{"column": "value"}, {"literal": "unknown-type"}],
-                    }
-                },
+                "columns": {"converted": {"cast": ["value", {"literal": "unknown-type"}]}},
             }
         ]
     )
@@ -834,8 +866,8 @@ def test_mapping_steps_preserve_exact_column_names() -> None:
             {
                 "op": "select",
                 "columns": {
-                    "result": {"column": "value"},
-                    " result ": {"column": " value "},
+                    "result": "value",
+                    " result ": " value ",
                 },
             }
         ]
@@ -855,18 +887,13 @@ def test_polars_backend_executes_mapping_steps_and_joins() -> None:
             {"op": "join", "source": "labels", "how": "left", "on": ["id"], "validate": "1:1"},
             {
                 "op": "with_columns",
-                "columns": {
-                    "product": {
-                        "op": "multiply",
-                        "args": [{"column": "left"}, {"column": "right"}],
-                    }
-                },
+                "columns": {"product": {"multiply": ["left", "right"]}},
             },
             {
                 "op": "filter",
-                "predicate": {"op": "gt", "args": [{"column": "product"}, {"literal": 10}]},
+                "predicate": {"gt": ["product", 10]},
             },
-            {"op": "select", "columns": {"label": {"column": "label"}, "product": {"column": "product"}}},
+            {"op": "select", "columns": {"label": "label", "product": "product"}},
         ]
     )
 
@@ -888,12 +915,12 @@ def test_polars_backend_executes_assert_group_sort_unique_and_unpivot_steps() ->
         [
             {
                 "op": "assert",
-                "predicate": {"op": "gt", "args": [{"column": "value"}, {"literal": 0}]},
+                "predicate": {"gt": ["value", 0]},
             },
             {
                 "op": "group_by",
                 "by": ["category"],
-                "agg": {"total": {"op": "sum", "args": [{"column": "value"}]}},
+                "agg": {"total": {"sum": ["value"]}},
             },
             {"op": "sort", "by": {"category": "asc"}},
             {"op": "unique", "subset": ["category"]},
@@ -1110,15 +1137,15 @@ def test_polars_processing_rejects_unresolved_aggregation_placeholders() -> None
     ("step", "message"),
     [
         (
-            {"op": "assert", "predicate": {"op": "gt", "args": [{"column": "value"}, {"literal": 0}]}},
+            {"op": "assert", "predicate": {"gt": ["value", 0]}},
             "assert step failed",
         ),
         (
-            {"op": "assert", "predicate": {"literal": None}},
+            {"op": "assert", "predicate": None},
             "assert step failed",
         ),
         (
-            {"op": "assert", "predicate": {"literal": False}},
+            {"op": "assert", "predicate": False},
             "assert step failed",
         ),
         (
@@ -1210,10 +1237,10 @@ def test_polars_backend_processes_existing_tabular_configuration(tmp_path: Path)
 @pytest.mark.parametrize(
     "expression",
     [
-        {"op": "cast", "args": [{"column": "value"}, {"column": "dtype"}]},
-        {"op": "split", "args": [{"column": "value"}, {"literal": 1}]},
-        {"op": "list_get", "args": [{"column": "value"}, {"literal": 1.5}]},
-        {"op": "when", "args": [{"literal": True}, {"literal": 1}]},
+        {"cast": ["value", "dtype"]},
+        {"split": ["value", 1]},
+        {"list_get": ["value", 1.5]},
+        {"when": [True, 1]},
     ],
 )
 def test_expression_schema_rejects_invalid_operation_arguments(

@@ -51,6 +51,8 @@ from r2x_core.processors import substitute_placeholders
 from r2x_core.reader import DataReader
 from r2x_core.types import FileProcessing, JSONValue
 
+pytestmark = pytest.mark.polars
+
 
 def apply_polars_processing(
     frame: pl.LazyFrame,
@@ -882,6 +884,53 @@ def test_replace_values_does_not_coerce_booleans_to_numeric_columns():
         {"flag": False, "count": 1, "amount": 1.0},
         {"flag": False, "count": 0, "amount": 0.0},
     ]
+
+
+def test_replace_values_can_be_limited_to_named_columns():
+    frame = pl.LazyFrame(
+        {
+            "emission_type": ["co2", "unknown", None],
+            "emission_source": ["combustion", "unknown", None],
+            "other_label": ["co2", "combustion", None],
+            "count": [1, None, 3],
+        }
+    )
+    normalized_type = apply_polars_step(
+        frame,
+        step=ReplaceValuesStep(op="replace_values", replace_values={"co2": "CO2"}, columns=["emission_type"]),
+    )
+    normalized_source = apply_polars_step(
+        normalized_type,
+        step=ReplaceValuesStep(
+            op="replace_values",
+            replace_values={"combustion": "COMBUSTION", None: "COMBUSTION"},
+            columns=["emission_source"],
+        ),
+    )
+
+    assert normalized_source.collect().to_dicts() == [
+        {"emission_type": "CO2", "emission_source": "COMBUSTION", "other_label": "co2", "count": 1},
+        {
+            "emission_type": "unknown",
+            "emission_source": "unknown",
+            "other_label": "combustion",
+            "count": None,
+        },
+        {"emission_type": None, "emission_source": "COMBUSTION", "other_label": None, "count": 3},
+    ]
+
+
+def test_replace_values_rejects_missing_scoped_columns():
+    with pytest.raises(ValueError, match="replace_values references missing column"):
+        apply_polars_step(
+            pl.LazyFrame({"value": ["old"]}),
+            step=ReplaceValuesStep(op="replace_values", replace_values={"old": "new"}, columns=["missing"]),
+        )
+
+
+def test_replace_values_rejects_duplicate_scoped_columns():
+    with pytest.raises(ValueError, match="columns cannot contain duplicates"):
+        ReplaceValuesStep(op="replace_values", replace_values={"old": "new"}, columns=["value", "value"])
 
 
 @pytest.mark.parametrize(

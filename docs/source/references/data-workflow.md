@@ -17,6 +17,7 @@ DataReader.read_data_files(
     *,
     folder_path: Path,
     placeholders: Mapping[str, JSONValue] | None = None,
+    initial_sources: Mapping[str, DecodedSource] | None = None,
 ) -> DecodedSources
 ```
 
@@ -24,17 +25,51 @@ DataReader.read_data_files(
 does not read or process physical inputs. `DataReader.read_data_files` resolves
 paths and optional inputs, selects the configured symbolic reader, and returns
 named `DecodedSource` values. A reader may decode one physical file into several
-source names. Results are reused only within that call, keyed by canonical path,
-format, and reader options.
+source names. Results are reused only within that call, keyed by resolved path,
+format, and reader options. `initial_sources` seeds ordered processing with
+already decoded values. The input mapping is copied, seed values remain in the
+returned mapping, and configured name collisions raise `ValueError`.
+
+A `DataFile` may also define an `InlineTable` with a raw schema and exact-shape
+records, or a `SourceSelection` over prior names. `first_present` preserves an
+available empty source; `first_nonempty` skips empty sources. A typed inline
+fallback is explicit. Missing optional physical inputs are omitted, while
+present-empty inputs remain named and malformed inputs fail. Inline schemas
+apply before their processing spec, and placeholders are resolved before the
+records are validated.
+
+An optional physical input may declare `required_when` with the name of an
+already available tabular source and a typed expression predicate. The input is
+required when any source row matches. A true predicate preserves the original
+missing-file or missing-group error. A false predicate allows an absent input,
+but does not hide malformed present data. The predicate source must be declared
+before the conditional input.
 
 `build_system(config, /, *, name, readers=None, placeholders=None)` is the standard
 configured construction operation. It validates parser instructions before
-reading inputs, then executes component, time-series, and supplemental-attribute
-instructions in declaration order. Each output is validated before attachment.
+reading inputs, then delegates output construction to the same engine used by
+`build_system_from_sources`.
+
+```python
+build_system_from_sources(
+    sources: DecodedSources,
+    /,
+    *,
+    config: PluginConfig,
+    instructions: Sequence[ParserInstruction],
+    name: str,
+) -> System
+```
+
+The source-based operation executes component, time-series, and supplemental-
+attribute instructions in declaration order. It performs no configuration or
+input-file I/O, while still resolving models through `config.models`. Each output
+is validated before attachment. Missing sources, fields, references, invalid
+models, or invalid time-series metadata and axes raise their validation errors.
 A later failure does not roll back outputs already attached.
 
 A missing input may invoke the configured `DataStore` upgrade handler once and
-retry the canonical read. This handler receives keyword-only `store` and `ctx`
+retry the configured read. This handler receives keyword-only `store` and `ctx`
 and succeeds with `None` or `Ok(None)`; `Err(error)` is a failure. Invalid
 success values raise `TypeError` before the coordinator is marked complete.
 `System.from_json` migration hooks and serialized-system loading are separate

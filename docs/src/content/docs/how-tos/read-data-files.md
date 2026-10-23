@@ -10,10 +10,11 @@ process files.
 
 ## Configure an input
 
-A `DataFile` selects exactly one physical path source: `fpath`,
-`relative_fpath`, or `glob`. Relative paths are resolved against the supplied
-folder when reading. An explicit symbolic format supports new extensions
-without editing core's inference table.
+A physical `DataFile` selects exactly one path source: `fpath`,
+`relative_fpath`, or `glob`. Derived files may instead reference a prior named
+source, select among prior names, or define an inline table. Relative paths are
+resolved against the supplied folder when reading. An explicit symbolic format
+supports new extensions without editing core's inference table.
 
 ```python doctest
 >>> from r2x_core import DataFile, ReaderConfig
@@ -68,9 +69,14 @@ ambiguous globs fail explicitly. `fpath` can be absolute or relative to the
 execution folder. A glob must contain a wildcard and resolve to exactly one
 file.
 
+`SourceSelection` distinguishes `first_present` from `first_nonempty`. The first
+selects a present empty source, while the second skips absent and empty sources.
+Declare its candidates before the selector. An explicit inline fallback keeps
+an empty result typed. Malformed present inputs still fail.
+
 `fpath`, `relative_fpath`, `glob`, reader options, and processing values can
 contain placeholders. `DataReader` resolves these before the relevant read or
-processing step. A physical decode is reused only for the same canonical path,
+processing step. A physical decode is reused only for the same resolved path,
 format, and options during one `read_data_files` call.
 
 See [Configure data files](/r2x-core/how-tos/configure-data-files/) for the

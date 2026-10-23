@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from inspect import signature
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import polars as pl
 from loguru import logger
+from pydantic import ConfigDict
 from pydantic import ValidationError as PydanticValidationError
 
 from ..datafile import ReaderConfig
@@ -23,6 +24,32 @@ class CSVReaderOptions(StrictConfigModel):
 
     header_rows: PositiveInteger = 1
     header_separator: NonEmptyString = "|"
+
+
+class ParquetReaderOptions(StrictConfigModel):
+    """JSON-compatible public options supported by the Parquet reader."""
+
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
+
+    n_rows: int | None = None
+    row_index_name: str | None = None
+    row_index_offset: int = 0
+    parallel: Literal["auto", "columns", "row_groups", "prefiltered", "none"] = "auto"
+    use_statistics: bool = True
+    hive_partitioning: bool | None = None
+    glob: bool = True
+    hidden_file_prefix: str | list[str] | None = None
+    try_parse_hive_dates: bool = True
+    rechunk: bool | None = None
+    low_memory: bool = False
+    cache: bool = True
+    storage_options: dict[str, str] | None = None
+    credential_provider: Literal["auto"] | None = "auto"
+    retries: int | None = None
+    include_file_paths: str | None = None
+    missing_columns: Literal["insert", "raise"] = "raise"
+    allow_missing_columns: bool | None = None
+    extra_columns: Literal["ignore", "raise"] = "raise"
 
 
 HEADER_READ_OPTIONS = frozenset(
@@ -160,7 +187,33 @@ class PolarsTabularFileReader(FileReader):
                 h5_reader=self.h5_reader,
             )
         elif format_name == "parquet":
-            frame = pl.scan_parquet(file_path, **reader_config.options)
+            try:
+                parquet_options = ParquetReaderOptions.model_validate(reader_config.options)
+            except PydanticValidationError as error:
+                msg = f"Invalid Parquet reader options: {error}"
+                raise ValueError(msg) from error
+            frame = pl.scan_parquet(
+                file_path,
+                n_rows=parquet_options.n_rows,
+                row_index_name=parquet_options.row_index_name,
+                row_index_offset=parquet_options.row_index_offset,
+                parallel=parquet_options.parallel,
+                use_statistics=parquet_options.use_statistics,
+                hive_partitioning=parquet_options.hive_partitioning,
+                glob=parquet_options.glob,
+                hidden_file_prefix=parquet_options.hidden_file_prefix,
+                try_parse_hive_dates=parquet_options.try_parse_hive_dates,
+                rechunk=parquet_options.rechunk,
+                low_memory=parquet_options.low_memory,
+                cache=parquet_options.cache,
+                storage_options=parquet_options.storage_options,
+                credential_provider=parquet_options.credential_provider,
+                retries=parquet_options.retries,
+                include_file_paths=parquet_options.include_file_paths,
+                missing_columns=parquet_options.missing_columns,
+                allow_missing_columns=parquet_options.allow_missing_columns,
+                extra_columns=parquet_options.extra_columns,
+            )
         else:
             msg = f"Polars cannot read format {format_name!r}"
             raise ValueError(msg)

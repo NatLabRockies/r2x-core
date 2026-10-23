@@ -33,15 +33,7 @@
         {
           "op": "filter",
           "predicate": {
-            "args": [
-              {
-                "column": "status"
-              },
-              {
-                "literal": 1
-              }
-            ],
-            "op": "eq"
+            "eq": ["status", 1]
           }
         },
         {
@@ -55,18 +47,7 @@
         {
           "columns": {
             "name": {
-              "args": [
-                {
-                  "column": "bus_name"
-                },
-                {
-                  "literal": "_"
-                },
-                {
-                  "column": "machine_id"
-                }
-              ],
-              "op": "concat_str"
+              "concat_str": ["bus_name", {"literal": "_"}, "machine_id"]
             }
           },
           "op": "with_columns"

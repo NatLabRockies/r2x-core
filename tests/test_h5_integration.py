@@ -1,4 +1,4 @@
-"""HDF5 reader layouts configured and loaded through the canonical source route."""
+"""HDF5 reader layouts loaded through named sources."""
 
 import json
 from pathlib import Path
@@ -6,11 +6,14 @@ from pathlib import Path
 import h5py
 import numpy as np
 import polars as pl
+import pytest
 
 from r2x_core.datafile import DataFile, ReaderConfig
 from r2x_core.file_reader import TabularSource
 from r2x_core.reader import DataReader
 from r2x_core.store import DataStore
+
+pytestmark = pytest.mark.polars
 
 
 def read_mapping(folder: Path, records: list[dict[str, object]]) -> dict[str, object]:

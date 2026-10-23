@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from r2x_core import DataFile
+from r2x_core import DataFile, InlineTable, SourcePredicate
 from r2x_core.datafile import FileInfo, ReaderConfig, extension_for_path_source
 from r2x_core.models import (
     JSONProcessing,
@@ -15,6 +15,12 @@ from r2x_core.models import (
     TabularProcessing,
 )
 from r2x_core.types import FileRequirement, FileType
+
+
+def test_inline_table_serialization_uses_configuration_schema_key() -> None:
+    table = InlineTable.model_validate({"schema": {"year": "int64"}, "rows": [{"year": 2030}]})
+
+    assert table.model_dump(mode="json") == {"schema": {"year": "int64"}, "rows": [{"year": 2030}]}
 
 
 def test_nested_datafile_configuration() -> None:
@@ -45,6 +51,7 @@ def test_datafile_nested_json_roundtrip() -> None:
         "fpath": "metadata.json",
         "info": {"file_type": "static", "requirement": "optional", "units": "MW"},
         "reader": {"format": "json", "options": {"encoding": "utf-8"}},
+        "required_when": {"source": "conditions", "predicate": "enabled"},
         "proc_spec": {"kind": "json", "steps": [{"op": "rename_keys", "mapping": {"old": "new"}}]},
     }
 
@@ -53,6 +60,8 @@ def test_datafile_nested_json_roundtrip() -> None:
     assert restored.info.file_type is FileType.STATIC
     assert restored.info.requirement is FileRequirement.OPTIONAL
     assert restored.reader.options == {"encoding": "utf-8"}
+    assert isinstance(restored.required_when, SourcePredicate)
+    assert restored.required_when.source == "conditions"
     assert isinstance(restored.proc_spec, JSONProcessing)
 
 
@@ -88,6 +97,32 @@ def test_datafile_requires_one_input_mode_and_reader_options_only_for_files() ->
         DataFile.model_validate({"name": "mixed", "source": "origin", "relative_fpath": "x.csv"})
     with pytest.raises(ValidationError, match="apply only to physical"):
         DataFile.model_validate({"name": "derived", "source": "origin", "reader": {"format": "csv"}})
+    with pytest.raises(ValidationError, match="exactly one of fpath"):
+        DataFile.model_validate({"name": "multiple_paths", "fpath": "a.csv", "glob": "*.csv"})
+    with pytest.raises(ValidationError, match="requires exactly one"):
+        DataFile.model_validate(
+            {
+                "name": "multiple_sources",
+                "source": "origin",
+                "inline_table": {"schema": {"id": "int64"}, "rows": []},
+            }
+        )
+    with pytest.raises(ValidationError, match="apply only to physical"):
+        DataFile.model_validate(
+            {
+                "name": "selected",
+                "source_selection": {"mode": "first_present", "sources": ["origin"]},
+                "reader": {"format": "csv"},
+            }
+        )
+    with pytest.raises(ValidationError, match="require tabular processing"):
+        DataFile.model_validate(
+            {
+                "name": "invalid_inline_processing",
+                "inline_table": {"schema": {"id": "int64"}, "rows": []},
+                "proc_spec": {"kind": "json"},
+            }
+        )
 
     configured = DataFile(name="deferred", relative_fpath="missing-{year}.csv")
     assert configured.relative_fpath == "missing-{year}.csv"

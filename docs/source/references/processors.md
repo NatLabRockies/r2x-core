@@ -17,6 +17,12 @@ requested steps, `DataReader` passes the decoded source through unchanged.
 
 ## Tabular processing
 
+Core requires Polars `>=1.44.1,<2.0.0`. Earlier releases can return an incorrect
+row count when projection pushdown follows a cross join with a scalar aggregate
+([Polars #28729](https://github.com/pola-rs/polars/issues/28729), fixed by
+[#28751](https://github.com/pola-rs/polars/pull/28751)). Version 1.44.0 contains
+the fix but is yanked, so 1.44.1 is the earliest safe release.
+
 Create a step list with the operation-specific fields:
 
 ```python
@@ -35,6 +41,28 @@ Operations can also be expressed with model classes from `r2x_core.models`.
 The tagged dictionaries are useful in JSON file mappings. Unknown fields and
 invalid operation fields are rejected during model validation.
 
+Expression values use a compact recursive form: a bare string names an exact
+column, numbers, booleans, and null are literals, and `{"literal": "text"}`
+represents a string literal. The explicit `literal` wrapper still accepts a
+JSON scalar, which is useful when a placeholder resolves to a typed value. An
+operation is a single-key map whose value is its ordered argument list. The
+step object itself keeps its existing `op` key:
+
+```json
+{
+  "op": "with_columns",
+  "columns": {
+    "doubled": {"multiply": ["capacity", 2]},
+    "label": {"literal": "wind"}
+  }
+}
+```
+
+`{"optional_column": "field"}` reads the named column when present and
+produces null when it is absent. `{"values": [...]}` supplies a typed
+membership list. Literal and list placeholders are substituted before the
+processing model is validated again.
+
 ### Common operations
 
 - `filter_columns` retains rows that match every exact column-value condition.
@@ -44,7 +72,12 @@ invalid operation fields are rejected during model validation.
   regular expressions.
 - `select_columns` keeps named columns; `select` derives columns from expressions.
 - `rename_columns` renames columns, and `drop_columns` removes them.
-- `with_columns` adds or replaces columns using expressions.
+- `with_columns` adds or replaces columns using expressions. Expressions include
+  exact `eq`/`neq`, expression-based `starts_with`, binary `add`, and `repeat_by`
+  for creating lists from row values and per-row counts.
+- `explode` expands one or more list columns into rows. Empty lists produce no
+  rows, and null lists retain one null element. These semantics are explicit
+  across the supported Polars versions.
 - `lowercase` lowercases column names and string values when enabled.
 - `unpivot` names identifier columns explicitly. `unpivot_columns` names value
   columns and keeps all other columns as identifiers. Both default output names
@@ -63,8 +96,11 @@ invalid operation fields are rejected during model validation.
 - `group_by` computes named aggregate expressions.
 - `sort` maps each column to `asc` or `desc`; `unique` removes duplicate rows
   based on its `subset`.
-- `assert`, `join`, and `custom` provide predicate checks, named-frame joins,
-  and application-registered handlers through the mapping-step backend.
+- `assert` can include a configured failure message. `concat` appends explicit
+  prior named sources using strict vertical schema equality. `join` combines
+  named frames, and `custom` invokes application-registered handlers through
+  the mapping-step backend. Cross joins omit `on` and allow only default or
+  `m:m` validation.
 
 Aggregation functions are `count`, `first`, `last`, `max`, `mean`, `median`,
 `min`, `n_unique`, `std`, `sum`, and `var`. Pivot does not support `n_unique`,
@@ -131,15 +167,17 @@ operation.
 
 A custom `FileReader` implements `read_file(format_name, /, *, file_path,
 reader_config)` and returns `DecodedSources`, a mapping from names to typed
-sources. Output keys must be non-empty strings. `file_path` is the canonical,
-resolved physical path, regardless of whether configuration used an absolute,
+sources. Output keys must be non-empty strings. `file_path` is the resolved physical
+path, regardless of whether configuration used an absolute,
 relative, or glob path. A `ProcessingSource[Payload]` couples a built-in payload
-wrapper to its processor. An application-defined source can implement
-`DecodedSource` directly and provide its own `process` implementation.
+wrapper to its processor. An application-defined `DecodedSource` implements
+`fields`, `is_empty`, `iter_rows`, `values`, and `process`. `is_empty` must agree
+with whether `iter_rows` yields a record.
 
 For native table representations, implement `TabularProcessor[Payload]` with
-`process`, `column_names`, `iter_rows`, and `values`. Do not add a second
-format-specific processor dispatcher. The separate `MappingStepBackend`
+`process`, `column_names`, `is_empty`, `iter_rows`, and `values`. `is_empty`
+checks whether records exist without collecting a complete table. Do not add a
+second format-specific processor dispatcher. The separate `MappingStepBackend`
 protocol remains the execution contract for `apply_mapping_steps` and ordered
 mapping operations.
 

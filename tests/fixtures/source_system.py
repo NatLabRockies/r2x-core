@@ -1,4 +1,4 @@
-"""Source-side test system with canonical component types."""
+"""Source-side test system with source component types."""
 
 from __future__ import annotations
 

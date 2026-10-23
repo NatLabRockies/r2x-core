@@ -12,6 +12,7 @@ from r2x_core import PluginConfig, build_system
 EXAMPLE = Path(__file__).parents[1] / "docs" / "examples" / "psse-raw"
 
 
+@pytest.mark.polars
 def test_empty_illustrative_raw_builds_empty_outputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep declared table schemas when a valid custom input has no records."""
     monkeypatch.syspath_prepend(str(EXAMPLE))

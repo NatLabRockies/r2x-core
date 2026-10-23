@@ -90,6 +90,7 @@ def test_hdf5_options_are_strict_for_direct_and_data_reader_paths(
         DataReader().read_data_files([item], folder_path=tmp_path)
 
 
+@pytest.mark.polars
 def test_hdf5_mapping_reads_columns_datetime_and_additional_keys(tmp_path: Path) -> None:
     """Resolve configured HDF5 datasets into a named Polars table source."""
     path = tmp_path / "load.h5"

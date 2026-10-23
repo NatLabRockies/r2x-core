@@ -4,7 +4,9 @@ Core models for configured input sources, three ingestion outputs, plugin settin
 
 ## Quick Reference
 
-- {py:class}`~r2x_core.DataFile` - Configures a physical input or named source transformation
+- {py:class}`~r2x_core.DataFile` - Configures a physical, named, selected, or inline source
+- {py:class}`~r2x_core.InlineTable` - Defines typed configuration-owned records
+- {py:class}`~r2x_core.SourceSelection` - Selects ordered sources by presence or nonemptiness
 - {py:class}`~r2x_core.ReaderConfig` - Selects a symbolic reader and validates its options
 - {py:class}`~r2x_core.DataStore` - Holds file-mapping configuration and upgrade handlers
 - {py:class}`~r2x_core.DecodedSource` - Typed named data with field access and paired processing

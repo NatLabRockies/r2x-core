@@ -80,6 +80,12 @@ Use `apply_single_rule()` to apply one rule:
 ['Alpha']
 ```
 
+## Attachment rollback
+
+Each rule-output attachment rolls back its attached outputs if attachment fails. For a component primary, rollback removes only newly stored components in that primary's composed graph. Components already present in the target system and their existing state are preserved. Cleanup failures are surfaced with the original attachment failure.
+
+This is not a transaction over an entire rule, translation, or arbitrary callback side effects. A callback-created reference can prevent removal, in which case the affected graph branch is retained and the cleanup failure is reported. infrasys does not currently index every nested composed-component association, and r2x-core does not rebuild those indexes. Direct association behavior remains available, but nested association indexing is not guaranteed.
+
 ## See Also
 
 - [create rules](/r2x-core/how-tos/create-rules/) - Creating rules

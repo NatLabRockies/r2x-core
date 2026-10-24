@@ -25,7 +25,7 @@ def test_supplemental_attribute_rule_accepts_callable_getter():
     output = SupplementalAttributeRule(
         target_type="Output",
         field_map={"value": ["first", "second"]},
-        getters={"value": lambda _source, *, context: None},
+        getters={"value": lambda source, *, context: None},
     )
     assert output.target_type == "Output"
 
@@ -64,7 +64,7 @@ def test_validation_with_multiple_multifield_mappings():
 
     from r2x_core import Rule
 
-    def field_getter(_src: object, *, context: object) -> Result[int, ValueError]:
+    def field_getter(src: object, *, context: object) -> Result[int, ValueError]:
         _ = context
         return Ok(0)
 
@@ -155,14 +155,14 @@ def test_rule_from_records_processes_string_getters_and_filters():
 
     from rust_ok import Ok
 
-    from r2x_core import Rule, RuleFilter
+    from r2x_core import GetterFilter, Rule
     from r2x_core.getters import GETTER_REGISTRY, getter
 
     filter_getter_name = "rule_filter_record_getter"
     if filter_getter_name not in GETTER_REGISTRY:
 
         @getter(name=filter_getter_name)
-        def rule_filter_record_getter(_src, *, context):
+        def rule_filter_record_getter(src, *, context):
             _ = context
             return Ok("ok")
 
@@ -173,14 +173,14 @@ def test_rule_from_records_processes_string_getters_and_filters():
             "version": 1,
             "field_map": {"name": "name"},
             "getters": {"nested_name": "child.name"},
-            "filter": {"getter": filter_getter_name, "op": "eq", "values": ["ok"]},
+            "filter": {"kind": "getter", "getter": filter_getter_name, "op": "eq", "values": ["ok"]},
         }
     ]
 
     rules = Rule.from_records(records)
     assert len(rules) == 1
     rule = rules[0]
-    assert isinstance(rule.filter, RuleFilter)
+    assert isinstance(rule.filter, GetterFilter)
     assert callable(rule.filter.getter)
     getter_fn = rule.getters["nested_name"]
     if callable(getter_fn):
@@ -192,30 +192,30 @@ def test_rule_filter_pattern_variants():
     """RuleFilter should validate structure and evaluate operations."""
     from types import SimpleNamespace
 
-    from r2x_core import RuleFilter
+    from pydantic import ValidationError
+
+    from r2x_core import FieldFilter
 
     base = SimpleNamespace(name="Alpha", status="ok", count=5)
 
-    leaf = RuleFilter(field="name", op="eq", values=["alpha"])
+    leaf = FieldFilter(field="name", op="eq", values=["alpha"])
     assert leaf.matches(base)
 
-    assert RuleFilter(field="name", op="neq", values=["beta"]).matches(base)
+    assert FieldFilter(field="name", op="neq", values=["beta"]).matches(base)
+    assert FieldFilter(field="name", op="in", values=["alpha", "beta"]).matches(base)
+    assert not FieldFilter(field="name", op="not_in", values=["alpha", "beta"]).matches(base)
 
-    assert RuleFilter(field="name", op="in", values=["alpha", "beta"]).matches(base)
-
-    assert not RuleFilter(field="name", op="not_in", values=["alpha", "beta"]).matches(base)
-
-    geq_filter = RuleFilter(field="count", op="geq", values=[3])
+    geq_filter = FieldFilter(field="count", op="geq", values=[3])
     assert geq_filter.matches(base)
 
-    missing_filter = RuleFilter(field="missing", op="eq", values=["foo"], on_missing="include")
+    missing_filter = FieldFilter(field="missing", op="eq", values=["foo"], on_missing="include")
     assert missing_filter.matches(base)
 
-    with pytest.raises(ValueError):
-        RuleFilter(field="name", values=["x"], op=None)
+    with pytest.raises(ValidationError):
+        FieldFilter(field="name", values=["x"], op=None)
 
-    with pytest.raises(ValueError):
-        RuleFilter(field="name", op="eq", values=["x"], any_of=[{"field": "x"}])  # type: ignore[arg-type]
+    with pytest.raises(ValidationError):
+        FieldFilter.model_validate({"field": "name", "op": "eq", "values": ["x"], "any_of": []})
 
-    with pytest.raises(ValueError):
-        RuleFilter(field="value", op="geq", values=[1, 2])
+    with pytest.raises(ValidationError):
+        FieldFilter(field="value", op="geq", values=[1, 2])

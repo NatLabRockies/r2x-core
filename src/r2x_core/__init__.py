@@ -1,9 +1,9 @@
 """R2X Core public API with lazy imports for fast CLI/import startup.
 
-Eager imports are kept under ``if TYPE_CHECKING`` so IDEs (pyright, mypy)
+Eager imports are kept under ``if TYPE_CHECKING`` so IDEs and the type checker
 see the full API surface for autocompletion and type checking. At runtime,
 attributes are imported on first access via ``__getattr__`` and cached in
-the module globals, dropping cold-import from ~1.4 s to ~0.17 s.
+module globals.
 """
 
 from __future__ import annotations
@@ -22,15 +22,7 @@ __version__ = version("r2x_core")
 
 # ── Eager for IDEs / type checkers (dead code at runtime) ──────────
 if TYPE_CHECKING:
-    from . import h5_readers
-    from .datafile import (
-        DataFile,
-        FileInfo,
-        JSONProcessing,
-        ReaderConfig,
-        SplitColumnSpec,
-        TabularProcessing,
-    )
+    from .datafile import DataFile, FileInfo, InlineTable, ReaderConfig, SourceSelection
     from .exceptions import (
         CLIError,
         ComponentCreationError,
@@ -38,15 +30,48 @@ if TYPE_CHECKING:
         UpgradeError,
         ValidationError,
     )
-    from .file_types import FileFormat, H5Format
+    from .file_reader import (
+        ArraySource,
+        DecodedSource,
+        DecodedSources,
+        DocumentSource,
+        FileReader,
+        ProcessingSource,
+        SourceProcessor,
+        TabularProcessor,
+        TabularSource,
+    )
     from .getters import getter, resolve_getter
+    from .h5_adapter import H5PyFileReader, H5Reader
+    from .ingestion import build_system, build_system_from_sources
+    from .models import (
+        ColumnTimeAxis,
+        ComponentInstruction,
+        ComponentOwner,
+        ComponentReference,
+        JSONProcessing,
+        RegularTimeAxis,
+        SourcePredicate,
+        SplitColumnSpec,
+        SupplementalAttributeInstruction,
+        TabularProcessing,
+        TimeSeriesInstruction,
+    )
     from .plugin_base import Plugin
     from .plugin_config import PluginConfig
     from .plugin_context import PluginContext
     from .plugin_expose import expose_plugin
     from .reader import DataReader
-    from .result import RuleResult, TabularTransformResult, TranslationResult
-    from .rules import Rule, RuleFilter, SupplementalAttributeRule
+    from .result import RuleResult, TranslationResult
+    from .rules import (
+        AllOfFilter,
+        AnyOfFilter,
+        FieldFilter,
+        GetterFilter,
+        Rule,
+        RuleFilter,
+        SupplementalAttributeRule,
+    )
     from .rules_executor import (
         apply_rules_to_context,
         apply_single_rule,
@@ -56,15 +81,10 @@ if TYPE_CHECKING:
     from .store import DataStore
     from .system import System
     from .time_series import replace_single_time_series, transfer_time_series_metadata
+    from .types import FileProcessing, FileRequirement, FileType
     from .units import HasPerUnit, HasUnits, Unit, UnitSystem, get_unit_system, set_unit_system
-    from .utils import (
-        UpgradeStep,
-        UpgradeType,
-        components_to_records,
-        create_component,
-        export_components_to_csv,
-        run_upgrade_step,
-    )
+    from .utils.export import components_to_records, export_components_to_csv
+    from .utils.upgrade import UpgradeStep, UpgradeType, run_upgrade_step
     from .versioning import (
         GitVersioningStrategy,
         SemanticVersioningStrategy,
@@ -73,21 +93,45 @@ if TYPE_CHECKING:
     )
 
 # ── Lazy at runtime ─────────────────────────────────────────────────
-_LAZY_IMPORTS: dict[str, str] = {
-    "h5_readers": ".h5_readers",
+LAZY_IMPORTS: dict[str, str] = {
     "DataFile": ".datafile",
+    "DataReader": ".reader",
     "FileInfo": ".datafile",
-    "JSONProcessing": ".datafile",
+    "InlineTable": ".datafile",
+    "SourceSelection": ".datafile",
+    "SourcePredicate": ".models",
+    "JSONProcessing": ".models",
     "ReaderConfig": ".datafile",
-    "SplitColumnSpec": ".datafile",
-    "TabularProcessing": ".datafile",
+    "SplitColumnSpec": ".models",
+    "TabularProcessing": ".models",
+    "FileProcessing": ".types",
+    "ArraySource": ".file_reader",
+    "DecodedSource": ".file_reader",
+    "DecodedSources": ".file_reader",
+    "DocumentSource": ".file_reader",
+    "ProcessingSource": ".file_reader",
+    "TabularSource": ".file_reader",
+    "SourceProcessor": ".file_reader",
+    "TabularProcessor": ".file_reader",
+    "ColumnTimeAxis": ".models",
+    "ComponentInstruction": ".models",
+    "ComponentOwner": ".models",
+    "ComponentReference": ".models",
+    "RegularTimeAxis": ".models",
+    "SupplementalAttributeInstruction": ".models",
+    "TimeSeriesInstruction": ".models",
+    "build_system": ".ingestion",
+    "build_system_from_sources": ".ingestion",
+    "FileRequirement": ".types",
+    "FileType": ".types",
     "CLIError": ".exceptions",
     "ComponentCreationError": ".exceptions",
     "PluginError": ".exceptions",
     "UpgradeError": ".exceptions",
     "ValidationError": ".exceptions",
-    "FileFormat": ".file_types",
-    "H5Format": ".file_types",
+    "H5PyFileReader": ".h5_adapter",
+    "H5Reader": ".h5_adapter",
+    "FileReader": ".file_reader",
     "getter": ".getters",
     "resolve_getter": ".getters",
     "Plugin": ".plugin_base",
@@ -97,12 +141,14 @@ _LAZY_IMPORTS: dict[str, str] = {
     "ProvenanceBuilder": ".provenance",
     "ProvenanceInfo": ".provenance",
     "SourceProvenance": ".provenance",
-    "DataReader": ".reader",
     "RuleResult": ".result",
-    "TabularTransformResult": ".result",
     "TranslationResult": ".result",
     "Rule": ".rules",
     "RuleFilter": ".rules",
+    "FieldFilter": ".rules",
+    "GetterFilter": ".rules",
+    "AnyOfFilter": ".rules",
+    "AllOfFilter": ".rules",
     "SupplementalAttributeRule": ".rules",
     "apply_rules_to_context": ".rules_executor",
     "apply_single_rule": ".rules_executor",
@@ -121,7 +167,6 @@ _LAZY_IMPORTS: dict[str, str] = {
     "UpgradeStep": ".utils",
     "UpgradeType": ".utils",
     "components_to_records": ".utils",
-    "create_component": ".utils",
     "export_components_to_csv": ".utils",
     "run_upgrade_step": ".utils",
     "GitVersioningStrategy": ".versioning",
@@ -134,7 +179,7 @@ _LAZY_IMPORTS: dict[str, str] = {
 def __getattr__(name: str) -> object:
     """Lazily import and cache public API attributes on first access."""
     try:
-        module_path = _LAZY_IMPORTS[name]
+        module_path = LAZY_IMPORTS[name]
     except KeyError:
         msg = f"module {__name__!r} has no attribute {name!r}"
         raise AttributeError(msg) from None
@@ -142,7 +187,7 @@ def __getattr__(name: str) -> object:
     import importlib
 
     mod = importlib.import_module(module_path, __package__)
-    attr = mod if name == "h5_readers" else getattr(mod, name)
+    attr = getattr(mod, name)
     # Cache in module globals so subsequent accesses are O(1)
     globals()[name] = attr
     return attr
@@ -150,35 +195,60 @@ def __getattr__(name: str) -> object:
 
 # ── Public API ──────────────────────────────────────────────────────
 __all__ = [
+    "AllOfFilter",
+    "AnyOfFilter",
+    "ArraySource",
     "CLIError",
+    "ColumnTimeAxis",
     "ComponentCreationError",
+    "ComponentInstruction",
+    "ComponentOwner",
+    "ComponentReference",
     "DataFile",
     "DataReader",
     "DataStore",
+    "DecodedSource",
+    "DecodedSources",
+    "DocumentSource",
     "Err",
-    "FileFormat",
+    "FieldFilter",
     "FileInfo",
+    "FileProcessing",
+    "FileReader",
+    "FileRequirement",
+    "FileType",
+    "GetterFilter",
     "GitVersioningStrategy",
-    "H5Format",
+    "H5PyFileReader",
+    "H5Reader",
     "HasPerUnit",
     "HasUnits",
+    "InlineTable",
     "JSONProcessing",
     "Ok",
     "Plugin",
     "PluginConfig",
     "PluginContext",
     "PluginError",
+    "ProcessingSource",
     "ReaderConfig",
+    "RegularTimeAxis",
     "Result",
     "Rule",
     "RuleFilter",
     "RuleResult",
     "SemanticVersioningStrategy",
+    "SourcePredicate",
+    "SourceProcessor",
+    "SourceSelection",
     "SplitColumnSpec",
+    "SupplementalAttributeInstruction",
     "SupplementalAttributeRule",
     "System",
     "TabularProcessing",
-    "TabularTransformResult",
+    "TabularProcessor",
+    "TabularSource",
+    "TimeSeriesInstruction",
     "TranslationResult",
     "Unit",
     "UnitSystem",
@@ -191,13 +261,13 @@ __all__ = [
     "apply_rules_to_context",
     "apply_single_rule",
     "attach_rule_outputs",
+    "build_system",
+    "build_system_from_sources",
     "components_to_records",
-    "create_component",
     "export_components_to_csv",
     "expose_plugin",
     "get_unit_system",
     "getter",
-    "h5_readers",
     "is_err",
     "is_ok",
     "replace_single_time_series",

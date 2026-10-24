@@ -32,9 +32,11 @@ Define a configuration class that extends `PluginConfig`:
 'reference'
 ```
 
-## Using DataStore with Config
+## Load mapping configuration
 
-Create a `DataStore` directly from your plugin configuration:
+`DataStore` manages mapping configuration only. To build a system from those
+inputs, use `build_system` instead of adding file-reading or component-building
+loops to the plugin.
 
 ```python doctest
 >>> import tempfile
@@ -42,11 +44,14 @@ Create a `DataStore` directly from your plugin configuration:
 >>> from r2x_core import DataStore, PluginConfig
 >>> class MyConfig(PluginConfig):
 ...     solve_year: int
->>> config = MyConfig(solve_year=2030)
 >>> with tempfile.TemporaryDirectory() as tmpdir:
-...     store = DataStore.from_plugin_config(config, path=tmpdir)
-...     print(type(store).__name__)
-DataStore
+...     root = Path(tmpdir)
+...     _ = (root / "file_mapping.json").write_text("[]", encoding="utf-8")
+...     config = MyConfig(solve_year=2030, config_path_override=root)
+...     store = DataStore(config.config_path)
+...     store.load_file_mapping(config.fmap_path)
+...     store.list_data()
+[]
 ```
 
 ## Register Custom Getters

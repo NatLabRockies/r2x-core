@@ -13,26 +13,13 @@ Notes
 
 from __future__ import annotations
 
-__all__ = [
-    "HasPerUnit",
-    "HasUnits",
-    "Unit",
-    "UnitSpec",
-    "UnitSystem",
-    "get_unit_system",
-    "set_unit_system",
-    "unit_spec",
-    "unit_system",
-    "ureg",
-]
-
 from collections.abc import Iterator
 from contextlib import contextmanager
 from enum import Enum
 
-from ._mixins import HasPerUnit, HasUnits
-from ._specs import Unit, UnitSpec, unit_spec
-from ._utils import ureg
+from .conversion import ureg
+from .mixins import HasPerUnit, HasUnits
+from .specs import Unit, UnitSpec, unit_spec
 
 
 class UnitSystem(str, Enum):
@@ -53,7 +40,7 @@ class UnitSystem(str, Enum):
     NATURAL_UNITS = "NATURAL_UNITS"
 
 
-_current_unit_system: UnitSystem = UnitSystem.DEVICE_BASE
+current_unit_system: UnitSystem = UnitSystem.DEVICE_BASE
 
 
 def get_unit_system() -> UnitSystem:
@@ -64,7 +51,7 @@ def get_unit_system() -> UnitSystem:
     UnitSystem
         Current display mode
     """
-    return _current_unit_system
+    return current_unit_system
 
 
 def set_unit_system(unit_system: UnitSystem) -> None:
@@ -75,8 +62,8 @@ def set_unit_system(unit_system: UnitSystem) -> None:
     unit_system : UnitSystem
         Display mode to set
     """
-    global _current_unit_system
-    _current_unit_system = unit_system
+    global current_unit_system
+    current_unit_system = unit_system
 
 
 @contextmanager
@@ -105,3 +92,17 @@ def unit_system(mode: UnitSystem) -> Iterator[None]:
         yield
     finally:
         set_unit_system(previous)
+
+
+__all__ = [
+    "HasPerUnit",
+    "HasUnits",
+    "Unit",
+    "UnitSpec",
+    "UnitSystem",
+    "get_unit_system",
+    "set_unit_system",
+    "unit_spec",
+    "unit_system",
+    "ureg",
+]

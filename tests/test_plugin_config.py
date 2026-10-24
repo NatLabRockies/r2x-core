@@ -2,9 +2,11 @@
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+from r2x_core import DataStore, PluginContext
 from r2x_core.plugin_config import PluginConfig
 from r2x_core.utils import merge_with_overrides
 
@@ -22,7 +24,7 @@ class SampleConfig(PluginConfig):
     param2: int = 42
 
 
-def _write_assets(tmp_path: Path, payloads: dict[str, object]) -> None:
+def write_assets(tmp_path: Path, payloads: dict[str, object]) -> None:
     for asset, payload in payloads.items():
         (tmp_path / asset).write_text(json.dumps(payload))
 
@@ -30,6 +32,39 @@ def _write_assets(tmp_path: Path, payloads: dict[str, object]) -> None:
 def test_models_defaults_to_empty_tuple():
     config = SampleConfig(param1="test")
     assert config.models == ()
+    assert PluginConfig(models=None).models == ()
+
+
+def test_models_normalize_and_reject_registration_values() -> None:
+    """Accept symbolic model module names and reject non-iterable registrations."""
+    assert PluginConfig(models="package.models").models == ("package.models",)
+    assert PluginConfig(models=["package.one", "package.two"]).models == (
+        "package.one",
+        "package.two",
+    )
+    with pytest.raises(TypeError, match="models must be a string or iterable"):
+        PluginConfig(models=42)
+
+
+def test_active_versions_is_instance_data():
+    first = PluginConfig()
+    second = PluginConfig()
+
+    first.active_versions["BusComponent"] = 2
+
+    assert second.active_versions == {}
+
+
+def test_upgrade_handler_is_excluded_from_json_serialization():
+    def handler(*, store: DataStore, ctx: PluginContext[Any]) -> None:
+        return None
+
+    config = PluginConfig(upgrade_handler=handler)
+
+    assert config.upgrade_handler is handler
+    assert "upgrade_handler" not in config.model_dump()
+    assert "upgrade_handler" not in config.model_dump_json()
+    assert "upgrade_handler" not in config.model_json_schema()["properties"]
 
 
 def test_models_accept_string():
@@ -47,6 +82,12 @@ def test_config_path_override(tmp_path):
     override.mkdir()
     config = SampleConfig(param1="test", config_path_override=override)
     assert config.config_path == override
+
+
+def test_config_path_warns_for_missing_override(tmp_path: Path) -> None:
+    """Expose a missing app config directory without changing configured paths."""
+    missing = tmp_path / "missing-config"
+    assert PluginConfig(config_path_override=missing).config_path == missing
 
 
 @pytest.mark.parametrize(
@@ -107,7 +148,7 @@ def test_load_config_reads_all_assets(tmp_path):
         PARSER_RULES: [{"step": "parse"}],
         TRANSLATION_RULES: [{"rule": "map"}],
     }
-    _write_assets(tmp_path, payloads)
+    write_assets(tmp_path, payloads)
 
     config = SampleConfig(param1="test")
     result = config.load_config(config_path=tmp_path)
@@ -123,7 +164,7 @@ def test_load_config_respects_overrides(tmp_path):
         PARSER_RULES: [],
         TRANSLATION_RULES: [],
     }
-    _write_assets(tmp_path, payloads)
+    write_assets(tmp_path, payloads)
 
     overrides = {
         "defaults": {"value": 2, "items": ["c"]},

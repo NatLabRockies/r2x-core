@@ -26,7 +26,9 @@ Use Python 3.11 through 3.14. In an activated virtual environment:
 python -m pip install r2x-core
 ```
 
-For uv projects, use `uv add r2x-core`.
+Polars is installed as a runtime dependency for the built-in tabular reader and
+processor. It is imported lazily, so configuration-only imports do not load it.
+Applications can supply custom `FileReader` and `TabularProcessor` implementations.
 See [Installation](https://natlabrockies.github.io/r2x-core/install/) for environment and upgrade instructions.
 
 Verify the installation and create a system:
@@ -35,7 +37,8 @@ Verify the installation and create a system:
 python -c "from r2x_core import System; print(System(name='example').name)"
 ```
 
-Expect `example`. Continue with the [CSV capacity tutorial](https://natlabrockies.github.io/r2x-core/tutorials/getting-started/) to build, transform, export, and independently reload a system.
+Expect `example`. Continue with the CSV capacity tutorial to build, transform,
+export, and independently reload a system.
 
 ## Documentation
 

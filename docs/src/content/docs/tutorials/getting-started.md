@@ -12,7 +12,7 @@ The complete [worked example](https://github.com/NatLabRockies/r2x-core/tree/mai
 ```mermaid
 flowchart TD
   CSV[Three CSV rows] --> Filter[DataFile filters status active]
-  Filter --> Build[on_build creates two Generator components]
+  Filter --> Build[build_system validates and constructs two Generator components]
   Build --> Scale[on_transform scales 150 MW to 165 MW]
   Scale --> Export[on_export saves system JSON and sidecars]
   Export --> Reload[Fresh process reloads and verifies components]
@@ -98,23 +98,23 @@ For ReEDS inputs, start with [r2x-reeds](https://github.com/NatLabRockies/r2x-re
 ```python doctest
 >>> from pathlib import Path
 >>> from tempfile import TemporaryDirectory
->>> from r2x_core import DataFile, DataStore, TabularProcessing
+>>> from r2x_core import DataFile, DataReader, TabularProcessing
 >>> with TemporaryDirectory() as directory:
 ...     root = Path(directory)
 ...     _ = (root / "generators.csv").write_text("name,capacity_mw,status\nAlpha,100,active\nBravo,50,active\nRetired,25,retired\n", encoding="utf-8")
-...     store = DataStore(root)
-...     store.add_data([DataFile(name="generators", relative_fpath="generators.csv", proc_spec=TabularProcessing(filter_by={"status": "active"}))])
-...     rows = store.read_data("generators").collect().to_dicts()
+...     processing = TabularProcessing(steps=[{"op": "filter_columns", "filter_by": {"status": "active"}}])
+...     sources = DataReader().read_data_files(
+...         [DataFile(name="generators", relative_fpath="generators.csv", proc_spec=processing)],
+...         folder_path=root,
+...     )
+...     rows = sources["generators"].data.collect().to_dicts()
 ...
 >>> # Expected: this boundary produces the tutorial's named components or capacity.
 >>> [row["name"] for row in rows]
 ['Alpha', 'Bravo']
 ```
 
-`generators` is the logical lookup name; `relative_fpath` is resolved under the store root.
-The filter runs when the reader loads that data.
-A CSV read returns a Polars lazy frame, so the build hook calls `collect()` before iterating rows.
-Registration alone does not prove that an input is readable.
+`generators` is the logical source name; `relative_fpath` is resolved under the supplied input root. The filter runs during source processing. `DataReader` exposes the typed source-loading seam, while `build_system` also consumes the configured component instruction. Registration alone does not prove that an input is readable.
 See [file configuration](/r2x-core/how-tos/configure-data-files/) for reader options and [data contracts](/r2x-core/references/data-workflow/) for return types and failure boundaries.
 
 <span id="working-with-systems"></span>
@@ -125,8 +125,8 @@ See [file configuration](/r2x-core/how-tos/configure-data-files/) for reader opt
 
 ## Follow the three implemented hooks
 
-The script binds `BuildConfig()` and the store to a `PluginContext`, then invokes `BuildScenario.from_context(context).run()`.
-Only the hooks implemented by this plugin run:
+The script binds `BuildConfig()` to a `PluginContext`, then invokes `BuildScenario.from_context(context).run()`.
+Its `on_build` hook delegates to `build_system`, which executes `file_mapping.json` and `parser_rules.json`; the application does not read rows or attach components itself. Only the hooks implemented by this plugin run:
 
 | Hook | Work in this example | Observable check |
 | --- | --- | --- |

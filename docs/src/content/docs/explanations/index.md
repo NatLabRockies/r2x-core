@@ -10,12 +10,14 @@ Explanations provide background and context about the r2x-core design and archit
 
 ## Architecture & Design
 
+- [architecture](/r2x-core/explanations/architecture/)
 - [plugin system](/r2x-core/explanations/plugin-system/)
 - [unit system](/r2x-core/explanations/unit-system/)
 - [h5 readers](/r2x-core/explanations/h5-readers/)
 - [rules system](/r2x-core/explanations/rules-system/)
 - [data management](/r2x-core/explanations/data-management/)
 - [versioning](/r2x-core/explanations/versioning/)
+- [tabular processing roadmap](/r2x-core/explanations/tabular-processing-roadmap/)
 
 
 ## When to Read Explanations

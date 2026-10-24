@@ -27,15 +27,15 @@ Use root imports when exported by `src/r2x_core/__init__.py`:
 ```python
 from r2x_core import (
     CLIError, ComponentCreationError, DataFile, DataReader, DataStore, Err,
-    FileInfo, FileFormat, GitVersioningStrategy, H5Format, HasPerUnit,
-    HasUnits, JSONProcessing, Ok, Plugin, PluginConfig, PluginContext,
-    PluginError, ReaderConfig, Result, Rule, RuleFilter, RuleResult,
-    SemanticVersioningStrategy, System, TabularProcessing, TranslationResult,
-    Unit, UnitSystem, UpgradeError, UpgradeStep, UpgradeType, ValidationError,
-    VersionReader, VersionStrategy, apply_rules_to_context, apply_single_rule,
-    components_to_records, create_component, export_components_to_csv,
-    expose_plugin, get_unit_system, getter, h5_readers, is_err, is_ok,
-    run_upgrade_step, set_unit_system,
+    FileInfo, FileReader, GitVersioningStrategy, H5PyFileReader, H5Reader,
+    HasPerUnit, HasUnits, JSONProcessing, Ok, Plugin, PluginConfig,
+    PluginContext, PluginError, ReaderConfig, Result, Rule, RuleFilter,
+    RuleResult, SemanticVersioningStrategy, System, TabularProcessing,
+    TabularProcessor, TabularSource, TranslationResult, Unit, UnitSystem,
+    UpgradeError, UpgradeStep, UpgradeType, ValidationError, VersionReader,
+    VersionStrategy, apply_rules_to_context, apply_single_rule,
+    components_to_records, export_components_to_csv, expose_plugin,
+    get_unit_system, getter, is_err, is_ok, run_upgrade_step, set_unit_system,
 )
 ```
 
@@ -50,12 +50,11 @@ r2x-core itself. Do not create local fallback imports to hide API drift.
 | Function transform | `@expose_plugin` + explicit call | usually `Result[System, E]` |
 | All rules | `apply_rules_to_context(context)` | `TranslationResult` with `RuleResult` records |
 | One rule | `apply_single_rule(rule, *, context=...)` | `Result[RuleApplicationStats, ValueError]` |
-| File read | `DataReader.read_data_file(...)` | format-specific payload or exception |
-| Store read | `DataStore.read_data(name, ...)` | format-specific payload or exception |
+| File read | `DataReader.read_data_files(...)` | named `DecodedSource` mapping or exception |
+| Store | `DataStore` mapping methods | configured `DataFile` records; reading is handled by `DataReader` |
 | Unit setting | `set_unit_system(...)` | process-global display state |
 | Logging | Loguru + `setup_logging(...)` | disabled by default; application-owned sinks |
-| One upgrade | `run_upgrade_step(data, *, step=...)` | `Result[Any, str]` |
-| Component creation | `create_component(component_class, *, skip_none=True, skip_validation=False, **field_values)` | `Result[Component, pydantic.ValidationError]` |
+| One upgrade | `run_upgrade_step(data, *, step=...)` | `Result[Any, UpgradeError]` |
 
 ## Result and exception boundaries
 
@@ -69,9 +68,10 @@ Use the project's established boundary, not a universal rule:
   failures; inspect `translation.rule_results`.
 - `DataFile`/`DataStore` validation and file reads use Pydantic and ordinary
   exceptions such as `ValidationError`, `FileNotFoundError`, `KeyError`, or
-  `ReaderError` according to the source path.
-- `create_component` returns `Err(PydanticValidationError)` rather than raising
-  a validation error for normal invalid input.
+  `ReaderError` according to the source path. `DataReader` chains processing
+  errors as the cause of `ReaderError`.
+- `UpgradeHandler` returns `None` or `Ok(None)` on success, and `Err(error)` on
+  failure. Invalid success payloads raise `TypeError` before completion is recorded.
 
 Do not bare-unwrap result values in production code. Do not catch broad
 `Exception` to continue a translation, hide an API mismatch, or return `None`.
@@ -162,7 +162,8 @@ intermediate artifacts.
 - Adding `versioning_strategy` to `UpgradeStep`.
 - Import fallbacks that mask a source/docs mismatch.
 - Raw file I/O in plugin code when a `DataStore` boundary applies.
-- Handwritten component construction where `create_component` is the contract.
+- Treating a removed helper or legacy root import as part of the current API.
+  Construct components through their validated model constructors.
 - Calling `setup_logging()` from a library module or import side effect.
 - Using `INFO` for per-row/per-component diagnostics or `ERROR` for an expected
   branch.

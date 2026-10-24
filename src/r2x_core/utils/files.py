@@ -12,7 +12,7 @@ from loguru import logger
 from rust_ok import Err, Ok, Result
 
 if TYPE_CHECKING:
-    from ..datafile import DataFile, FileInfo
+    from ..datafile import DataFile
 
 
 # ── Cache paths ─────────────────────────────────────────────────────
@@ -115,9 +115,7 @@ def backup_folder(folder_path: Path | str) -> Result[None, str]:
 # ── DataFile path resolution ────────────────────────────────────────
 
 
-def get_fpath(
-    data_file: DataFile, *, folder_path: Path, info: FileInfo | None = None
-) -> Result[Path, ValueError | FileNotFoundError]:
+def get_fpath(data_file: DataFile, *, folder_path: Path) -> Result[Path, ValueError | FileNotFoundError]:
     """Get the resolved file path from a DataFile configuration.
 
     Parameters
@@ -126,20 +124,17 @@ def get_fpath(
         The data file configuration.
     folder_path : Path
         The base folder path to resolve relative paths against.
-    info : FileInfo | None
-        Optional file metadata (unused; reserved for future extensions).
     """
-    if not any((data_file.glob, data_file.relative_fpath, data_file.fpath)):
-        raise ValueError("DataFile must have fpath, relative_fpath, or glob")
-
     if data_file.glob is not None:
         return resolve_glob_pattern(data_file.glob, search_dir=folder_path)
     if data_file.relative_fpath is not None:
         fpath = folder_path / Path(data_file.relative_fpath)
         logger.trace("Resolved relative_fpath={} for file={}", fpath, data_file.name)
         return audit_file(fpath)
-
-    assert data_file.fpath
-    fpath = Path(data_file.fpath)
-    logger.trace("Resolved absolute fpath={} for file={}", fpath, data_file.name)
-    return audit_file(fpath)
+    fpath = data_file.fpath
+    if fpath is None:
+        msg = f"DataFile {data_file.name!r} has no physical path"
+        raise ValueError(msg)
+    resolved = fpath if fpath.is_absolute() else folder_path / fpath
+    logger.trace("Resolved fpath={} for file={}", resolved, data_file.name)
+    return audit_file(resolved)

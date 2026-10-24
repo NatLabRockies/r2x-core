@@ -4,155 +4,131 @@ title: "Processing File Data"
 
 <span id="processing-file-data"></span>
 
-Transform and filter tabular data during loading using [`TabularProcessing`](/r2x-core/references/api/). This allows you to rename columns, drop unused fields, and filter rows without modifying the original files.
+Tabular and JSON transformations are declared as ordered steps in
+`DataFile.proc_spec`. Every step has an `op` tag and only the fields used by
+that operation.
 
-## Rename Columns
-
-Use `column_mapping` to rename columns while loading:
-
-```python doctest
->>> from pathlib import Path
->>> from r2x_core import DataFile, TabularProcessing
->>>
->>> data_file = DataFile(
-...     name="data",
-...     relative_fpath="data.csv",
-...     proc_spec=TabularProcessing(column_mapping={"old_name": "new_name", "col1": "column_1"})
-... )
->>> data_file.proc_spec.column_mapping
-{'old_name': 'new_name', 'col1': 'column_1'}
-```
-
-## Drop Unwanted Columns
-
-Use `drop_columns` to exclude columns from processing:
-
-```python doctest
->>> from pathlib import Path
->>> from r2x_core import DataFile, TabularProcessing
->>>
->>> data_file = DataFile(
-...     name="data",
-...     relative_fpath="data.csv",
-...     proc_spec=TabularProcessing(drop_columns=["unused_col", "temp_col"])
-... )
->>> data_file.proc_spec.drop_columns
-['unused_col', 'temp_col']
-```
-
-## Filter Data During Loading
-
-Use `filter_by` to select specific rows based on column values:
-
-```python doctest
->>> from pathlib import Path
->>> from r2x_core import DataFile, TabularProcessing
->>>
->>> # Filter by single value
->>> df = DataFile(
-...     name="yearly_data",
-...     relative_fpath="data.csv",
-...     proc_spec=TabularProcessing(filter_by={"year": 2030})
-... )
->>> df.proc_spec.filter_by
-{'year': 2030}
->>>
->>> # Filter by multiple values
->>> df = DataFile(
-...     name="regional_data",
-...     relative_fpath="data.csv",
-...     proc_spec=TabularProcessing(filter_by={"region": ["CA", "TX", "NY"]})
-... )
->>> df.proc_spec.filter_by["region"]
-['CA', 'TX', 'NY']
-```
-
-## Reshape, Rename, Cast, and Filter
-
-With `unpivot_on`, `column_mapping`, `column_schema`, and `filter_by` apply after
-the reshape. This supports wide year columns filtered by a runtime solve year:
+## Rename, remove, and filter columns
 
 ```python doctest
 >>> from r2x_core import DataFile, TabularProcessing
->>>
->>> processing = TabularProcessing(
-...     unpivot_on=["2025", "2030"],
-...     column_mapping={"variable": "year", "value": "capacity_mw"},
-...     column_schema={"year": "int"},
-...     filter_by={"year": "{solve_year}"},
-... )
->>> processing.column_mapping
-{'variable': 'year', 'value': 'capacity_mw'}
+>>> processing = TabularProcessing(steps=[
+...     {"op": "rename_columns", "column_mapping": {"old_name": "new_name"}},
+...     {"op": "drop_columns", "drop_columns": ["temp_col"]},
+...     {"op": "filter_columns", "filter_by": {"year": 2030}},
+... ])
+>>> data_file = DataFile(name="data", relative_fpath="data.csv", proc_spec=processing)
+>>> [step.op for step in data_file.proc_spec.steps]
+['rename_columns', 'drop_columns', 'filter_columns']
 ```
 
-For a multi-row CSV/TSV header, configure `ReaderConfig(header_rows=2)`. Header
-cells are joined with `header_separator` (default `|`). Use `split_column` to
-turn a generated label such as `2025|NYISO_A` into `year` and `zone` columns.
+`filter_columns` matches exact values in every listed column. Use the
+expression-based `filter` operation when a predicate needs a comparison or
+combination that exact matching cannot express.
 
-## Split Columns
+## Order reshape and column operations explicitly
 
-Use `SplitColumnSpec` to split a source column into named columns:
+A wide-to-long step selects value columns. All other columns remain as
+identifiers. The following steps can then rename and cast the generated fields
+before filtering:
+
+```python doctest
+>>> from r2x_core import TabularProcessing
+>>> processing = TabularProcessing(steps=[
+...     {"op": "unpivot_columns", "columns": ["2025", "2030"]},
+...     {"op": "rename_columns", "column_mapping": {"variable": "year", "value": "capacity_mw"}},
+...     {"op": "cast_columns", "column_schema": {"year": "int"}},
+...     {"op": "filter_columns", "filter_by": {"year": "{solve_year}"}},
+... ])
+>>> [step.op for step in processing.steps]
+['unpivot_columns', 'rename_columns', 'cast_columns', 'filter_columns']
+```
+
+Use `unpivot` when the identifier columns should be specified explicitly. Use
+`unpivot_columns` when every column not listed in `columns` should be retained
+as an identifier.
+
+For combined labels, `split_columns` splits a named string column using a
+single-character separator:
 
 ```python doctest
 >>> from r2x_core import SplitColumnSpec
 >>> split = SplitColumnSpec(separator="|", into=["year", "zone"])
->>> split.into
-['year', 'zone']
+>>> split.model_dump()
+{'separator': '|', 'into': ['year', 'zone']}
 ```
 
-## Preserve or Lowercase Input Case
+## Normalize formatted numeric values
 
-Input case is preserved by default. Set `lowercase=True` when the mapping
-expects lowercase column names and string values:
+Use ordered steps to replace tokens, remove literal characters, cast, and
+scale. The example shows the configuration; the processor reference documents
+value-family validation and supported aggregation functions.
 
 ```python doctest
 >>> from r2x_core import TabularProcessing
->>> processing = TabularProcessing(lowercase=True)
->>> processing.lowercase
-True
+>>> processing = TabularProcessing(steps=[
+...     {"op": "replace_values", "replace_values": {"-": "0"}},
+...     {"op": "strip_characters", "strip_chars": {"price": ["$"], "share": ["%"]}},
+...     {"op": "cast_columns", "column_schema": {"price": "float", "share": "float"}},
+...     {"op": "scale_columns", "scale": {"share": 0.01}},
+... ])
+>>> [step.op for step in processing.steps]
+['replace_values', 'strip_characters', 'cast_columns', 'scale_columns']
 ```
 
-## Normalize Formatted Numbers
+`lowercase` changes column names and string values when enabled. Place it first
+if later steps use lowercase column names:
 
-Use `replace_values` for exact tokens, `strip_chars` for literal cleanup,
-`column_schema` to cast, and `scale` for conversion factors. For example,
-replace `-` with `0`, strip commas, currency symbols, and percent signs, cast to
-float, then scale percentages by `0.01`.
+```python doctest
+>>> from r2x_core import TabularProcessing
+>>> processing = TabularProcessing(steps=[
+...     {"op": "lowercase", "lowercase": True},
+...     {"op": "select_columns", "select_columns": ["name"]},
+... ])
+>>> [step.op for step in processing.steps]
+['lowercase', 'select_columns']
+```
 
-## Placeholders in Paths
+## Use placeholders
 
-Placeholders can be embedded in `fpath`, `relative_fpath`, or `glob`, as well
-as processing values. For example, `relative_fpath="{scenario}_loads.csv"`
-resolves when `read_data(..., placeholders={"scenario": "Reference"})` is
-called. Unknown placeholder names are errors.
+Whole-value placeholders preserve their type. For example, placeholders can
+supply a boolean to `lowercase`, a number to `scale_columns`, or a filter value.
+They are validated again after substitution. Unknown names return a processing
+error.
 
-## See Also
+```python doctest
+>>> from r2x_core import TabularProcessing
+>>> processing = TabularProcessing(steps=[
+...     {"op": "filter_columns", "filter_by": {"year": "{solve_year}"}},
+...     {"op": "scale_columns", "scale": {"capacity": "{scale_factor}"}},
+... ])
+>>> [step.op for step in processing.steps]
+['filter_columns', 'scale_columns']
+```
 
-- [read data files](/r2x-core/how-tos/read-data-files/) - Read processed data files
-- [configure data files](/r2x-core/how-tos/configure-data-files/) - Configure data file settings
-- [manage datastores](/r2x-core/how-tos/manage-datastores/) - Manage multiple data files
-- [`TabularProcessing`](/r2x-core/references/api/) - Tabular processing class
-- [`DataFile`](/r2x-core/references/api/) - DataFile API reference
+`fpath`, `relative_fpath`, `glob`, reader options, and processing values support
+placeholders. `DataReader.read_data_files` resolves each configured input before
+its read or processing operation. `build_system` resolves parser instructions
+before it reads any inputs.
 
-## Inspect a tabular transform result
-
-Individual tabular transforms return `TabularTransformResult`, containing a lazy
-frame and its ordered column names. The full `process_tabular_data` pipeline
-continues to return a `LazyFrame`.
+## Process a Polars frame directly
 
 ```python doctest
 >>> import polars as pl
->>> from r2x_core import DataFile, TabularProcessing, TabularTransformResult
->>> from r2x_core.processors import pl_lowercase
->>> result = pl_lowercase(
+>>> from r2x_core import DataFile, TabularProcessing
+>>> from r2x_core.polars_adapter import PolarsTabularBackend
+>>> backend = PolarsTabularBackend()
+>>> result = backend.process(
 ...     pl.LazyFrame({"NAME": ["ALPHA"]}),
+...     processing=TabularProcessing(steps=[{"op": "lowercase", "lowercase": True}]),
+...     sources={},
 ...     data_file=DataFile(name="example", relative_fpath="example.csv"),
-...     proc_spec=TabularProcessing(lowercase=True),
 ... )
->>> isinstance(result, TabularTransformResult)
+>>> result.is_ok()
 True
->>> result.schema_names
-['name']
->>> result.data_frame.collect().to_dicts()
+>>> result.value.collect().to_dicts()
 [{'name': 'alpha'}]
 ```
+
+See the [processor reference](/r2x-core/references/processors/) for the full
+step vocabulary and JSON processing contract.

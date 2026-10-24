@@ -1,145 +1,80 @@
 ---
-title: "Reading HDF5 Data Files"
+title: "Read HDF5 Files"
 ---
 
-<span id="reading-hdf5-data-files"></span>
+The built-in `hdf5` reader turns configured datasets and column layouts into a
+Polars table source. Use `hdf5_array` when an output should retain native array
+samples. Reader options are strictly validated without coercion and belong in
+`ReaderConfig.options`. Boolean options must be booleans, unknown options are
+rejected, and a supplied `data_key` must be non-empty.
 
-HDF5 (Hierarchical Data Format) is a flexible format for storing large amounts of structured data. r2x-core provides specialized readers for HDF5 files through [`H5Format`](/r2x-core/references/api/) and the [`h5_readers`](/r2x-core/references/api/) module, supporting both flat and hierarchical data structures.
+## Reading HDF5 data files
 
-## Configure HDF5 File Reading
+### Configure a tabular HDF5 layout
 
-Create a [`DataFile`](/r2x-core/references/api/) configuration for an HDF5 file:
-
-```python doctest
->>> from r2x_core import DataFile
->>>
->>> # Basic HDF5 configuration
->>> data_file = DataFile(name="timeseries", relative_fpath="data/timeseries.h5")
->>> data_file.name
-'timeseries'
->>> data_file.relative_fpath
-'data/timeseries.h5'
-```
-
-## Read a Specific Dataset from HDF5
-
-Specify which dataset to read using the `data_key` parameter in [`ReaderConfig`](/r2x-core/references/api/):
+For row-oriented data, use `data_key` and optionally `columns_key` to label
+matrix columns. A group can be selected with `group_key`. `datetime_key`,
+`index_key`, and `additional_keys` add configured fields. The HDF5 reader also
+supports columnar groups where each field is a dataset.
 
 ```python doctest
 >>> from r2x_core import DataFile, ReaderConfig
->>>
->>> # Read a specific nested dataset
->>> data_file = DataFile(
-...     name="generators",
-...     relative_fpath="data/models.h5",
-...     reader=ReaderConfig(kwargs={"data_key": "models/gen_data"})
+>>> item = DataFile(
+...     name="load",
+...     relative_fpath="load.h5",
+...     reader=ReaderConfig(
+...         format="hdf5",
+...         options={"data_key": "data", "columns_key": "columns"},
+...     ),
 ... )
->>> data_file.reader.kwargs
-{'data_key': 'models/gen_data'}
+>>> item.reader.options["columns_key"]
+'columns'
 ```
 
-## Map Column Names in HDF5 Data
-
-Use `column_name_mapping` to rename generic dataset keys to meaningful column names:
-
-```python doctest
->>> from r2x_core import DataFile, ReaderConfig
->>>
->>> # Map generic names to meaningful column names
->>> mapping = {
-...     "col0": "capacity_factor",
-...     "col1": "efficiency",
-...     "col2": "availability"
-... }
->>> data_file = DataFile(
-...     name="profiles",
-...     relative_fpath="data/timeseries.h5",
-...     reader=ReaderConfig(kwargs={"column_name_mapping": mapping})
-... )
->>> data_file.reader.kwargs["column_name_mapping"]["col0"]
-'capacity_factor'
-```
-
-## Read the HDF5 File
-
-Use [`DataReader`](/r2x-core/references/api/) to load a configured HDF5 file:
+### Read a configured HDF5 table
 
 ```python doctest
 >>> import tempfile
 >>> from pathlib import Path
 >>> import h5py
 >>> import numpy as np
->>> from r2x_core import DataReader, DataFile, ReaderConfig
->>>
->>> with tempfile.TemporaryDirectory() as tmpdir:
-...     # Create HDF5 file with standard tabular structure
-...     h5_file = Path(tmpdir) / "timeseries.h5"
-...     with h5py.File(h5_file, "w") as f:
-...         columns = np.array(["generation", "load"], dtype="S")
-...         data = np.array([[100.0, 80.0], [200.0, 150.0], [150.0, 120.0], [175.0, 140.0]])
-...         _ = f.create_dataset("columns", data=columns)
-...         _ = f.create_dataset("data", data=data)
-...
-...     # Read using DataReader with configuration
-...     data_file = DataFile(
+>>> from r2x_core import DataFile, DataReader, ReaderConfig, TabularSource
+>>> with tempfile.TemporaryDirectory() as directory:
+...     root = Path(directory)
+...     path = root / "timeseries.h5"
+...     with h5py.File(path, "w") as h5_file:
+...         _ = h5_file.create_dataset("columns", data=np.array(["generation", "load"], dtype="S"))
+...         _ = h5_file.create_dataset("data", data=np.array([[100.0, 80.0], [200.0, 150.0]]))
+...     item = DataFile(
 ...         name="timeseries",
 ...         relative_fpath="timeseries.h5",
-...         reader=ReaderConfig(kwargs={"data_key": "data", "columns_key": "columns"})
+...         reader=ReaderConfig(format="hdf5", options={"data_key": "data", "columns_key": "columns"}),
 ...     )
-...     reader = DataReader()
-...     df = reader.read_data_file(data_file, folder_path=Path(tmpdir))
-...
-...     # Collect and verify
-...     result = df.collect()
-...     print("Columns:", result.columns)
-...     print("Shape:", result.shape)
-...     print("First row:", result.row(0))
-Columns: ['generation', 'load']
-Shape: (4, 2)
-First row: (100.0, 80.0)
+...     source = DataReader().read_data_files([item], folder_path=root)["timeseries"]
+...     assert isinstance(source, TabularSource)
+...     frame = source.data.collect()
+...     frame.columns
+['generation', 'load']
+>>> frame.shape
+(2, 2)
 ```
 
-## Use the Configurable HDF5 Reader Directly
+### Preserve arrays for time-series output
 
-For advanced use cases, use [`configurable_h5_reader`](/r2x-core/references/api/) directly to read HDF5 files with full control over dataset mapping:
+Use `hdf5_array` to decode one-dimensional samples without converting them to
+Polars. A `time_series` parser instruction then selects the sample field and
+attaches it by component type and name. Units and metadata come from that
+instruction. See [Attach time series](/r2x-core/how-tos/attach-timeseries/).
 
 ```python doctest
->>> import tempfile
->>> from pathlib import Path
->>> import h5py
->>> import numpy as np
->>> from r2x_core.h5_readers import configurable_h5_reader
->>>
->>> with tempfile.TemporaryDirectory() as tmpdir:
-...     # Create HDF5 file with flat structure
-...     h5_file = Path(tmpdir) / "capacity.h5"
-...     with h5py.File(h5_file, "w") as f:
-...         f.create_dataset("gen_data", data=np.array([[500.0, 600.0], [750.0, 800.0]]))
-...         f.create_dataset("gen_names", data=np.array(["gen1", "gen2"], dtype="S"))
-...
-...     # Read the HDF5 file with configurable_h5_reader
-...     with h5py.File(h5_file, "r") as f:
-...         result = configurable_h5_reader(
-...             f,
-...             data_key="gen_data",
-...             columns_key="gen_names"
-...         )
-...     # Result contains data mapped to column names
-...     print("Number of generators:", len(result))
-...     gen1_values = result[list(result.keys())[0]]
-...     print("First generator values:", gen1_values)
-...     print("Data shape:", gen1_values.shape)
-<HDF5 dataset "gen_data": shape (2, 2), type "<f8">
-<HDF5 dataset "gen_names": shape (2,), type "|S4">
-Number of generators: 2
-First generator values: [500. 750.]
-Data shape: (2,)
+>>> from r2x_core import ArraySource, H5PyFileReader, H5Reader
+>>> issubclass(H5PyFileReader, H5Reader)
+True
+>>> ArraySource.__name__
+'ArraySource'
 ```
 
-## See Also
-
-- [manage datastores](/r2x-core/how-tos/manage-datastores/) - Manage collections of data files including HDF5
-- [process file data](/r2x-core/how-tos/process-file-data/) - Transform HDF5 data during loading
-- [read data files](/r2x-core/how-tos/read-data-files/) - Basic data file reading
-- [`H5Format`](/r2x-core/references/api/) - HDF5 file format class
-- [`h5_readers`](/r2x-core/references/api/) - HDF5 reader utilities
+For direct HDF5 dataset inspection, `r2x_core.h5_adapter.configurable_h5_reader`
+remains available. System ingestion should use `DataReader` or `build_system`.
+See [Configure data files](/r2x-core/how-tos/configure-data-files/) and
+[Read data files](/r2x-core/how-tos/read-data-files/).

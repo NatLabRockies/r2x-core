@@ -1,10 +1,17 @@
-"""Tests for logging."""
+"""Tests for public logging behavior."""
 
 import json
 import sys
+from collections.abc import Iterator
 from datetime import datetime
-from unittest import mock
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Protocol
 
+import pytest
+from loguru import logger as loguru_logger
+
+import r2x_core.logger as logger_module
 from r2x_core.logger import (
     DEFAULT_LOG_LEVEL,
     DEFAULT_TIME_FORMAT,
@@ -13,681 +20,410 @@ from r2x_core.logger import (
     VERBOSITY_DEBUG,
     VERBOSITY_INFO,
     VERBOSITY_TRACE,
-    _format_timestamp,
-    _get_console,
-    _render_exception,
+    console,
     format_json,
+    format_timestamp,
     format_tty,
     get_logger,
+    render_exception,
     setup_logging,
     structured_sink,
 )
 
 
-def test_format_timestamp_default_format():
-    """Test timestamp formatting with default format."""
-    record = {
-        "time": datetime(2026, 1, 18, 10, 30, 45, 123456),
-    }
-    result = _format_timestamp(record)
-    assert "2026-01-18T10:30:45.123" in result
+class LogMessage(Protocol):
+    """The public Loguru sink message fields used by formatters."""
+
+    record: dict[str, object]
 
 
-def test_format_timestamp_custom_format(monkeypatch):
-    """Test timestamp formatting with custom format."""
-    monkeypatch.setenv("LOG_TIME_FORMAT", "%Y-%m-%d %H:%M:%S.{ms}")
-    record = {
-        "time": datetime(2026, 1, 18, 10, 30, 45, 123456),
-    }
-    result = _format_timestamp(record)
-    assert "2026-01-18 10:30:45.123" in result
+@pytest.fixture(autouse=True)
+def reset_logger_state() -> Iterator[None]:
+    """Keep Loguru sinks and formatter state isolated between tests."""
+    loguru_logger.remove()
+    loguru_logger.disable("r2x_core")
+    logger_module.current_verbosity = VERBOSITY_INFO
+    console.cache_clear()
+    yield
+    loguru_logger.remove()
+    loguru_logger.disable("r2x_core")
+    logger_module.current_verbosity = VERBOSITY_INFO
+    console.cache_clear()
 
 
-def test_format_timestamp_with_milliseconds():
-    """Test timestamp formatting with correct millisecond calculation."""
-    record = {
-        "time": datetime(2026, 1, 18, 10, 30, 45, 500000),  # 500ms
-    }
-    result = _format_timestamp(record)
-    assert "500" in result
-
-
-def test_render_exception_with_no_exception():
-    """Test _render_exception with no exception."""
-    record = {"exception": None}
-    _render_exception(record, None)
-
-
-def test_render_exception_with_incomplete_exception():
-    """Test _render_exception with incomplete exception info."""
-    exc = mock.Mock()
-    exc.type = None
-    record = {"exception": exc}
-    _render_exception(record, None)
-
-
-def test_render_exception_with_traceback_no_rich(capsys):
-    """Test _render_exception with traceback when Rich unavailable."""
+@pytest.fixture
+def log_messages() -> Iterator[list[LogMessage]]:
+    """Capture real Loguru records through its public sink API."""
+    messages: list[LogMessage] = []
+    sink_id = loguru_logger.add(messages.append, level="TRACE")
+    loguru_logger.enable("r2x_core")
     try:
-        raise ValueError("Test error")
-    except ValueError:
-        exc_info = sys.exc_info()
-        record = {
-            "exception": mock.Mock(
-                type=exc_info[0],
-                value=exc_info[1],
-                traceback=exc_info[2],
-            )
-        }
-        _render_exception(record, None)
-
-        output = capsys.readouterr().err
-        assert "ValueError" in output or "Test error" in output
+        yield messages
+    finally:
+        loguru_logger.remove(sink_id)
 
 
-def test_format_tty_basic(capsys):
-    """Test TTY formatting basic output."""
-    import r2x_core.logger as logger_module
+def log_exception(error: Exception, *, with_traceback: bool) -> None:
+    """Emit an exception record through Loguru's public ``opt`` API."""
+    if with_traceback:
+        try:
+            raise error
+        except Exception:
+            loguru_logger.opt(exception=True).error("exception record")
+    else:
+        loguru_logger.opt(exception=(type(error), error, None)).error("exception record")
 
-    logger_module._verbosity = 0
 
-    level_mock = mock.Mock()
-    level_mock.name = "INFO"
+@pytest.mark.parametrize(
+    ("timestamp", "time_format", "expected"),
+    [
+        pytest.param(
+            datetime(2026, 1, 18, 10, 30, 45, 123456),
+            None,
+            "2026-01-18T10:30:45.123",
+            id="default-format",
+        ),
+        pytest.param(
+            datetime(2026, 1, 18, 10, 30, 45, 123456),
+            "%Y-%m-%d %H:%M:%S.{ms}",
+            "2026-01-18 10:30:45.123",
+            id="custom-format",
+        ),
+        pytest.param(
+            datetime(2026, 1, 18, 10, 30, 45, 500000),
+            None,
+            "2026-01-18T10:30:45.500",
+            id="milliseconds",
+        ),
+    ],
+)
+def test_format_timestamp(
+    log_messages: list[LogMessage],
+    monkeypatch: pytest.MonkeyPatch,
+    timestamp: datetime,
+    time_format: str | None,
+    expected: str,
+) -> None:
+    if time_format is None:
+        monkeypatch.delenv("LOG_TIME_FORMAT", raising=False)
+    else:
+        monkeypatch.setenv("LOG_TIME_FORMAT", time_format)
 
-    record = {
-        "level": level_mock,
-        "message": "test message",
-        "extra": {},
-        "exception": None,
-    }
-    format_tty(record)
+    loguru_logger.patch(lambda record: record.update(time=timestamp)).info("timestamp")
+
+    assert format_timestamp(log_messages[0].record) == expected
+
+
+@pytest.mark.parametrize(
+    "state", ["missing", "incomplete", "no-traceback"], ids=["none", "partial", "no-traceback"]
+)
+def test_render_exception_skips_unusable_records(
+    log_messages: list[LogMessage], capsys: pytest.CaptureFixture[str], state: str
+) -> None:
+    if state == "no-traceback":
+        log_exception(ValueError("without traceback"), with_traceback=False)
+        record = log_messages[0].record
+    else:
+        loguru_logger.info("no exception")
+        record = log_messages[0].record
+        if state == "incomplete":
+            record["exception"] = SimpleNamespace(type=None, value=None, traceback=None)
+
+    render_exception(record, None)
+
+    assert capsys.readouterr().err == ""
+
+
+def test_render_exception_prints_plain_traceback(
+    log_messages: list[LogMessage], capsys: pytest.CaptureFixture[str]
+) -> None:
+    log_exception(ValueError("plain traceback"), with_traceback=True)
+
+    render_exception(log_messages[0].record, None)
+
     output = capsys.readouterr().err
-    assert "INFO" in output
-    assert "test message" in output
+    assert "ValueError" in output
+    assert "plain traceback" in output
 
 
-def test_format_tty_with_timestamp(capsys):
-    """Test TTY formatting with timestamp when verbosity >= 2."""
-    import r2x_core.logger as logger_module
+def test_render_exception_uses_rich_when_available(
+    log_messages: list[LogMessage], capsys: pytest.CaptureFixture[str]
+) -> None:
+    log_exception(ValueError("rich traceback"), with_traceback=True)
+    rich_console = console()
 
-    logger_module._verbosity = VERBOSITY_TRACE
+    render_exception(log_messages[0].record, rich_console)
 
-    level_mock = mock.Mock()
-    level_mock.name = "DEBUG"
-
-    record = {
-        "level": level_mock,
-        "message": "debug message",
-        "extra": {},
-        "time": datetime(2026, 1, 18, 10, 30, 45, 123456),
-        "exception": None,
-    }
-    format_tty(record)
     output = capsys.readouterr().err
-    assert "DEBUG" in output
-    assert "debug message" in output
+    assert "ValueError" in output
+    assert "rich traceback" in output
 
 
-def test_format_tty_with_extras(capsys):
-    """Test TTY formatting with extra fields."""
-    import r2x_core.logger as logger_module
+@pytest.mark.parametrize(
+    "console_mode",
+    [pytest.param("default-console", id="default-console"), pytest.param("plain", id="plain")],
+)
+@pytest.mark.parametrize(
+    ("level", "message", "extra", "verbosity", "timestamp", "present", "absent"),
+    [
+        pytest.param("INFO", "test message", {}, 0, None, ("INFO", "test message"), (), id="basic"),
+        pytest.param(
+            "DEBUG",
+            "debug message",
+            {},
+            VERBOSITY_TRACE,
+            datetime(2026, 1, 18, 10, 30, 45, 123456),
+            ("DEBUG", "debug message", "2026-01-18T10:30:45.123"),
+            (),
+            id="timestamp",
+        ),
+        pytest.param(
+            "WARNING",
+            "warn message",
+            {"user_id": 123, "action": "login", "name": "ignored"},
+            0,
+            None,
+            ("WARN", "warn message", "user_id=123", "action=login"),
+            ("ignored", "2026-01-18"),
+            id="extras-without-timestamp",
+        ),
+        pytest.param(
+            "INFO",
+            "test with everything",
+            {"request_id": "12345", "user": "alice", "name": "ignored"},
+            VERBOSITY_TRACE,
+            datetime(2026, 1, 18, 10, 30, 45, 123456),
+            ("INFO", "test with everything", "2026-01-18T10:30:45.123", "request_id=12345", "user=alice"),
+            ("ignored",),
+            id="timestamp-and-extras",
+        ),
+        pytest.param(
+            "WARNING",
+            "warning with extras",
+            {"code": 500, "retries": 3, "name": "ignored"},
+            0,
+            None,
+            ("warning with extras", "WARN", "code=500", "retries=3"),
+            ("ignored", "2026-01-18"),
+            id="extras-only",
+        ),
+    ],
+)
+def test_format_tty_records(
+    log_messages: list[LogMessage],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    console_mode: str,
+    level: str,
+    message: str,
+    extra: dict[str, object],
+    verbosity: int,
+    timestamp: datetime | None,
+    present: tuple[str, ...],
+    absent: tuple[str, ...],
+) -> None:
+    if console_mode == "plain":
+        monkeypatch.setattr(logger_module, "console", lambda: None)
+    logger_module.current_verbosity = verbosity
+    bound_logger = loguru_logger.bind(**extra)
+    if timestamp is not None:
+        bound_logger = bound_logger.patch(lambda record: record.update(time=timestamp))
+    bound_logger.log(level, message)
 
-    logger_module._verbosity = 0
+    format_tty(log_messages[0].record)
 
-    level_mock = mock.Mock()
-    level_mock.name = "WARNING"
-
-    record = {
-        "level": level_mock,
-        "message": "warn message",
-        "extra": {"user_id": 123, "action": "login", "name": "ignored"},
-        "exception": None,
-    }
-    format_tty(record)
     output = capsys.readouterr().err
-    assert "WARN" in output
-    assert "warn message" in output
+    assert all(expected in output for expected in present)
+    assert all(unexpected not in output for unexpected in absent)
 
 
-def test_format_json_basic():
-    """Test JSON formatting with basic record."""
-    level_mock = mock.Mock()
-    level_mock.name = "INFO"
+@pytest.mark.parametrize(
+    ("level", "message", "extra", "include_file", "expected"),
+    [
+        pytest.param("INFO", "test message", {}, False, {"level": "INFO", "msg": "test message"}, id="basic"),
+        pytest.param(
+            "DEBUG", "debug msg", {"name": "my.logger"}, False, {"logger": "my.logger"}, id="logger-name"
+        ),
+        pytest.param("ERROR", "error msg", {}, True, {}, id="file-and-line"),
+        pytest.param(
+            "WARNING",
+            "warning",
+            {"request_id": "abc123", "status": 404, "name": "ignored"},
+            False,
+            {"request_id": "abc123", "status": 404, "logger": "ignored"},
+            id="extras",
+        ),
+    ],
+)
+def test_format_json_actual_records(
+    log_messages: list[LogMessage],
+    level: str,
+    message: str,
+    extra: dict[str, object],
+    include_file: bool,
+    expected: dict[str, object],
+) -> None:
+    timestamp = datetime(2026, 1, 18, 10, 30, 45, 123456)
+    loguru_logger.patch(lambda record: record.update(time=timestamp)).bind(**extra).log(level, message)
+    record = log_messages[0].record
+    if not include_file:
+        record["file"] = None
 
-    record = {
-        "level": level_mock,
-        "time": datetime(2026, 1, 18, 10, 30, 45, 123456),
-        "message": "test message",
-        "extra": {},
-        "file": None,
-        "exception": None,
-    }
-    result = format_json(record)
-    payload = json.loads(result)
+    payload = json.loads(format_json(record))
 
-    assert payload["msg"] == "test message"
-    assert payload["level"] == "INFO"
-    assert "ts" in payload
-
-
-def test_format_json_with_logger_name():
-    """Test JSON formatting with logger name."""
-    level_mock = mock.Mock()
-    level_mock.name = "DEBUG"
-
-    record = {
-        "level": level_mock,
-        "time": datetime(2026, 1, 18, 10, 30, 45, 123456),
-        "message": "debug msg",
-        "extra": {"name": "my.logger"},
-        "file": None,
-        "exception": None,
-    }
-    result = format_json(record)
-    payload = json.loads(result)
-
-    assert payload["logger"] == "my.logger"
-
-
-def test_format_json_with_file_info():
-    """Test JSON formatting with file information."""
-    file_mock = mock.Mock()
-    file_mock.path = "/path/to/file.py"
-
-    level_mock = mock.Mock()
-    level_mock.name = "ERROR"
-
-    record = {
-        "level": level_mock,
-        "time": datetime(2026, 1, 18, 10, 30, 45, 123456),
-        "message": "error msg",
-        "extra": {},
-        "file": file_mock,
-        "line": 42,
-        "exception": None,
-    }
-    result = format_json(record)
-    payload = json.loads(result)
-
-    assert payload["file"] == "/path/to/file.py"
-    assert payload["line"] == 42
-
-
-def test_format_json_with_exception():
-    """Test JSON formatting with exception."""
-    try:
-        raise RuntimeError("Test error")
-    except RuntimeError:
-        exc_info = sys.exc_info()
-
-        level_mock = mock.Mock()
-        level_mock.name = "ERROR"
-
-        record = {
-            "level": level_mock,
-            "time": datetime(2026, 1, 18, 10, 30, 45, 123456),
-            "message": "error occurred",
-            "extra": {},
-            "file": None,
-            "exception": mock.Mock(
-                type=exc_info[0],
-                value=exc_info[1],
-                traceback=exc_info[2],
-            ),
-        }
-        result = format_json(record)
-        payload = json.loads(result)
-
-        assert "error" in payload
-        assert payload["error"]["type"] == "RuntimeError"
-        assert payload["error"]["message"] == "Test error"
-        assert "traceback" in payload["error"]
-
-
-def test_format_json_with_extras():
-    """Test JSON formatting with extra fields."""
-    level_mock = mock.Mock()
-    level_mock.name = "WARNING"
-
-    record = {
-        "level": level_mock,
-        "time": datetime(2026, 1, 18, 10, 30, 45, 123456),
-        "message": "warning",
-        "extra": {"request_id": "abc123", "status": 404, "name": "ignored"},
-        "file": None,
-        "exception": None,
-    }
-    result = format_json(record)
-    payload = json.loads(result)
-
-    assert payload["request_id"] == "abc123"
-    assert payload["status"] == 404
+    assert payload["ts"].startswith("2026-01-18T10:30:45.")
+    assert all(payload[key] == value for key, value in expected.items())
+    assert ("file" in payload) is include_file
+    assert ("line" in payload) is include_file
     assert "name" not in payload
+    if include_file:
+        assert Path(payload["file"]).name == Path(__file__).name
+        assert payload["line"] > 0
 
 
-def test_structured_sink_json_mode(monkeypatch, capsys):
-    """Test structured_sink in JSON mode."""
-    monkeypatch.setattr(sys.stderr, "isatty", lambda: False)
+@pytest.mark.parametrize("with_traceback", [True, False], ids=["traceback", "without-traceback"])
+def test_format_json_exception(log_messages: list[LogMessage], with_traceback: bool) -> None:
+    log_exception(RuntimeError("Test error"), with_traceback=with_traceback)
 
-    level_mock = mock.Mock()
-    level_mock.name = "INFO"
+    payload = json.loads(format_json(log_messages[0].record))
 
-    record = {
-        "level": level_mock,
-        "time": datetime(2026, 1, 18, 10, 30, 45, 123456),
-        "message": "json message",
-        "extra": {},
-        "file": None,
-        "exception": None,
-    }
+    assert payload["error"]["type"] == "RuntimeError"
+    assert payload["error"]["message"] == "Test error"
+    assert ("traceback" in payload["error"]) is with_traceback
+    if with_traceback:
+        assert any("Test error" in line for line in payload["error"]["traceback"])
 
-    message = mock.Mock()
-    message.record = record
 
-    structured_sink(message)
+@pytest.mark.parametrize("is_tty", [False, True], ids=["json", "tty"])
+def test_structured_sink_selects_format(
+    log_messages: list[LogMessage],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    is_tty: bool,
+) -> None:
+    monkeypatch.setattr(sys.stderr, "isatty", lambda: is_tty)
+    if is_tty:
+        monkeypatch.setattr(logger_module, "console", lambda: None)
+
+    loguru_logger.info("structured message")
+    structured_sink(log_messages[0])
+
     output = capsys.readouterr().err.strip()
-    payload = json.loads(output)
-    assert payload["msg"] == "json message"
+    if is_tty:
+        assert "structured message" in output
+        assert "INFO" in output
+        assert "{" not in output
+    else:
+        payload = json.loads(output)
+        assert payload["msg"] == "structured message"
+        assert payload["level"] == "INFO"
 
 
-def test_get_logger_returns_bound_logger():
-    """Test that get_logger returns a bound logger."""
-    custom_logger = get_logger("my.component")
-    assert custom_logger is not None
-    assert hasattr(custom_logger, "info")
-    assert hasattr(custom_logger, "debug")
+@pytest.mark.parametrize("name", ["component1", "component2"], ids=["first", "second"])
+def test_get_logger_binds_component_name(log_messages: list[LogMessage], name: str) -> None:
+    logger_instance = get_logger(name)
+    assert callable(logger_instance.info)
+    logger_instance.info("bound logger")
+
+    assert log_messages[0].record["extra"]["name"] == name
+    assert log_messages[0].record["message"] == "bound logger"
 
 
-def test_get_logger_with_different_names():
-    """Test get_logger with different component names."""
-    logger1 = get_logger("component1")
-    logger2 = get_logger("component2")
+def test_level_constants_and_console_cache() -> None:
+    expected_colors = {
+        "TRACE": "color(249)",
+        "DEBUG": "color(33)",
+        "INFO": "color(37)",
+        "WARNING": "color(214)",
+        "ERROR": "color(169)",
+        "CRITICAL": "color(169) reverse",
+    }
+    levels = {"TRACE", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 
-    assert logger1 is not None
-    assert logger2 is not None
-
-
-def test_level_names_coverage():
-    """Test that LEVEL_NAMES contains expected levels."""
-    expected_levels = {"TRACE", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
-    assert set(LEVEL_NAMES.keys()) == expected_levels
-
-
-def test_level_colors_coverage():
-    """Test that LEVEL_COLORS contains expected levels."""
-    expected_levels = {"TRACE", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
-    assert set(LEVEL_COLORS.keys()) == expected_levels
-
-
-def test_default_constants():
-    """Test default constants are set correctly."""
+    assert {loguru_logger.level(name).name for name in levels} == levels
+    assert set(LEVEL_NAMES) == levels
+    assert set(LEVEL_COLORS) == levels
+    assert expected_colors == LEVEL_COLORS
     assert DEFAULT_LOG_LEVEL == "WARNING"
     assert VERBOSITY_INFO == 0
     assert VERBOSITY_DEBUG == 1
     assert VERBOSITY_TRACE == 2
     assert DEFAULT_TIME_FORMAT == "%Y-%m-%dT%H:%M:%S.{ms}"
 
-
-def test_get_console_returns_console_or_none():
-    """Test _get_console returns a Console (if Rich installed) or None."""
-    _get_console.cache_clear()
-    result = _get_console()
-    if result is not None:
-        assert hasattr(result, "print")
+    first = console()
+    assert console() is first
+    assert first is None or callable(first.print)
 
 
-def test_get_console_is_cached():
-    """Test _get_console returns the same instance on repeated calls."""
-    _get_console.cache_clear()
-    first = _get_console()
-    second = _get_console()
-    assert first is second
+@pytest.mark.parametrize(
+    ("verbosity", "expected"),
+    [
+        pytest.param(VERBOSITY_TRACE, VERBOSITY_TRACE, id="trace"),
+        pytest.param(VERBOSITY_INFO, VERBOSITY_INFO, id="info"),
+        pytest.param(0, VERBOSITY_INFO, id="default"),
+    ],
+)
+def test_setup_logging_verbosity(verbosity: int, expected: int) -> None:
+    setup_logging(verbosity=verbosity)
+
+    assert logger_module.current_verbosity == expected
 
 
-def test_format_tty_with_rich_text_output(capsys):
-    """Test TTY formatting produces rich text output when Rich is available."""
-    import r2x_core.logger as logger_module
-
-    logger_module._verbosity = 0
-    _get_console.cache_clear()
-
-    level_mock = mock.Mock()
-    level_mock.name = "ERROR"
-
-    record = {
-        "level": level_mock,
-        "message": "error message",
-        "extra": {"key": "value"},
-        "exception": None,
-    }
-
-    format_tty(record)
-    output = capsys.readouterr().err
-    assert "error message" in output
-    assert "ERROR" in output or "key" in output
-
-
-def test_format_tty_fallback_no_rich(monkeypatch, capsys):
-    """Test TTY formatting fallback when Rich is not available."""
-    import r2x_core.logger as logger_module
-
-    logger_module._verbosity = 0
-    _get_console.cache_clear()
-    monkeypatch.setattr("r2x_core.logger._get_console", lambda: None)
-
-    level_mock = mock.Mock()
-    level_mock.name = "DEBUG"
-
-    record = {
-        "level": level_mock,
-        "message": "debug output",
-        "extra": {},
-        "exception": None,
-    }
-
-    format_tty(record)
-    output = capsys.readouterr().err
-    assert "debug output" in output
-    assert "DEBUG" in output
-
-
-def test_render_exception_with_traceback_and_rich(capsys):
-    """Test exception rendering with Rich traceback."""
-    _get_console.cache_clear()
-    console = _get_console()
-
-    try:
-        raise ValueError("Test exception")
-    except ValueError:
-        exc_info = sys.exc_info()
-        record = {
-            "exception": mock.Mock(
-                type=exc_info[0],
-                value=exc_info[1],
-                traceback=exc_info[2],
-            ),
-        }
-        _render_exception(record, console)
-
-
-def test_structured_sink_tty_mode(monkeypatch, capsys):
-    """Test structured_sink in TTY mode."""
-    import r2x_core.logger as logger_module
-
-    monkeypatch.setattr(sys.stderr, "isatty", lambda: True)
-    logger_module._verbosity = 0
-    _get_console.cache_clear()
-    monkeypatch.setattr("r2x_core.logger._get_console", lambda: None)
-
-    level_mock = mock.Mock()
-    level_mock.name = "INFO"
-
-    record = {
-        "level": level_mock,
-        "time": datetime(2026, 1, 18, 10, 30, 45, 123456),
-        "message": "tty message",
-        "extra": {},
-        "exception": None,
-    }
-
-    message = mock.Mock()
-    message.record = record
-
-    structured_sink(message)
-    output = capsys.readouterr().err
-    assert "tty message" in output
-    assert "{" not in output
-
-
-def test_setup_logging_with_verbosity_trace():
-    """Test setup_logging with TRACE verbosity."""
-    import r2x_core.logger as logger_module
-
-    setup_logging(verbosity=VERBOSITY_TRACE)
-    assert logger_module._verbosity == VERBOSITY_TRACE
-
-
-def test_setup_logging_with_verbosity_info():
-    """Test setup_logging with INFO verbosity."""
-    import r2x_core.logger as logger_module
-
-    setup_logging(verbosity=VERBOSITY_INFO)
-    assert logger_module._verbosity == VERBOSITY_INFO
-
-
-def test_setup_logging_default_verbosity():
-    """Test setup_logging with default verbosity."""
-    import r2x_core.logger as logger_module
-
-    setup_logging(verbosity=0)
-    assert logger_module._verbosity == 0
-
-
-def test_format_tty_fallback_with_timestamp_and_extras(monkeypatch, capsys):
-    """Test fallback TTY formatting with both timestamp and extras."""
-    import r2x_core.logger as logger_module
-
-    logger_module._verbosity = VERBOSITY_TRACE
-    _get_console.cache_clear()
-    monkeypatch.setattr("r2x_core.logger._get_console", lambda: None)
-
-    level_mock = mock.Mock()
-    level_mock.name = "INFO"
-
-    record = {
-        "level": level_mock,
-        "message": "test with everything",
-        "extra": {"request_id": "12345", "user": "alice", "name": "ignored"},
-        "time": datetime(2026, 1, 18, 10, 30, 45, 123456),
-        "exception": None,
-    }
-
-    format_tty(record)
-    output = capsys.readouterr().err
-    assert "test with everything" in output
-    assert "INFO" in output
-    assert "2026-01" in output or "10:30" in output
-    assert "request_id" in output or "12345" in output
-
-
-def test_format_tty_fallback_only_extras(monkeypatch, capsys):
-    """Test fallback TTY formatting with extras but no timestamp."""
-    import r2x_core.logger as logger_module
-
-    logger_module._verbosity = 0
-    _get_console.cache_clear()
-    monkeypatch.setattr("r2x_core.logger._get_console", lambda: None)
-
-    level_mock = mock.Mock()
-    level_mock.name = "WARNING"
-
-    record = {
-        "level": level_mock,
-        "message": "warning with extras",
-        "extra": {"code": 500, "retries": 3, "name": "ignored"},
-        "exception": None,
-    }
-
-    format_tty(record)
-    output = capsys.readouterr().err
-    assert "warning with extras" in output
-    assert "WARN" in output
-    assert "code" in output or "500" in output
-
-
-def test_format_json_with_no_file():
-    """Test JSON formatting when file info is missing."""
-    level_mock = mock.Mock()
-    level_mock.name = "TRACE"
-
-    record = {
-        "level": level_mock,
-        "time": datetime(2026, 1, 18, 10, 30, 45, 123456),
-        "message": "trace message",
-        "extra": {},
-        "file": None,
-        "exception": None,
-    }
-    result = format_json(record)
-    payload = json.loads(result)
-
-    assert payload["msg"] == "trace message"
-    assert "file" not in payload
-    assert "line" not in payload
-
-
-def test_render_exception_no_traceback():
-    """Test _render_exception with exception but no traceback does nothing."""
-    exc = mock.Mock()
-    exc.type = ValueError
-    exc.value = ValueError("test")
-    exc.traceback = None
-
-    record = {"exception": exc}
-    _render_exception(record, None)
-
-
-def test_format_json_with_exception_no_traceback():
-    """Test JSON formatting with exception but no traceback."""
-    level_mock = mock.Mock()
-    level_mock.name = "ERROR"
-
-    exc = mock.Mock()
-    exc.type = RuntimeError
-    exc.value = RuntimeError("No trace")
-    exc.traceback = None
-
-    record = {
-        "level": level_mock,
-        "time": datetime(2026, 1, 18, 10, 30, 45, 123456),
-        "message": "error without traceback",
-        "extra": {},
-        "file": None,
-        "exception": exc,
-    }
-    result = format_json(record)
-    payload = json.loads(result)
-
-    assert "error" in payload
-    assert payload["error"]["type"] == "RuntimeError"
-    assert payload["error"]["message"] == "No trace"
-    assert "traceback" not in payload["error"]
-
-
-def test_setup_logging_no_sinks_raises():
-    """Test that setup_logging raises ValueError when both sinks are disabled."""
-    import pytest
-
+def test_setup_logging_requires_a_sink() -> None:
     with pytest.raises(ValueError, match="no sinks"):
-        setup_logging(verbosity=0, log_file=None, log_to_console=False)
+        setup_logging(verbosity=VERBOSITY_INFO, log_file=None, log_to_console=False)
 
 
-def test_setup_logging_with_log_file(tmp_path):
-    """Test setup_logging writes to file when log_file is provided."""
-    from loguru import logger as loguru_logger
-
-    log_file = tmp_path / "test.log"
-    setup_logging(verbosity=VERBOSITY_TRACE, log_file=str(log_file))
-
-    loguru_logger.enable("r2x_core")
-    loguru_logger.info("file sink test message")
-
-    import time
-
-    time.sleep(0.1)
-
-    contents = log_file.read_text()
-    assert "file sink test message" in contents
-    assert "[PYTHON]" in contents
-
-
-def test_setup_logging_without_log_file():
-    """Test setup_logging works without log_file (no file sink added)."""
-    import r2x_core.logger as logger_module
-
-    setup_logging(verbosity=VERBOSITY_INFO)
-    assert logger_module._verbosity == VERBOSITY_INFO
-
-
-def test_setup_logging_log_to_console_false_no_stderr(tmp_path, capsys):
-    """Test setup_logging with log_to_console=False produces no stderr output."""
-    from loguru import logger as loguru_logger
-
-    log_file = tmp_path / "console_off.log"
-    setup_logging(verbosity=VERBOSITY_TRACE, log_file=str(log_file), log_to_console=False)
-
-    loguru_logger.enable("r2x_core")
-    loguru_logger.info("should not appear on console")
-
-    output = capsys.readouterr().err
-    assert "should not appear on console" not in output
-
-
-def test_setup_logging_log_to_console_true_has_stderr(monkeypatch, capsys):
-    """Test setup_logging with log_to_console=True writes to stderr."""
-    _get_console.cache_clear()
-    monkeypatch.setattr("r2x_core.logger._get_console", lambda: None)
-
-    from loguru import logger as loguru_logger
-
-    setup_logging(verbosity=VERBOSITY_TRACE, log_to_console=True)
-
-    loguru_logger.enable("r2x_core")
-    loguru_logger.info("should appear on console")
-
-    output = capsys.readouterr().err
-    assert "should appear on console" in output
-
-
-def test_setup_logging_file_and_console(tmp_path, monkeypatch, capsys):
-    """Test setup_logging with both file and console sinks active."""
-    _get_console.cache_clear()
-    monkeypatch.setattr("r2x_core.logger._get_console", lambda: None)
-
-    from loguru import logger as loguru_logger
-
-    log_file = tmp_path / "both.log"
+@pytest.mark.parametrize(
+    ("file_enabled", "console_enabled"),
+    [
+        pytest.param(False, True, id="console-only"),
+        pytest.param(True, False, id="file-only"),
+        pytest.param(True, True, id="both"),
+    ],
+)
+def test_setup_logging_routes_console_and_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    file_enabled: bool,
+    console_enabled: bool,
+) -> None:
+    monkeypatch.setattr(sys.stderr, "isatty", lambda: False)
+    log_file = tmp_path / "test.log" if file_enabled else None
     setup_logging(
         verbosity=VERBOSITY_TRACE,
-        log_file=str(log_file),
-        log_to_console=True,
+        log_file=str(log_file) if log_file else None,
+        log_to_console=console_enabled,
     )
+    loguru_logger.info("sink routing message")
+    loguru_logger.complete()
 
-    loguru_logger.enable("r2x_core")
-    loguru_logger.info("dual sink message")
-
-    import time
-
-    time.sleep(0.1)
-
-    contents = log_file.read_text()
-    assert "dual sink message" in contents
-
-    output = capsys.readouterr().err
-    assert "dual sink message" in output
+    console_output = capsys.readouterr().err
+    if console_enabled:
+        assert json.loads(console_output)["msg"] == "sink routing message"
+    else:
+        assert console_output == ""
+    if log_file is not None:
+        contents = log_file.read_text()
+        assert "[PYTHON]" in contents
+        assert "sink routing message" in contents
 
 
-def test_setup_logging_file_captures_all_levels(tmp_path):
-    """Test that the file sink captures TRACE level even when console would filter."""
-    from loguru import logger as loguru_logger
-
+def test_file_sink_captures_all_levels_independent_of_console_verbosity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(sys.stderr, "isatty", lambda: False)
     log_file = tmp_path / "trace.log"
-    setup_logging(
-        verbosity=0,  # Console would only show WARNING+
-        log_file=str(log_file),
-        log_to_console=False,
-    )
-
-    loguru_logger.enable("r2x_core")
+    setup_logging(verbosity=VERBOSITY_INFO, log_file=str(log_file), log_to_console=True)
     loguru_logger.trace("trace level message")
     loguru_logger.debug("debug level message")
     loguru_logger.warning("warning level message")
-
-    import time
-
-    time.sleep(0.1)
+    loguru_logger.complete()
 
     contents = log_file.read_text()
     assert "trace level message" in contents
     assert "debug level message" in contents
     assert "warning level message" in contents
+    console_records = [json.loads(line) for line in capsys.readouterr().err.splitlines()]
+    assert [record["msg"] for record in console_records] == ["warning level message"]

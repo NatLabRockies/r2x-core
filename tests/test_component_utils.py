@@ -161,7 +161,8 @@ class FailingExportComponent(Component):
     @field_serializer("payload")
     def serialize_payload(self, value: int) -> int:
         if value < 0:
-            raise ValueError("Cannot serialize negative payload")
+            msg = "Cannot serialize negative payload"
+            raise ValueError(msg)
         return value
 
 
@@ -181,7 +182,8 @@ def test_export_components_to_csv_failure_preserves_destination(
 
     def filter_component(component: Component) -> bool:
         if failure == "filter" and component.name == "second":
-            raise ValueError("Cannot filter second component")
+            msg = "Cannot filter second component"
+            raise ValueError(msg)
         return True
 
     expected_error = PydanticSerializationError if failure == "serialization" else ValueError

@@ -1,0 +1,26 @@
+[
+  {
+    "component_type": "PSSEBus",
+    "fields": {
+      "name": "bus_name",
+      "number": "bus_number"
+    },
+    "kind": "component",
+    "source": "case.buses"
+  },
+  {
+    "component_type": "PSSEGenerator",
+    "fields": {
+      "active_power_mw": "p_mw",
+      "name": "name"
+    },
+    "kind": "component",
+    "references": {
+      "bus": {
+        "component_type": "PSSEBus",
+        "name_field": "bus_name"
+      }
+    },
+    "source": "generators"
+  }
+]

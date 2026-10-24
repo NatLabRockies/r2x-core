@@ -1,58 +1,44 @@
-"""Tests for DataStore upgrade handling."""
+"""Ensure configured system construction retains input upgrades."""
 
-from __future__ import annotations
-
-import json
 from pathlib import Path
-from typing import Annotated, TypedDict
 
-from polars import LazyFrame
-from pydantic import Field
+import pytest
+from fixtures.ingestion_models import PSSEBus
 
-from r2x_core import DataStore, PluginConfig
-
-
-class FileMappingRecord(TypedDict):
-    """Typed record for file mapping JSON entries."""
-
-    name: str
-    fpath: str
+from r2x_core import DataStore, PluginConfig, PluginContext, build_system
 
 
 class UpgradeConfig(PluginConfig):
-    """PluginConfig for upgrade tests."""
-
-    config_path_override: Annotated[Path, Field(description="Override config path")]
+    """Configuration model used by the upgrade integration test."""
 
 
-def test_store_runs_upgrade_handler_when_mapping_missing(tmp_path: Path) -> None:
-    run_dir = tmp_path / "run"
-    run_dir.mkdir()
-
-    old_path = run_dir / "old.csv"
-    old_path.write_text("col\n1\n", encoding="utf-8")
-
+@pytest.mark.polars
+def test_build_system_runs_upgrade_handler_when_input_is_missing(tmp_path: Path) -> None:
+    """Retry configured reads after the handler updates the input directory."""
     config_dir = tmp_path / "config"
     config_dir.mkdir()
-    mapping: list[FileMappingRecord] = [
-        {
-            "name": "test",
-            "fpath": "new.csv",
-        }
-    ]
-    (config_dir / "file_mapping.json").write_text(json.dumps(mapping), encoding="utf-8")
+    (config_dir / "old.csv").write_text("name,number,base_kv\nNORTH,1,230\n", encoding="utf-8")
+    (config_dir / "file_mapping.json").write_text(
+        '[{"name":"buses","relative_fpath":"new.csv"}]', encoding="utf-8"
+    )
+    (config_dir / "parser_rules.json").write_text(
+        '[{"kind":"component","source":"buses","component_type":"PSSEBus",'
+        '"fields":{"name":"name","number":"number"}}]',
+        encoding="utf-8",
+    )
+    calls = 0
 
-    config = UpgradeConfig(config_path_override=config_dir)
-
-    calls = {"count": 0}
-
-    def upgrade_handler(*, store: DataStore) -> None:
-        calls["count"] += 1
+    def upgrade_handler(*, store: DataStore, ctx: PluginContext[UpgradeConfig]) -> None:
+        nonlocal calls
+        calls += 1
         (store.folder / "old.csv").rename(store.folder / "new.csv")
 
-    store = DataStore.from_plugin_config(config, path=run_dir, upgrade_handler=upgrade_handler)
+    config = UpgradeConfig(
+        models=("fixtures.ingestion_models",),
+        config_path_override=config_dir,
+        upgrade_handler=upgrade_handler,
+    )
+    system = build_system(config, name="upgraded", input_folder=config_dir)
 
-    assert calls["count"] == 1
-
-    data = store.read_data("test")
-    assert isinstance(data, LazyFrame)
+    assert calls == 1
+    assert [bus.name for bus in system.get_components(PSSEBus)] == ["NORTH"]

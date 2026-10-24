@@ -1,32 +1,90 @@
 # Data and serialization contracts
 
-This reference specifies data registration, lifecycle and serialization boundaries; the generated [full API](/r2x-core/references/api/) supplies complete inherited members and configuration fields.
-The [DataStore source](https://github.com/NatLabRockies/r2x-core/blob/0b904d7cc8e9dde1a87d849b1cd3298bbcf34a82/src/r2x_core/store.py) and [System source](https://github.com/NatLabRockies/r2x-core/blob/0b904d7cc8e9dde1a87d849b1cd3298bbcf34a82/src/r2x_core/system.py) define these contracts.
+This reference specifies input configuration, typed source loading, configured
+construction, and system serialization. The generated [full API](/r2x-core/references/api/)
+supplies inherited members and model fields.
 
-The Python blocks below show signature notation for lookup, not executable calls.
-Use the linked how-to guides for runnable examples.
-
-## File registration and reading
+## File mapping and typed sources
 
 ```python
-DataStore(path: str | Path | None = None, *,
-          reader: DataReader | None = None,
-          upgrade_handler: Callable[..., Any] | None = None)
+DataStore(path: str | Path | None = None)
 DataStore.add_data(data_files: Sequence[DataFile], *, overwrite: bool = False) -> None
+DataStore.load_file_mapping(mapping_path: Path) -> None
 DataStore.list_data() -> list[str]
-DataStore.read_data(name: str, *, placeholders: dict[str, Any] | None = None) -> Any
+DataReader(
+    *,
+    file_readers: Mapping[str, FileReader] | None = None,
+    step_handlers: Mapping[str, MappingStepHandler[Any, Any, Any]] | None = None,
+)
+DataReader.read_data_files(
+    data_files: Iterable[DataFile],
+    *,
+    folder_path: Path,
+    placeholders: Mapping[str, JSONValue] | None = None,
+    initial_sources: Mapping[str, DecodedSource] | None = None,
+) -> DecodedSources
 ```
 
-`path=None` uses the current directory; an explicit root must already exist.
-The optional reader is a {py:class}`~r2x_core.DataReader`; the optional upgrade handler is a callable used by upgrade-aware loading.
-{py:meth}`~r2x_core.DataStore.add_data` registers definitions and rejects duplicate names unless overwriting is enabled.
-`list_data` returns registered logical names in sorted order.
-`read_data` returns the format-specific reader result, not always a DataFrame: the tutorial's CSV path returns a Polars lazy frame.
-A missing root raises `FileNotFoundError`; an unknown logical name raises `KeyError`; parsing and processing failures propagate from the reader.
-Use `relative_fpath` under the root, or `fpath` for an explicit file path.
+`DataStore` manages validated mapping configuration and upgrade handlers; it
+does not read or process physical inputs. `DataReader.read_data_files` resolves
+paths and optional inputs, selects the configured symbolic reader, and returns
+named `DecodedSource` values. A reader may decode one physical file into several
+source names. Results are reused only within that call, keyed by resolved path,
+format, and reader options. `initial_sources` seeds ordered processing with
+already decoded values. The input mapping is copied, seed values remain in the
+returned mapping, and configured name collisions raise `ValueError`. Named-source,
+join, concat, and conditional-input dependencies are validated before any input
+is read. Application `step_handlers` are shared by the built-in Polars file
+reader and inline tables.
 
-The [CSV scenario](/r2x-core/tutorials/getting-started/) demonstrates registration, filtering, materialization with `collect()`, and component construction as separate operations.
-See [processing specifications](/r2x-core/references/processors/) before combining column mappings, filtering, and reshaping.
+A `DataFile` may also define an `InlineTable` with a raw schema and exact-shape
+records, or a `SourceSelection` over prior names. `first_present` preserves an
+available empty source; `first_nonempty` skips empty sources. A typed inline
+fallback is explicit. Missing optional physical inputs are omitted, while
+present-empty inputs remain named and malformed inputs fail. Inline schemas
+apply before their processing spec, and placeholders are resolved before the
+records are validated.
+
+An optional physical input may declare `required_when` with the name of an
+already available tabular source and a typed expression predicate. The input is
+required when any source row matches. A true predicate preserves the original
+missing-file or missing-group error. A false predicate allows an absent input,
+but does not hide malformed present data. The predicate source must be declared
+before the conditional input.
+
+`build_system(config, /, *, name, input_folder=None, readers=None, step_handlers=None, placeholders=None, system_options=None)` is the standard configured construction operation. Configuration assets are read from `config.config_path`; physical inputs are resolved from `input_folder` (or the current working directory when omitted). `system_options` are passed to `System`. It validates parser instructions before reading inputs, then delegates output construction to the same engine used by `build_system_from_sources`.
+
+```python
+build_system_from_sources(
+    sources: DecodedSources,
+    /,
+    *,
+    config: PluginConfig,
+    instructions: Sequence[ParserInstruction],
+    name: str,
+    system_options: Mapping[str, object] | None = None,
+) -> System
+```
+
+The source-based operation executes component, time-series, and supplemental-
+attribute instructions in declaration order. It performs no configuration or
+input-file I/O, while still resolving models through `config.models`. Each output
+is validated before attachment. Missing sources, fields, references, invalid
+models, or invalid time-series metadata and axes raise their validation errors.
+A later failure does not roll back outputs already attached.
+
+A missing input may invoke the configured `DataStore` upgrade handler once and
+retry the configured read. This handler receives keyword-only `store` and `ctx`
+and succeeds with `None` or `Ok(None)`; `Err(error)` is a failure. Invalid
+success values raise `TypeError` before the coordinator is marked complete.
+`System.from_json` migration hooks and serialized-system loading are separate
+from file ingestion. System-to-System translation also remains a separate
+rule-driven workflow with dependency ordering and time-series transfer and
+replacement.
+
+See [Read data files](/r2x-core/how-tos/read-data-files/),
+[Build a parser](/r2x-core/how-tos/build-parsers/), and the
+[processor reference](/r2x-core/references/processors/).
 
 ## System serialization
 

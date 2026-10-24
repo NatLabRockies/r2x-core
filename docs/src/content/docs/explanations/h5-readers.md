@@ -20,7 +20,7 @@ the returned column values. The temporary fixture is removed after the read.
 >>> from tempfile import TemporaryDirectory
 >>> import h5py
 >>> import numpy as np
->>> from r2x_core.h5_readers import configurable_h5_reader
+>>> from r2x_core.h5_adapter import configurable_h5_reader
 >>> with TemporaryDirectory() as directory:
 ...     path = Path(directory) / "measurements.h5"
 ...     with h5py.File(path, "w") as stream:
@@ -43,13 +43,22 @@ the returned column values. The temporary fixture is removed after the read.
 columns are separate datasets rather than columns in one matrix.
 `datetime_key`, `index_key` and `additional_keys` include supporting indexes.
 Their lengths and meanings must match the selected data; a reader cannot infer
-a model's calendar or missing-hour policy from arbitrary array names.
+a model's calendar or missing-hour policy from arbitrary array names. HDF5
+results contain backend-neutral NumPy arrays rather than Polars frames.
+
+## Datetime values
+
+When `datetime_key` selects an ISO 8601 string dataset, the reader parses it to
+NumPy `datetime64[us]` values. By default, `strip_timezone=True` removes a
+present timezone without adjusting the displayed wall time. Set
+`strip_timezone=False` to convert offset-aware values to UTC before removing
+the timezone.
 
 For parser configuration through `DataFile` and `ReaderConfig`, use
 [Reading HDF5 Data Files](/r2x-core/how-tos/read-hdf5-files/).
 Dataset names in that configuration guide are examples of settings, not a claim
 that an external model file exists in the project.
-See the [reader implementation](https://github.com/NatLabRockies/r2x-core/blob/main/src/r2x_core/h5_readers.py)
+See the [reader implementation](https://github.com/NatLabRockies/r2x-core/blob/main/src/r2x_core/h5_adapter/readers.py)
 for the supported selectors and explicit errors on missing groups/datasets.
 
 <span id="overview"></span>

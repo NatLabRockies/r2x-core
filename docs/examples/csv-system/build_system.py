@@ -1,4 +1,4 @@
-"""Read active generators, apply a capacity scenario, and save a system."""
+"""Build a configured generator system, apply a scenario, and save it."""
 
 from pathlib import Path
 
@@ -6,29 +6,27 @@ from pydantic import Field
 from rust_ok import Ok, Result
 from tutorial_model import Generator
 
-from r2x_core import (
-    DataFile,
-    DataStore,
-    Plugin,
-    PluginConfig,
-    PluginContext,
-    System,
-    TabularProcessing,
-)
+from r2x_core import Plugin, PluginConfig, PluginContext, System, build_system
 
 
 class BuildConfig(PluginConfig):
+    """Inputs and application-level scenario settings."""
+
     scale: float = Field(default=1.1, gt=0)
     output_path: Path = Path("output/system.json")
 
 
 class BuildScenario(Plugin[BuildConfig]):
+    """Use core construction, then apply the application's scenario."""
+
     def on_build(self) -> Result[System, str]:
-        system = System(name="capacity-scenario")
-        rows = self.store.read_data("generators").collect()
-        for row in rows.iter_rows(named=True):
-            system.add_component(Generator(name=row["name"], capacity_mw=row["capacity_mw"]))
-        return Ok(system)
+        return Ok(
+            build_system(
+                self.config,
+                name="capacity-scenario",
+                input_folder=self.config.config_path.parent,
+            )
+        )
 
     def on_transform(self) -> Result[System, str]:
         for generator in self.system.get_components(Generator):
@@ -41,18 +39,11 @@ class BuildScenario(Plugin[BuildConfig]):
         return Ok(None)
 
 
-store = DataStore(Path("inputs"))
-store.add_data(
-    [
-        DataFile(
-            name="generators",
-            relative_fpath="generators.csv",
-            proc_spec=TabularProcessing(filter_by={"status": "active"}),
-        ),
-    ]
+config = BuildConfig(
+    models=("tutorial_model",),
+    config_path_override=Path(__file__).parent / "config",
 )
-context = PluginContext(config=BuildConfig(), store=store)
-result = BuildScenario.from_context(context).run()
+result = BuildScenario.from_context(PluginContext(config=config)).run()
 assert result.system is not None
 components = list(result.system.get_components(Generator))
 assert len(components) == 2

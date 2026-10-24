@@ -119,7 +119,7 @@ Report bugs or request features:
 
 Follow documentation standards:
 
-1. Use MyST Markdown format
+1. Use standard Markdown with Starlight frontmatter. Mark runnable examples with `python doctest` fences and verify their output.
 2. Follow Diataxis principles:
    - **How-tos**: Goal-oriented guides
    - **Tutorials**: Learning-oriented lessons

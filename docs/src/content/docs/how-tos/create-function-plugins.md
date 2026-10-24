@@ -51,7 +51,8 @@ Use Pydantic field validators to enforce configuration constraints:
 ...     @classmethod
 ...     def validate_threshold(cls, v):
 ...         if v % 10 != 0:
-...             raise ValueError("Threshold must be a multiple of 10")
+...             msg = "Threshold must be a multiple of 10"
+...             raise ValueError(msg)
 ...         return v
 
 >>> @expose_plugin
@@ -333,4 +334,4 @@ True
 
 - [plugin system](/r2x-core/explanations/plugin-system/) - Plugin system architecture
 - [api](/r2x-core/references/api/) - API reference for `@expose_plugin` decorator
-- [manage datastores](/r2x-core/how-tos/manage-datastores/) - Working with DataStore for file operations
+- [manage datastores](/r2x-core/how-tos/manage-datastores/) - Managing input mapping configuration

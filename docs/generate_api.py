@@ -170,7 +170,7 @@ def main() -> None:
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     (destination / "release-notes.md").write_text(
         '---\ntitle: Changelog\neditUrl: "https://github.com/NatLabRockies/r2x-core/edit/main/CHANGELOG.md"\n---\n\n'
-        + "This page is generated from the canonical repository changelog. "
+        + "This page is generated from the project changelog. "
         + "See [GitHub releases](https://github.com/NatLabRockies/r2x-core/releases) and "
         + "[PyPI](https://pypi.org/project/r2x-core/) for published distributions.\n\n"
         + "These guides describe main. For an installed release, select its tag in the "
@@ -180,7 +180,7 @@ def main() -> None:
         + re.sub(r"^# .+\n", "", changelog, count=1),
         encoding="utf-8",
     )
-    print(f"Generated {len(inputs)} API reference pages and canonical release notes.")
+    print(f"Generated {len(inputs)} API reference pages and release notes.")
 
 
 def write_redirects() -> None:

@@ -401,6 +401,17 @@ def test_get_implemented_hooks_inherited():
     assert "on_validate" in hooks
 
 
+@pytest.mark.parametrize("disabled_hook", [None, False])
+def test_non_callable_hooks_are_neither_discovered_nor_executed(disabled_hook: object) -> None:
+    class DisabledBuild(BuildPlugin):
+        on_build = disabled_hook
+
+    context = PluginContext(config=SimpleConfig(name="disabled"))
+
+    assert "on_build" not in DisabledBuild.get_implemented_hooks()
+    assert DisabledBuild.from_context(context).run().system is None
+
+
 # Tests for run() method
 
 
@@ -627,3 +638,37 @@ def test_lifecycle_order():
 
     expected = ["validate", "prepare", "upgrade", "build", "transform", "translate", "export", "cleanup"]
     assert LifecycleTracker.call_order == expected
+
+
+def test_run_rejects_plain_hook_result_before_export():
+    calls: list[str] = []
+
+    class InvalidBuildPlugin(Plugin[SimpleConfig]):
+        def on_build(self):
+            return None
+
+        def on_export(self):
+            calls.append("export")
+            return Ok(None)
+
+    plugin = InvalidBuildPlugin.from_context(PluginContext(config=SimpleConfig()))
+
+    with pytest.raises(TypeError, match="InvalidBuildPlugin on_build must return Ok or Err"):
+        plugin.run()
+
+    assert calls == []
+
+
+def test_run_preserves_exception_from_err_hook():
+    failure = ValueError("invalid build")
+
+    class ErrorBuildPlugin(Plugin[SimpleConfig]):
+        def on_build(self):
+            return Err(failure)
+
+    plugin = ErrorBuildPlugin.from_context(PluginContext(config=SimpleConfig()))
+
+    with pytest.raises(PluginError, match="build failed") as raised:
+        plugin.run()
+
+    assert raised.value.__cause__ is failure

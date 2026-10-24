@@ -12,7 +12,7 @@ from r2x_core.utils import (
 from r2x_core.versioning import SemanticVersioningStrategy
 
 
-def _dummy_step(
+def dummy_step(
     *,
     target_version: str = "2.0",
     min_version: str | None = None,
@@ -29,7 +29,7 @@ def _dummy_step(
 
 
 def test_shall_we_upgrade_below_minimum_returns_false():
-    step = _dummy_step(target_version="3.0", min_version="2.0")
+    step = dummy_step(target_version="3.0", min_version="2.0")
     strategy = SemanticVersioningStrategy()
 
     result = shall_we_upgrade(step, current_version="1.5", strategy=strategy)
@@ -38,7 +38,7 @@ def test_shall_we_upgrade_below_minimum_returns_false():
 
 
 def test_shall_we_upgrade_above_maximum_returns_false():
-    step = _dummy_step(target_version="10.0", max_version="5.0")
+    step = dummy_step(target_version="10.0", max_version="5.0")
     strategy = SemanticVersioningStrategy()
 
     result = shall_we_upgrade(step, current_version="6.0", strategy=strategy)
@@ -47,7 +47,7 @@ def test_shall_we_upgrade_above_maximum_returns_false():
 
 
 def test_shall_we_upgrade_within_range_returns_true():
-    step = _dummy_step(target_version="3.0", min_version="1.0", max_version="4.0")
+    step = dummy_step(target_version="3.0", min_version="1.0", max_version="4.0")
     strategy = SemanticVersioningStrategy()
 
     result = shall_we_upgrade(step, current_version="2.0", strategy=strategy)
@@ -70,6 +70,18 @@ def test_run_upgrade_step_passes_context_when_supported():
     result = run_upgrade_step(41, step=step, upgrader_context={"info": "value"})
     assert result.is_ok()
     assert result.unwrap() == 42
+
+
+def test_run_upgrade_step_uses_the_current_function_signature() -> None:
+    step = dummy_step()
+    assert run_upgrade_step(2, step=step).unwrap() == 2
+
+    def scale(data: int, *, upgrader_context: int) -> int:
+        return data * upgrader_context
+
+    step.func = scale
+
+    assert run_upgrade_step(2, step=step, upgrader_context=3).unwrap() == 6
 
 
 @pytest.mark.parametrize("error_type", [UpgradeError, FileNotFoundError, ValueError])

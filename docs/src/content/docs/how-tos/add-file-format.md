@@ -1,32 +1,33 @@
 ---
-title: Add a file format to core
+title: "Register an Application Format"
 ---
 
-This is a source-development task for core contributors. It changes the format registry;
-it does not register an installed translator plugin. Start with [development setup](/r2x-core/contributing/).
+An application-specific input format does not need a core extension or whitelist
+change. Give it a symbolic name, implement `FileReader.read_file`, return typed
+named sources, and pass the registration to `DataReader` or `build_system`.
+JSON configuration selects the name and options but never an implementation
+string.
 
-## Inspect the supported types
+```python doctest
+>>> from r2x_core import DecodedSource, DecodedSources, FileReader, ReaderConfig
+>>> DecodedSource.__name__, FileReader.__name__, ReaderConfig.__name__
+('DecodedSource', 'FileReader', 'ReaderConfig')
+```
 
-The current registry lives in [file_types.py](https://github.com/NatLabRockies/r2x-core/blob/main/src/r2x_core/file_types.py).
-Use the [file type reference](/r2x-core/references/file-types/) to check whether the extension already has a supported type before adding one.
+`DecodedSources` is a mapping from application-defined source names to
+`DecodedSource`. Use `TabularSource` with a paired `TabularProcessor` for a
+native tabular payload, `DocumentSource` for supported JSON or XML documents,
+and `ArraySource` for named arrays. A vendor-specific representation can
+implement `DecodedSource` directly. Pair processing with the payload through
+`SourceProcessor`, rather than teaching core about each file format.
 
-## Extend the registry and reader together
+The source loader, named transformations, and construction workflow remain
+shared. See [Custom readers and typed sources](/r2x-core/how-tos/custom-readers-and-backends/)
+and the [runnable illustrative RAW example](https://github.com/NatLabRockies/r2x-core/tree/main/docs/examples/psse-raw).
+The example grammar is deliberately invented and is not PSS/E RAW compatibility.
 
-Add a `FileFormat` subclass with the appropriate `supports_timeseries` value, map its extensions in `EXTENSION_MAPPING`, and update `TableDataFormat` if the format is tabular.
-These are edits to core's source definitions, not a public runtime registration API.
-Implement the matching reading path in [file_readers.py](https://github.com/NatLabRockies/r2x-core/blob/main/src/r2x_core/file_readers.py).
-A recognized extension alone does not make a file readable.
-
-Check `DataFile`'s format-specific validation and processing constraints as well.
-Do not declare time-series support merely because the file can contain numeric arrays;
-the implemented reader and model workflow must support the required time-series representation.
-
-## Verify the new format
-
-Add a small actual fixture and tests covering extension selection, parsed values/schema,
-processing compatibility and time-series acceptance or rejection.
-Run the affected file-type, DataFile and reader tests using the contributor workflow.
-Confirm the new format loads its expected records and that unsupported extensions and incompatible settings still fail.
-Document supported extensions and constraints in the reference; put model-specific parsing instructions in the model package.
-
-The existing contracts stay at [File Types API Reference](/r2x-core/references/file-types/).
+A new built-in format is appropriate only when the same reader and semantics
+belong in core. In that case, follow the repository's contribution workflow,
+add a real file fixture and tests, and document reader options. Output purpose
+still comes from the configured component, time-series, or supplemental
+attribute instruction, not from the physical extension.

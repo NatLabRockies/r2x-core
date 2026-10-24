@@ -3,19 +3,15 @@
 from __future__ import annotations
 
 import importlib
-from collections import deque
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from graphlib import CycleError, TopologicalSorter
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from infrasys import Component, SupplementalAttribute
-from pydantic import ValidationError as PydanticValidationError
 from rust_ok import Err, Ok, Result
-
-from ..plugin_context import PluginContext
-from ..rules import RuleGetter
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,10 +23,18 @@ class RuleOutputs:
 
 
 if TYPE_CHECKING:
-    from ..rules import Rule, RuleFilter, RuleLike
+    from ..plugin_context import PluginContext
+    from ..rules import Rule, RuleFilterBase, RuleGetter, RuleLike
 
 
-_COMPONENT_TYPE_CACHE: dict[tuple[tuple[str, ...], str], type] = {}
+COMPONENT_TYPE_CACHE: dict[tuple[tuple[str, ...], str], type] = {}
+
+
+def value_error_from(message: str, cause: BaseException) -> ValueError:
+    """Build contextual error text while retaining its originating exception."""
+    error = ValueError(message)
+    error.__cause__ = cause
+    return error
 
 
 def resolve_component_type(type_name: str, *, context: PluginContext) -> Result[type, TypeError]:
@@ -40,17 +44,17 @@ def resolve_component_type(type_name: str, *, context: PluginContext) -> Result[
     Searches modules specified in config.models.
     """
     cache_key = (context.config.models, type_name)
-    if cache_key in _COMPONENT_TYPE_CACHE:
-        return Ok(_COMPONENT_TYPE_CACHE[cache_key])
+    if cache_key in COMPONENT_TYPE_CACHE:
+        return Ok(COMPONENT_TYPE_CACHE[cache_key])
 
     modules_to_search: list[str] = list(context.config.models)
 
     for module_name in modules_to_search:
         try:
             module = importlib.import_module(module_name)
-            if hasattr(module, type_name):
-                component_type = getattr(module, type_name)
-                _COMPONENT_TYPE_CACHE[cache_key] = component_type
+            component_type = getattr(module, type_name, None)
+            if component_type is not None:
+                COMPONENT_TYPE_CACHE[cache_key] = component_type
                 return Ok(component_type)
         except ImportError:
             continue
@@ -58,17 +62,10 @@ def resolve_component_type(type_name: str, *, context: PluginContext) -> Result[
     return Err(TypeError(f"Component type '{type_name}' not found in modules: {modules_to_search}"))
 
 
-def create_target_component(
-    target_class: type[Component] | type[SupplementalAttribute], *, kwargs: dict[str, Any]
-) -> Component | SupplementalAttribute:
-    """Instantiate a component or supplemental attribute with the provided fields."""
-    return target_class(**kwargs)
-
-
 def build_attr_getter(chain: list[str]) -> RuleGetter:
     """Create a getter that walks nested attributes and returns a Result."""
 
-    def _getter(src: Any, *, context: PluginContext) -> Result[Any, ValueError]:
+    def attribute_chain_getter(src: Any, *, context: PluginContext) -> Result[Any, ValueError]:
         """Walk the attribute chain returning the leaf value or None."""
         _ = context
         val = src
@@ -78,17 +75,7 @@ def build_attr_getter(chain: list[str]) -> RuleGetter:
                 break
         return Ok(val)
 
-    return _getter
-
-
-def build_target_fields(
-    source_component: Component | Mapping[str, Any],
-    *,
-    rule: Rule,
-    context: PluginContext,
-) -> Result[dict[str, Any], ValueError]:
-    """Build a field mapping for the target component."""
-    return build_component_kwargs(source_component, rule=rule, context=context)
+    return attribute_chain_getter
 
 
 def to_attr_source(source_component: Component | Mapping[str, Any]) -> Component | SimpleNamespace:
@@ -124,29 +111,32 @@ def build_component_kwargs(
         This is used for optional supplemental outputs.
     """
     source_obj = to_attr_source(source_component)
-    field_map = getattr(rule, "field_map", {})
-    getters = getattr(rule, "getters", {})
-    defaults = getattr(rule, "defaults", {})
+    field_map = rule.field_map
+    getters = rule.getters
+    defaults = rule.defaults
     kwargs: dict[str, Any] = {}
+    missing = object()
 
     for target_field, source_field in field_map.items():
         if isinstance(source_field, list):
             continue
-        value = getattr(source_obj, source_field, None)
-        if value is not None:
+        value = getattr(source_obj, source_field, missing)
+        if value is not missing and value is not None:
             kwargs[target_field] = value
         elif target_field in defaults:
             kwargs[target_field] = defaults[target_field]
         elif not allow_missing:
+            if value is missing:
+                return Err(
+                    ValueError(f"Source {type(source_obj).__name__} has no attribute {source_field!r}")
+                )
             return Err(
                 ValueError(
-                    f"No attribute '{source_field}' on source component and no default for '{target_field}'"
+                    f"Source attribute {source_field!r} is None and no default exists for {target_field!r}"
                 )
             )
 
     for target_field, getter_func in getters.items():
-        if not callable(getter_func):
-            return Err(ValueError(f"Getter for '{target_field}' is not callable: {getter_func}"))
         result = getter_func(source_obj, context=context)
         match result:
             case Ok(value):
@@ -158,7 +148,13 @@ def build_component_kwargs(
                 if target_field in defaults:
                     kwargs[target_field] = defaults[target_field]
                 elif not allow_missing:
-                    return Err(ValueError(f"Getter for '{target_field}' failed: {e}"))
+                    error = ValueError(f"Getter for '{target_field}' failed: {e}")
+                    if isinstance(e, BaseException):
+                        error.__cause__ = e
+                    return Err(error)
+            case _:
+                msg = f"Getter for '{target_field}' must return Ok or Err, got {type(result).__name__}"
+                raise TypeError(msg)
 
     for target_field, default_value in defaults.items():
         if target_field not in kwargs:
@@ -177,7 +173,7 @@ def create_rule_outputs(
     regenerate_uuid: bool = False,
 ) -> Result[RuleOutputs, ValueError]:
     """Construct a primary target and all supplemental outputs for a rule."""
-    supplemental_rules = getattr(rule, "supplemental_attributes", ())
+    supplemental_rules = rule.supplemental_attributes
     if len(supplemental_rules) != len(supplemental_classes):
         return Err(
             ValueError(
@@ -186,9 +182,10 @@ def create_rule_outputs(
             )
         )
 
-    fields_result = build_target_fields(source_component, rule=rule, context=context)
+    fields_result = build_component_kwargs(source_component, rule=rule, context=context)
     if fields_result.is_err():
-        return Err(ValueError(f"primary target: {fields_result.err()}"))
+        error = fields_result.err()
+        return Err(value_error_from(f"primary target: {error}", error))
 
     primary_kwargs = fields_result.unwrap()
     if regenerate_uuid and "uuid" in primary_kwargs:
@@ -196,9 +193,9 @@ def create_rule_outputs(
         primary_kwargs["uuid"] = str(uuid4())
 
     try:
-        primary = create_target_component(target_class, kwargs=primary_kwargs)
-    except (PydanticValidationError, TypeError, ValueError) as error:
-        return Err(ValueError(f"primary target '{target_class.__name__}': {error}"))
+        primary = target_class(**primary_kwargs)
+    except ValueError as error:
+        return Err(value_error_from(f"primary target '{target_class.__name__}': {error}", error))
 
     supplemental_attributes: list[SupplementalAttribute] = []
     for supplemental_rule, supplemental_class in zip(supplemental_rules, supplemental_classes, strict=True):
@@ -209,8 +206,9 @@ def create_rule_outputs(
             allow_missing=supplemental_rule.optional,
         )
         if fields_result.is_err():
+            error = fields_result.err()
             return Err(
-                ValueError(f"supplemental target '{supplemental_rule.target_type}': {fields_result.err()}")
+                value_error_from(f"supplemental target '{supplemental_rule.target_type}': {error}", error)
             )
 
         supplemental_kwargs = fields_result.unwrap()
@@ -220,86 +218,87 @@ def create_rule_outputs(
             continue
 
         try:
-            supplemental_attributes.append(
-                cast(
-                    SupplementalAttribute,
-                    create_target_component(supplemental_class, kwargs=supplemental_kwargs),
-                )
+            supplemental_attributes.append(supplemental_class(**supplemental_kwargs))
+        except ValueError as error:
+            return Err(
+                value_error_from(f"supplemental target '{supplemental_rule.target_type}': {error}", error)
             )
-        except (PydanticValidationError, TypeError, ValueError) as error:
-            return Err(ValueError(f"supplemental target '{supplemental_rule.target_type}': {error}"))
 
     return Ok(RuleOutputs(primary=primary, supplemental_attributes=tuple(supplemental_attributes)))
 
 
 def evaluate_rule_filter(
-    component: Any, *, rule_filter: RuleFilter, context: PluginContext | None = None
+    component: Any, *, rule_filter: RuleFilterBase, context: PluginContext | None = None
 ) -> bool:
-    """Return True if the component satisfies the rule filter."""
-    if rule_filter.any_of is not None:
+    """Return whether the component satisfies a tagged filter expression."""
+    from ..rules import AllOfFilter, AnyOfFilter, FieldFilter, GetterFilter, LeafFilter
+
+    if isinstance(rule_filter, AnyOfFilter):
         return any(
             evaluate_rule_filter(component, rule_filter=child, context=context)
-            for child in rule_filter.any_of
+            for child in rule_filter.filters
         )
-    if rule_filter.all_of is not None:
+    if isinstance(rule_filter, AllOfFilter):
         return all(
             evaluate_rule_filter(component, rule_filter=child, context=context)
-            for child in rule_filter.all_of
+            for child in rule_filter.filters
         )
 
-    if rule_filter.op is None or rule_filter.values is None:
-        raise ValueError("RuleFilter must have field, op, and values for leaf filters")
-
-    candidate: Any
-    if rule_filter.getter is not None:
+    if not isinstance(rule_filter, LeafFilter):
+        msg = f"Unsupported filter node: {type(rule_filter).__name__}"
+        raise TypeError(msg)
+    if isinstance(rule_filter, GetterFilter):
         if context is None:
-            raise ValueError("RuleFilter getter-backed filters require PluginContext")
-        getter_func = rule_filter.getter
-        if not callable(getter_func):
-            raise ValueError("RuleFilter getter must resolve to a callable")
-        result = getter_func(component, context=context)
+            msg = "Getter-backed filters require PluginContext"
+            raise ValueError(msg)
+        getter = rule_filter.getter
+        if not callable(getter):
+            msg = "Filter getter reference was not resolved"
+            raise ValueError(msg)
+        result = getter(component, context=context)
         match result:
             case Ok(value):
                 candidate = value
-            case Err(e):
-                raise ValueError(f"Getter for RuleFilter failed: {e}")
-        if candidate is None:
-            return rule_filter.on_missing == "include"
+            case Err(error):
+                msg = f"Filter getter failed: {error}"
+                if isinstance(error, BaseException):
+                    raise ValueError(msg) from error
+                raise ValueError(msg)
+            case _:
+                msg = f"Filter getter must return Ok or Err, got {type(result).__name__}"
+                raise TypeError(msg)
+    elif isinstance(rule_filter, FieldFilter):
+        candidate = getattr(component, rule_filter.field, None)
     else:
-        if rule_filter.field is None:
-            raise ValueError("RuleFilter must have field or getter for leaf filters")
-        attr = getattr(component, rule_filter.field, None)
-        if attr is None:
-            return rule_filter.on_missing == "include"
-        candidate = attr
+        msg = f"Unsupported filter node: {type(rule_filter).__name__}"
+        raise TypeError(msg)
 
-    candidate = (
-        str(candidate).casefold() if rule_filter.casefold and isinstance(candidate, str) else candidate
-    )
-    values = rule_filter._normalized_values
-    assert values is not None, "_normalized_values must be set during RuleFilter construction"
+    leaf_filter = rule_filter
+    if candidate is None:
+        return leaf_filter.on_missing == "include"
+    if leaf_filter.casefold and isinstance(candidate, str):
+        candidate = candidate.casefold()
+    values = leaf_filter.normalized_values
 
-    if rule_filter.op == "eq":
+    if leaf_filter.op == "eq":
         return candidate == values[0]
-    if rule_filter.op == "neq":
+    if leaf_filter.op == "neq":
         return candidate != values[0]
-    if rule_filter.op == "in":
+    if leaf_filter.op == "in":
         return candidate in values
-    if rule_filter.op == "not_in":
+    if leaf_filter.op == "not_in":
         return candidate not in values
-    if rule_filter.op == "geq":
+    if leaf_filter.op == "geq":
         try:
-            cand_num = float(candidate)
-            threshold = float(values[0])
+            return float(candidate) >= float(values[0])
         except (TypeError, ValueError):
             return False
-        return cand_num >= threshold
-    if rule_filter.op == "startswith":
-        return any(str(candidate).startswith(val) for val in values)
-    if rule_filter.op == "not_startswith":
-        return all(not str(candidate).startswith(val) for val in values)
-    if rule_filter.op == "endswith":
-        return any(str(candidate).endswith(val) for val in values)
+    if leaf_filter.op == "startswith":
+        return str(candidate).startswith(tuple(values))
+    if leaf_filter.op == "not_startswith":
+        return not str(candidate).startswith(tuple(values))
+    if leaf_filter.op == "endswith":
+        return str(candidate).endswith(tuple(values))
     return False
 
 
@@ -327,32 +326,22 @@ def sort_rules_by_dependencies(rules: list[Rule]) -> Result[list[Rule], ValueErr
         else:
             unnamed_rules.append(rule)
 
-    in_degree: dict[str, int] = dict.fromkeys(named_rules, 0)
-    adjacency: dict[str, list[str]] = {name: [] for name in named_rules}
-
+    sorter = TopologicalSorter()
+    for name in named_rules:
+        sorter.add(name)
     for name, rule in named_rules.items():
-        if rule.depends_on:
-            for dep in rule.depends_on:
-                if dep not in named_rules:
-                    return Err(ValueError(f"Rule '{name}' depends on unknown rule '{dep}'"))
-                adjacency[dep].append(name)
-                in_degree[name] += 1
+        dependencies = rule.depends_on or ()
+        for dep in dependencies:
+            if dep not in named_rules:
+                return Err(ValueError(f"Rule '{name}' depends on unknown rule '{dep}'"))
+        sorter.add(name, *dependencies)
 
-    queue: deque[str] = deque(name for name, degree in in_degree.items() if degree == 0)
     sorted_names: list[str] = []
-
-    while queue:
-        current = queue.popleft()
-        sorted_names.append(current)
-
-        for neighbor in adjacency[current]:
-            in_degree[neighbor] -= 1
-            if in_degree[neighbor] == 0:
-                queue.append(neighbor)
-
-    if len(sorted_names) != len(named_rules):
-        unsorted = set(named_rules.keys()) - set(sorted_names)
-        return Err(ValueError(f"Circular dependencies detected in rules: {', '.join(unsorted)}"))
+    try:
+        sorted_names.extend(sorter.static_order())
+    except CycleError as error:
+        cycle = error.args[1][:-1]
+        return Err(value_error_from(f"Circular dependencies detected in rules: {', '.join(cycle)}", error))
 
     unnamed_no_deps = [rule for rule in unnamed_rules if not rule.depends_on]
     unnamed_with_deps = [rule for rule in unnamed_rules if rule.depends_on]
@@ -364,7 +353,10 @@ def sort_rules_by_dependencies(rules: list[Rule]) -> Result[list[Rule], ValueErr
         for dep in deps:
             if dep not in named_rules:
                 return Err(ValueError(f"Rule depends on unknown rule '{dep}'"))
-        dep_indices = [sorted_rules.index(named_rules[dep]) for dep in deps]
+        dep_indices = [
+            next(index for index, candidate in enumerate(sorted_rules) if candidate is named_rules[dep])
+            for dep in deps
+        ]
         insert_index = max(dep_indices, default=-1) + 1
         sorted_rules.insert(insert_index, rule)
 

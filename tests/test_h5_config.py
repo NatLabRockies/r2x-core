@@ -1,170 +1,126 @@
-"""Test configuration-based H5 reader usage (integration test)."""
+"""Exercise symbolic HDF5 reader configuration with real files."""
 
-import json
-import tempfile
 from pathlib import Path
 
 import h5py
 import numpy as np
+import pytest
 
-from r2x_core.file_types import H5Format
-
-
-def test_h5format_serialization_default():
-    """Test that default H5Format serializes correctly."""
-    from pydantic import BaseModel
-
-    class TestModel(BaseModel):
-        file_format: H5Format
-
-    # Create without reader
-    h5_format = H5Format()
-    model = TestModel(file_format=h5_format)
-
-    # Should serialize as just the type name
-    json_data = model.model_dump()
-    assert json_data["file_format"] == "H5Format"
+from r2x_core import DataFile, DataReader
+from r2x_core.datafile import ReaderConfig
+from r2x_core.h5_adapter.readers import configurable_h5_reader, read_h5_file
 
 
-def test_json_config_workflow_with_reader_kwargs():
-    """Test complete workflow: JSON config with reader_kwargs -> read file."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmpdir_path = Path(tmpdir)
-
-        # Create a test H5 file in ReEDS format
-        h5_file = tmpdir_path / "test_load.h5"
-        with h5py.File(str(h5_file), "w") as f:
-            columns = np.array(["region1", "region2"], dtype="S")
-            data = np.array([[100.0, 150.0], [120.0, 160.0]])
-            dt_strings = np.array(["2007-01-01T00:00:00-06:00", "2007-01-01T01:00:00-06:00"], dtype="S")
-            f.create_dataset("columns", data=columns)
-            f.create_dataset("data", data=data)
-            f.create_dataset("index_datetime", data=dt_strings)
-
-        # Create JSON configuration with reader_kwargs (no schema, just describe structure)
-        config = {
-            "name": "test_file",
-            "fpath": str(h5_file),
-            "file_type": "H5Format",
-            "reader_kwargs": {
+def test_hdf5_reader_configuration_roundtrip(tmp_path: Path) -> None:
+    """Serialize the selected reader and validated HDF5 layout options."""
+    item = DataFile(
+        name="load",
+        relative_fpath="data/load.h5",
+        reader=ReaderConfig(
+            format="hdf5",
+            options={
                 "data_key": "data",
                 "columns_key": "columns",
                 "datetime_key": "index_datetime",
+                "additional_keys": ["index_year"],
             },
-        }
+        ),
+    )
 
-        # Simulate reading with reader_kwargs
-        from r2x_core.file_readers import read_file_by_type
+    restored = DataFile.model_validate_json(item.model_dump_json())
 
-        h5_format = H5Format()
-        reader_kwargs = config.get("reader_kwargs", {})
-        assert isinstance(reader_kwargs, dict)
-
-        df = read_file_by_type(h5_format, file_path=Path(h5_file), **reader_kwargs).collect()
-
-        # Check data was read correctly
-        assert "region1" in df.columns
-        assert "region2" in df.columns
-        assert "datetime" in df.columns
-        assert len(df) == 2
+    assert restored.reader.format == "hdf5"
+    assert restored.reader.options == item.reader.options
 
 
-def test_json_config_workflow_with_tabular_schema():
-    """Test JSON config workflow with custom configuration."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmpdir_path = Path(tmpdir)
+def test_hdf5_layout_errors_are_explicit(tmp_path: Path) -> None:
+    """Reject malformed HDF5 selectors rather than guessing a layout."""
+    path = tmp_path / "data.h5"
+    with h5py.File(path, "w") as output:
+        output.create_dataset("values", data=np.array([1, 2]))
+        with pytest.raises(ValueError, match="columns_key"):
+            configurable_h5_reader(output, data_key="values", columns_key=1)
+        with pytest.raises(ValueError, match="columns_key is required"):
+            configurable_h5_reader(output, columns_as_datasets=True)
 
-        # Create a custom H5 file structure
-        h5_file = tmpdir_path / "test_data.h5"
-        with h5py.File(str(h5_file), "w") as f:
-            col_names = np.array(["col_a", "col_b"], dtype="S")
-            values = np.array([[1.0, 2.0], [3.0, 4.0]])
-            timestamps = np.array([0, 1])
 
-            f.create_dataset("column_names", data=col_names)
-            f.create_dataset("values", data=values)
-            f.create_dataset("timestamps", data=timestamps)
+@pytest.mark.parametrize(
+    ("invalid_options", "field"),
+    [
+        ({"group_key": 1}, "group_key"),
+        ({"columns_as_datasets": "yes"}, "columns_as_datasets"),
+        ({"data_key": ""}, "data_key"),
+        ({"data_key": 1}, "data_key"),
+        ({"index_names_key": 1}, "index_names_key"),
+        ({"columns_key": 1}, "columns_key"),
+        ({"decode_bytes": "yes"}, "decode_bytes"),
+        ({"datetime_key": 1}, "datetime_key"),
+        ({"datetime_column_name": 1}, "datetime_column_name"),
+        ({"strip_timezone": "yes"}, "strip_timezone"),
+        ({"index_key": 1}, "index_key"),
+        ({"additional_keys": "data"}, "additional_keys"),
+        ({"additional_keys": [1]}, "additional_keys"),
+        ({"column_name_mapping": {"data": 1}}, "column_name_mapping"),
+        ({"column_name_mapping": []}, "column_name_mapping"),
+        ({"unknown_option": True}, "unknown_option"),
+    ],
+)
+def test_hdf5_options_are_strict_for_direct_and_data_reader_paths(
+    tmp_path: Path, invalid_options: dict[str, object], field: str
+) -> None:
+    path = tmp_path / "strict-options.h5"
+    with h5py.File(path, "w") as output:
+        output.create_dataset("data", data=np.array([1, 2]))
 
-        # Create JSON configuration with reader_kwargs
-        config = {
-            "name": "test_file",
-            "fpath": str(h5_file),
-            "file_type": "H5Format",
-            "reader_kwargs": {
-                "data_key": "values",
-                "columns_key": "column_names",
-                "index_key": "timestamps",
+    reader_options = {"data_key": "data", **invalid_options}
+    with h5py.File(path, "r") as input_file, pytest.raises(ValueError, match=field):
+        configurable_h5_reader(input_file, **reader_options)
+    with pytest.raises(ValueError, match=field):
+        read_h5_file(file_path=path, **reader_options)
+
+    item = DataFile(
+        name="data",
+        fpath=path,
+        reader=ReaderConfig(
+            format="hdf5_array",
+            options=reader_options,
+        ),
+    )
+    with pytest.raises(ValueError, match=field):
+        DataReader().read_data_files([item], folder_path=tmp_path)
+
+
+@pytest.mark.polars
+def test_hdf5_mapping_reads_columns_datetime_and_additional_keys(tmp_path: Path) -> None:
+    """Resolve configured HDF5 datasets into a named Polars table source."""
+    path = tmp_path / "load.h5"
+    with h5py.File(path, "w") as output:
+        output.create_dataset("columns", data=np.array(["north", "south"], dtype="S"))
+        output.create_dataset("data", data=np.array([[100.0, 150.0], [120.0, 160.0]]))
+        output.create_dataset(
+            "index_datetime",
+            data=np.array(["2024-01-01T00:00:00", "2024-01-01T01:00:00"], dtype="S"),
+        )
+        output.create_dataset("index_year", data=np.array([2024, 2025]))
+    item = DataFile(
+        name="load",
+        fpath=path,
+        reader=ReaderConfig(
+            format="hdf5",
+            options={
+                "data_key": "data",
+                "columns_key": "columns",
+                "datetime_key": "index_datetime",
+                "additional_keys": ["index_year"],
             },
-        }
+        ),
+    )
 
-        # Read with reader_kwargs
-        from r2x_core.file_readers import read_file_by_type
+    source = DataReader().read_data_files([item], folder_path=tmp_path)["load"]
+    frame = source.data.collect()
 
-        h5_format = H5Format()
-        reader_kwargs = config.get("reader_kwargs", {})
-        assert isinstance(reader_kwargs, dict)
-
-        df = read_file_by_type(h5_format, file_path=Path(h5_file), **reader_kwargs).collect()
-
-        # Check data was read correctly
-        assert "col_a" in df.columns
-        assert "col_b" in df.columns
-        assert "timestamps" in df.columns
-        assert len(df) == 2
-
-
-def test_config_json_roundtrip_with_reader_kwargs():
-    """Test that config with reader_kwargs can be written to JSON and read back."""
-    # Create a mock configuration (describe file structure, not model-specific schema)
-    config = {
-        "files": [
-            {
-                "name": "load",
-                "fpath": "data/load.h5",
-                "file_type": "H5Format",
-                "reader_kwargs": {
-                    "data_key": "data",
-                    "columns_key": "columns",
-                    "datetime_key": "index_datetime",
-                    "additional_keys": ["index_year"],
-                },
-            },
-            {
-                "name": "cf",
-                "fpath": "data/cf.h5",
-                "file_type": "H5Format",
-                "reader_kwargs": {
-                    "data_key": "cf_values",
-                    "columns_key": "technologies",
-                },
-            },
-            {
-                "name": "simple",
-                "fpath": "data/simple.h5",
-                "file_type": "H5Format",
-            },
-        ]
-    }
-
-    # Write to JSON
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-        json.dump(config, f)
-        config_file = Path(f.name)
-
-    try:
-        # Read back
-        with open(config_file) as f:
-            loaded_config = json.load(f)
-
-        # Verify structure preserved
-        assert loaded_config["files"][0]["reader_kwargs"]["data_key"] == "data"
-        assert loaded_config["files"][0]["reader_kwargs"]["columns_key"] == "columns"
-        assert loaded_config["files"][0]["reader_kwargs"]["datetime_key"] == "index_datetime"
-        assert loaded_config["files"][1]["reader_kwargs"]["data_key"] == "cf_values"
-        assert "reader_kwargs" not in loaded_config["files"][2]  # Simple file has no reader_kwargs
-
-        # Verify reader_kwargs can be extracted
-        reader_kwargs = loaded_config["files"][0].get("reader_kwargs", {})
-        assert reader_kwargs["data_key"] == "data"
-    finally:
-        config_file.unlink()
+    assert frame.columns == ["north", "south", "datetime", "solve_year"]
+    assert frame.rows() == [
+        (100.0, 150.0, np.datetime64("2024-01-01T00:00:00.000000"), 2024),
+        (120.0, 160.0, np.datetime64("2024-01-01T01:00:00.000000"), 2025),
+    ]

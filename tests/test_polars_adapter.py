@@ -195,6 +195,7 @@ def test_expression_schema_rejects_unknown_operators(operator: str) -> None:
         MappingExpressionOperator.CAST,
         MappingExpressionOperator.LIST_GET,
         MappingExpressionOperator.SPLIT,
+        MappingExpressionOperator.STRFTIME,
     ],
 )
 def test_binary_expression_operators_require_two_arguments(operator: MappingExpressionOperator) -> None:
@@ -215,6 +216,11 @@ def test_binary_expression_operators_require_two_arguments(operator: MappingExpr
             [LiteralExpression(literal=2024), LiteralExpression(literal=1)],
             "datetime expects year, month, day",
         ),
+        (
+            MappingExpressionOperator.MONTH,
+            [LiteralExpression(literal=2024), LiteralExpression(literal=1)],
+            "month expects exactly one argument",
+        ),
     ],
 )
 def test_unary_and_datetime_expressions_reject_invalid_argument_counts(
@@ -224,6 +230,16 @@ def test_unary_and_datetime_expressions_reject_invalid_argument_counts(
 ) -> None:
     with pytest.raises(ValidationError, match=message):
         ExpressionOperation.model_validate({operator.value: arguments})
+
+
+@pytest.mark.parametrize(
+    "format_expression",
+    ["%b", {"literal": 12}],
+    ids=["column-reference", "non-string-literal"],
+)
+def test_strftime_requires_a_literal_string_format(format_expression: object) -> None:
+    with pytest.raises(ValidationError, match="strftime requires a literal string format string"):
+        ExpressionOperation.model_validate({"strftime": ["timestamp", format_expression]})
 
 
 @pytest.mark.parametrize(
@@ -293,6 +309,7 @@ def test_unary_and_datetime_expressions_reject_invalid_argument_counts(
             {"lowercase": ["text"]},
             [" a-b ", "x-y"],
         ),
+        ({"month": ["timestamp"]}, [2, 12]),
         ({"max": ["left"]}, [5]),
         ({"mean": ["left"]}, [3.5]),
         (
@@ -302,6 +319,11 @@ def test_unary_and_datetime_expressions_reject_invalid_argument_counts(
         (
             {"split": ["text", {"literal": "-"}]},
             [[" A", "B "], ["X", "y"]],
+        ),
+        ({"strftime": ["timestamp", {"literal": "%b"}]}, ["Feb", "Dec"]),
+        (
+            {"lowercase": [{"strftime": ["timestamp", {"literal": "%b"}]}]},
+            ["feb", "dec"],
         ),
         (
             {"strip_chars": ["raw"]},
@@ -342,6 +364,7 @@ def test_mapping_expressions_compile_to_polars_results(
             "day": [2, 3],
             "hour": [0, 1],
             "short_list": [[1], [2]],
+            "timestamp": [datetime(2024, 2, 29), datetime(2025, 12, 31)],
         }
     ).lazy()
     select = SelectStep.model_validate({"op": "select", "columns": {"result": expression}})

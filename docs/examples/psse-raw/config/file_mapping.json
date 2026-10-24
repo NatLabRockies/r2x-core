@@ -7,7 +7,7 @@
         "encoding": "utf-8"
       }
     },
-    "relative_fpath": "../inputs/case.raw"
+    "relative_fpath": "inputs/case.raw"
   },
   {
     "name": "bus_names",

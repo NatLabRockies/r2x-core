@@ -8,6 +8,7 @@ import json
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime, timedelta
 from math import isfinite
+from pathlib import Path
 from typing import TypeAlias, TypeVar
 
 import numpy as np
@@ -31,6 +32,7 @@ from .processors import substitute_placeholders
 from .reader import DataReader
 from .store import DataStore
 from .system import System
+from .tabular_backend import StepHandlers
 from .types import JSONValue
 from .units import ureg
 
@@ -49,11 +51,14 @@ def build_system(
     /,
     *,
     name: str,
+    input_folder: Path | None = None,
     readers: Mapping[str, FileReader] | None = None,
+    step_handlers: StepHandlers | None = None,
     placeholders: Mapping[str, JSONValue] | None = None,
+    system_options: Mapping[str, object] | None = None,
 ) -> System:
     """Read configured inputs and construct one System without application loops."""
-    store = DataStore(config.config_path)
+    store = DataStore(path=input_folder)
     store.configure_upgrades(plugin_config=config)
     store.load_file_mapping(config.fmap_path)
     raw_instructions: JSONValue = TypeAdapter(JSONValue).validate_python(
@@ -64,7 +69,7 @@ def build_system(
         instructions = TypeAdapter(list[ParserInstruction]).validate_python(substituted.value)
     else:
         raise substituted.err()
-    reader = DataReader(file_readers=readers)
+    reader = DataReader(file_readers=readers, step_handlers=step_handlers)
     try:
         sources = reader.read_data_files(
             store.data_files.values(), folder_path=store.folder, placeholders=placeholders
@@ -81,6 +86,7 @@ def build_system(
         config=config,
         instructions=instructions,
         name=name,
+        system_options=system_options,
     )
 
 
@@ -91,6 +97,7 @@ def build_system_from_sources(
     config: PluginConfig,
     instructions: Sequence[ParserInstruction],
     name: str,
+    system_options: Mapping[str, object] | None = None,
 ) -> System:
     """Construct one System from already decoded sources and typed instructions.
 
@@ -100,7 +107,7 @@ def build_system_from_sources(
     raise their original validation errors. Outputs attached before a later
     failure are not rolled back.
     """
-    system = System(name=name)
+    system = System(name=name, **dict(system_options or {}))
     identities: set[tuple[type[Component], str]] = set()
     for instruction in instructions:
         source = sources.get(instruction.source)
@@ -206,11 +213,20 @@ def build_supplemental_attributes(
     if unknown:
         msg = f"Unknown fields for {attribute_type.__name__}: {sorted(unknown)}"
         raise ValueError(msg)
+    owner_types: dict[str, type[Component]] = {}
+    owner_cache: dict[tuple[type[Component], str], Component] = {}
     for row in source.iter_rows():
         attribute = attribute_type.model_validate(
             {target: required_value(row, column) for target, column in instruction.fields.items()}
         )
-        owners = resolve_owners(system, instruction.owners, config=config, rows=(row,))
+        owners = resolve_owners(
+            system,
+            instruction.owners,
+            config=config,
+            rows=(row,),
+            owner_types=owner_types,
+            owner_cache=owner_cache,
+        )
         for owner in owners:
             system.add_supplemental_attribute(owner, attribute)
 
@@ -231,10 +247,19 @@ def attach_time_series(
     if instruction.skip_if_empty and source.is_empty():
         return
 
+    owner_types: dict[str, type[Component]] = {}
+    owner_cache: dict[tuple[type[Component], str], Component] = {}
     if any(owner.name_field for owner in instruction.owners) or instruction.metadata_columns:
         groups: dict[PartitionKey, tuple[list[Component], list[Record], dict[str, MetadataScalar]]] = {}
         for row in source.iter_rows():
-            owners = resolve_owners(system, instruction.owners, config=config, rows=(row,))
+            owners = resolve_owners(
+                system,
+                instruction.owners,
+                config=config,
+                rows=(row,),
+                owner_types=owner_types,
+                owner_cache=owner_cache,
+            )
             owner_key = tuple((type(owner), owner.name) for owner in owners)
             row_metadata = {
                 feature: metadata_scalar(required_value(row, field), feature=feature)
@@ -265,7 +290,14 @@ def attach_time_series(
             )
         return
 
-    owners = resolve_owners(system, instruction.owners, config=config, rows=())
+    owners = resolve_owners(
+        system,
+        instruction.owners,
+        config=config,
+        rows=(),
+        owner_types=owner_types,
+        owner_cache=owner_cache,
+    )
     values = source.values(instruction.values)
     axis_values = (
         source.values(instruction.time_axis.column)
@@ -320,13 +352,19 @@ def resolve_owners(
     *,
     config: PluginConfig,
     rows: Iterable[Record],
+    owner_types: dict[str, type[Component]] | None = None,
+    owner_cache: dict[tuple[type[Component], str], Component] | None = None,
 ) -> list[Component]:
     """Resolve selected owners through the public type-and-name lookup."""
     records = tuple(rows)
     owners: list[Component] = []
     seen: set[tuple[type[Component], str]] = set()
     for declaration in declarations:
-        component_type = resolve_model_type(declaration.component_type, config=config, expected=Component)
+        component_type = owner_types.get(declaration.component_type) if owner_types is not None else None
+        if component_type is None:
+            component_type = resolve_model_type(declaration.component_type, config=config, expected=Component)
+            if owner_types is not None:
+                owner_types[declaration.component_type] = component_type
         if declaration.name is not None:
             names = [declaration.name]
         elif declaration.names is not None:
@@ -339,7 +377,12 @@ def resolve_owners(
         for name in names:
             identity = (component_type, name)
             if identity not in seen:
-                owners.append(get_component(system, component_type, name, label="owner"))
+                owner = owner_cache.get(identity) if owner_cache is not None else None
+                if owner is None:
+                    owner = get_component(system, component_type, name, label="owner")
+                    if owner_cache is not None:
+                        owner_cache[identity] = owner
+                owners.append(owner)
                 seen.add(identity)
     if not owners:
         msg = "An output instruction resolved no component owners"

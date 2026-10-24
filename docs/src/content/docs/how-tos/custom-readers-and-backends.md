@@ -79,6 +79,7 @@ config = PluginConfig(
 system = build_system(
     config,
     name="case",
+    input_folder="path/to/run",
     readers={"dummy_raw": DummyPSSEReader()},
 )
 ```

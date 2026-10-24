@@ -11,7 +11,11 @@ DataStore(path: str | Path | None = None)
 DataStore.add_data(data_files: Sequence[DataFile], *, overwrite: bool = False) -> None
 DataStore.load_file_mapping(mapping_path: Path) -> None
 DataStore.list_data() -> list[str]
-DataReader(file_readers: Mapping[str, FileReader] | None = None)
+DataReader(
+    *,
+    file_readers: Mapping[str, FileReader] | None = None,
+    step_handlers: Mapping[str, MappingStepHandler[Any, Any, Any]] | None = None,
+)
 DataReader.read_data_files(
     data_files: Iterable[DataFile],
     *,
@@ -28,7 +32,10 @@ named `DecodedSource` values. A reader may decode one physical file into several
 source names. Results are reused only within that call, keyed by resolved path,
 format, and reader options. `initial_sources` seeds ordered processing with
 already decoded values. The input mapping is copied, seed values remain in the
-returned mapping, and configured name collisions raise `ValueError`.
+returned mapping, and configured name collisions raise `ValueError`. Named-source,
+join, concat, and conditional-input dependencies are validated before any input
+is read. Application `step_handlers` are shared by the built-in Polars file
+reader and inline tables.
 
 A `DataFile` may also define an `InlineTable` with a raw schema and exact-shape
 records, or a `SourceSelection` over prior names. `first_present` preserves an
@@ -45,10 +52,7 @@ missing-file or missing-group error. A false predicate allows an absent input,
 but does not hide malformed present data. The predicate source must be declared
 before the conditional input.
 
-`build_system(config, /, *, name, readers=None, placeholders=None)` is the standard
-configured construction operation. It validates parser instructions before
-reading inputs, then delegates output construction to the same engine used by
-`build_system_from_sources`.
+`build_system(config, /, *, name, input_folder=None, readers=None, step_handlers=None, placeholders=None, system_options=None)` is the standard configured construction operation. Configuration assets are read from `config.config_path`; physical inputs are resolved from `input_folder` (or the current working directory when omitted). `system_options` are passed to `System`. It validates parser instructions before reading inputs, then delegates output construction to the same engine used by `build_system_from_sources`.
 
 ```python
 build_system_from_sources(
@@ -58,6 +62,7 @@ build_system_from_sources(
     config: PluginConfig,
     instructions: Sequence[ParserInstruction],
     name: str,
+    system_options: Mapping[str, object] | None = None,
 ) -> System
 ```
 

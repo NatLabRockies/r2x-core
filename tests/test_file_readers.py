@@ -322,7 +322,7 @@ def test_reader_rejects_empty_and_invalid_named_outputs() -> None:
 def test_derived_sources_must_follow_their_dependencies(tmp_path: Path) -> None:
     """Keep declared source composition ordered and fail before reading inputs."""
     item = DataFile(name="derived", source="not-yet-loaded")
-    with pytest.raises(ValueError, match="must be declared before"):
+    with pytest.raises(ValueError, match="before it is declared"):
         DataReader().read_data_files([item], folder_path=tmp_path)
 
 

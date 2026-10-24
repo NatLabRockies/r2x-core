@@ -45,6 +45,7 @@ EXPRESSION_COMPILERS: dict[MappingExpressionOperator, ExpressionCompiler] = {
     MappingExpressionOperator.IS_NULL: lambda arguments: arguments[0].is_null(),
     MappingExpressionOperator.LIST_SORT: lambda arguments: arguments[0].list.sort(),
     MappingExpressionOperator.LOWERCASE: lambda arguments: arguments[0].str.to_lowercase(),
+    MappingExpressionOperator.MONTH: lambda arguments: arguments[0].dt.month(),
     MappingExpressionOperator.STRIP_CHARS: lambda arguments: arguments[0].str.strip_chars(),
     MappingExpressionOperator.STRUCT: pl.struct,
     MappingExpressionOperator.WHEN: lambda arguments: pl.when(arguments[0])
@@ -144,14 +145,15 @@ def compile_operation(
             msg = "list_get requires a literal integer index as its second argument"
             raise ValueError(msg)
         return arguments[0].list.get(index, null_on_oob=True)
-    if expression.op is MappingExpressionOperator.SPLIT:
-        separator_argument = expression.args[1]
-        if not isinstance(separator_argument, LiteralExpression) or not isinstance(
-            separator_argument.literal, str
-        ):
-            msg = "split requires a literal string separator as its second argument"
+    if expression.op in {MappingExpressionOperator.SPLIT, MappingExpressionOperator.STRFTIME}:
+        format_argument = expression.args[1]
+        if not isinstance(format_argument, LiteralExpression) or not isinstance(format_argument.literal, str):
+            label = "separator" if expression.op is MappingExpressionOperator.SPLIT else "format string"
+            msg = f"{expression.op} requires a literal string {label} as its second argument"
             raise ValueError(msg)
-        return arguments[0].str.split(separator_argument.literal)
+        if expression.op is MappingExpressionOperator.SPLIT:
+            return arguments[0].str.split(format_argument.literal)
+        return arguments[0].dt.strftime(format_argument.literal)
     compiler = EXPRESSION_COMPILERS.get(expression.op)
     if compiler is None:
         msg = f"Unsupported mapping expression operation: {expression.op}"

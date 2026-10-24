@@ -7,6 +7,7 @@ from typing import Annotated
 
 import h5py
 import numpy as np
+from h5py.h5t import check_string_dtype
 from loguru import logger
 from pydantic import ConfigDict, Field
 
@@ -18,7 +19,6 @@ from .type_alias import H5Label, H5Result
 
 DEFAULT_DATETIME_COLUMN_NAME = "datetime"
 DEFAULT_INDEX_NAMES_KEY = "index_names"
-HDF5_STRING_KINDS = frozenset({"S", "O"})
 INDEX_COLUMN_PREFIX = "index_"
 SOLVE_YEAR_COLUMN_NAME = "solve_year"
 YEAR_COLUMN_NAME = "year"
@@ -105,7 +105,7 @@ def read_h5_scope(h5_file: h5py.Group, *, options: H5ReaderOptions) -> H5Result:
         scope = selected
 
     if options.data_key is None and not options.columns_as_datasets:
-        return read_first_dataset(scope)
+        return read_first_dataset(scope, decode_bytes=options.decode_bytes)
 
     file_data: dict[str, h5py.Dataset] = {}
     index_names_dataset = get_h5_dataset(scope, file_data, options.index_names_key)
@@ -148,10 +148,7 @@ def read_h5_scope(h5_file: h5py.Group, *, options: H5ReaderOptions) -> H5Result:
         get_h5_dataset(scope, file_data, options.datetime_key) if options.datetime_key is not None else None
     )
     if datetime_dataset is not None:
-        dt_values = datetime_dataset[()]
-        if options.decode_bytes and datetime_dataset.dtype.kind in HDF5_STRING_KINDS:
-            dt_values = datetime_dataset.asstr()[()]
-        dt_data = np.atleast_1d(np.asarray(dt_values))
+        dt_data = np.atleast_1d(read_h5_values(datetime_dataset, decode_bytes=options.decode_bytes))
         if dt_data.size > 0 and isinstance(dt_data[0], str):
             result[options.datetime_column_name] = parse_datetime_array(
                 [str(value) for value in dt_data],
@@ -168,7 +165,7 @@ def read_h5_scope(h5_file: h5py.Group, *, options: H5ReaderOptions) -> H5Result:
         and index_dataset is not None
         and options.index_key != options.datetime_key
     ):
-        result[options.index_key] = np.asarray(index_dataset[()])
+        result[options.index_key] = read_h5_values(index_dataset, decode_bytes=options.decode_bytes)
 
     for key in options.additional_keys:
         additional_dataset = get_h5_dataset(scope, file_data, key)
@@ -179,7 +176,9 @@ def read_h5_scope(h5_file: h5py.Group, *, options: H5ReaderOptions) -> H5Result:
             column_name = format_column_name(key)
         elif not user_column_mapping:
             column_name = format_column_name(column_name)
-        result[h5_key_to_string(column_name)] = np.asarray(additional_dataset[()])
+        result[h5_key_to_string(column_name)] = read_h5_values(
+            additional_dataset, decode_bytes=options.decode_bytes
+        )
 
     return result
 
@@ -197,7 +196,7 @@ def read_row_oriented_data(
     if data_dataset is None:
         msg = f"HDF5 dataset '{data_key}' not found"
         raise KeyError(msg)
-    data = np.asarray(data_dataset[()])
+    data = read_h5_values(data_dataset, decode_bytes=decode_bytes)
     columns = get_h5_dataset(scope, file_data, columns_key) if columns_key is not None else None
     if isinstance(columns, h5py.Dataset):
         column_names = read_h5_labels(columns, decode_bytes=decode_bytes)
@@ -235,10 +234,17 @@ def get_h5_dataset(
     return dataset
 
 
+def read_h5_values(dataset: h5py.Dataset, *, decode_bytes: bool) -> np.ndarray:
+    """Read an HDF5 dataset, decoding values only when its dtype is a string type."""
+    if decode_bytes and check_string_dtype(dataset.dtype) is not None:
+        return np.asarray(dataset.asstr()[()])
+    return np.asarray(dataset[()])
+
+
 def read_h5_labels(dataset: h5py.Dataset, *, decode_bytes: bool) -> list[H5Label]:
     """Read an HDF5 dataset of labels with optional byte-string decoding."""
     values = dataset[()]
-    if decode_bytes and dataset.dtype.kind in HDF5_STRING_KINDS:
+    if decode_bytes and check_string_dtype(dataset.dtype) is not None:
         values = dataset.asstr()[()]
     labels = np.atleast_1d(values)
     if decode_bytes:
@@ -282,15 +288,15 @@ def read_columnar_group(
         if not isinstance(dataset, h5py.Dataset):
             msg = f"HDF5 column dataset '{h5_key_to_string(column)}' not found"
             raise KeyError(msg)
-        if dataset.dtype.kind in HDF5_STRING_KINDS:
-            values = np.atleast_1d(dataset.asstr()[()]) if decode_bytes else np.atleast_1d(dataset[()])
+        if check_string_dtype(dataset.dtype) is not None:
+            values = np.atleast_1d(read_h5_values(dataset, decode_bytes=decode_bytes))
             result[column_key] = values.tolist()
         else:
             result[column_key] = np.atleast_1d(np.asarray(dataset[()]))
     return result
 
 
-def read_first_dataset(scope: h5py.Group) -> H5Result:
+def read_first_dataset(scope: h5py.Group, *, decode_bytes: bool) -> H5Result:
     """Read first dataset in an HDF5 scope as the default behavior."""
     try:
         key = next(iter(scope.keys()))
@@ -302,7 +308,7 @@ def read_first_dataset(scope: h5py.Group) -> H5Result:
     if not isinstance(dataset, h5py.Dataset):
         return {key: [str(dataset)]}
 
-    data = np.atleast_1d(np.asarray(dataset[()]))
+    data = np.atleast_1d(read_h5_values(dataset, decode_bytes=decode_bytes))
     if data.ndim == 1:
         return {key: data}
     return {f"{key}_col_{i}": data[:, i] for i in range(data.shape[1])}

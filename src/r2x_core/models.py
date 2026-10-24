@@ -6,7 +6,16 @@ from datetime import datetime
 from math import isfinite
 from typing import Annotated, Any, ClassVar, Literal, TypeAlias
 
-from pydantic import ConfigDict, Field, RootModel, StrictBool, StrictFloat, StrictInt, StrictStr, model_validator
+from pydantic import (
+    ConfigDict,
+    Field,
+    RootModel,
+    StrictBool,
+    StrictFloat,
+    StrictInt,
+    StrictStr,
+    model_validator,
+)
 
 from .type_vocabulary import (
     AggregationFunction,
@@ -109,6 +118,7 @@ class ExpressionOperation(
             MappingExpressionOperator.NEQ,
             MappingExpressionOperator.REPEAT_BY,
             MappingExpressionOperator.SPLIT,
+            MappingExpressionOperator.STRFTIME,
             MappingExpressionOperator.STARTS_WITH,
             MappingExpressionOperator.SUBTRACT,
         }
@@ -116,6 +126,7 @@ class ExpressionOperation(
             MappingExpressionOperator.IS_NULL,
             MappingExpressionOperator.LIST_SORT,
             MappingExpressionOperator.LOWERCASE,
+            MappingExpressionOperator.MONTH,
             MappingExpressionOperator.STRIP_CHARS,
             MappingExpressionOperator.YEAR,
         }
@@ -137,11 +148,19 @@ class ExpressionOperation(
             msg = "is_in requires a typed list literal as its second argument"
             raise ValueError(msg)
 
-        if self.op in {MappingExpressionOperator.CAST, MappingExpressionOperator.SPLIT}:
+        if self.op in {
+            MappingExpressionOperator.CAST,
+            MappingExpressionOperator.SPLIT,
+            MappingExpressionOperator.STRFTIME,
+        }:
             argument = self.args[1]
             if not isinstance(argument, LiteralExpression) or not isinstance(argument.literal, str):
-                label = "type name" if self.op is MappingExpressionOperator.CAST else "separator"
-                msg = f"{self.op} requires a literal string {label} as its second argument"
+                labels = {
+                    MappingExpressionOperator.CAST: "type name",
+                    MappingExpressionOperator.SPLIT: "separator",
+                    MappingExpressionOperator.STRFTIME: "format string",
+                }
+                msg = f"{self.op} requires a literal string {labels[self.op]} as its second argument"
                 raise ValueError(msg)
         if self.op is MappingExpressionOperator.LIST_GET:
             argument = self.args[1]
@@ -465,7 +484,10 @@ class MatchPatternsStep(StrictConfigModel):
     @model_validator(mode="after")
     def validate_attribute_ranges(self) -> MatchPatternsStep:
         """Keep numeric attributes representable by the backend scalar dtypes."""
-        values = [*self.defaults.values(), *(value for group in self.groups for value in group.attributes.values())]
+        values = [
+            *self.defaults.values(),
+            *(value for group in self.groups for value in group.attributes.values()),
+        ]
         for value in values:
             if type(value) is int and not -(2**63) <= value <= 2**63 - 1:
                 msg = "Integer pattern attributes must fit in signed 64-bit values"

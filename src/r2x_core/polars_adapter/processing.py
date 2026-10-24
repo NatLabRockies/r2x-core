@@ -116,9 +116,7 @@ def pattern_attribute_dtypes(step: MatchPatternsStep) -> dict[str, DataTypeClass
     return result
 
 
-def pattern_group_predicate(
-    column: pl.Expr, group: PatternMatchGroup, *, case_sensitive: bool
-) -> pl.Expr:
+def pattern_group_predicate(column: pl.Expr, group: PatternMatchGroup, *, case_sensitive: bool) -> pl.Expr:
     """Match one group's exact values or literal prefixes against a string expression."""
     predicates = []
     if group.exact:
@@ -151,20 +149,17 @@ def match_patterns(
         column = column.str.to_lowercase()
 
     attribute_dtypes = pattern_attribute_dtypes(step)
-    matched_frames = []
+    matched_frames: list[pl.LazyFrame] = []
     for group in step.groups:
         attributes = step.defaults | group.attributes
         additions = [
             pl.lit(group.label, dtype=pl.String).alias(step.label_column),
-            *(
-                pl.lit(attributes[name], dtype=attribute_dtypes[name]).alias(name)
-                for name in step.defaults
-            ),
+            *(pl.lit(attributes[name], dtype=attribute_dtypes[name]).alias(name) for name in step.defaults),
         ]
         matched_frames.append(
-            data_frame.filter(pattern_group_predicate(column, group, case_sensitive=step.case_sensitive)).with_columns(
-                additions
-            )
+            data_frame.filter(
+                pattern_group_predicate(column, group, case_sensitive=step.case_sensitive)
+            ).with_columns(additions)
         )
 
     matched = pl.concat(matched_frames, how="vertical")
@@ -511,11 +506,15 @@ def pivot_table(
     schema_names = data_frame.collect_schema().names()
     input_columns = [step.pivot_on, *step.group_by, *step.aggregate_on]
     require_columns(schema_names, input_columns, operation="pivot", data_file=data_file)
-    pivot_values = collect_polars_frame(
-        data_frame.select(exact_column_expression(step.pivot_on, column_names=schema_names)).unique(
-            maintain_order=True
+    pivot_values = (
+        collect_polars_frame(
+            data_frame.select(exact_column_expression(step.pivot_on, column_names=schema_names)).unique(
+                maintain_order=True
+            )
         )
-    ).to_series().to_list()
+        .to_series()
+        .to_list()
+    )
     if any(value is None for value in pivot_values):
         file_context = f" in {data_file.name!r}" if data_file is not None else ""
         msg = f"pivot{file_context} contains null keys in {step.pivot_on!r}"
@@ -539,8 +538,7 @@ def pivot_table(
 
     pivot_column = allocate_alias("__r2x_pivot_key")
     index_columns = {
-        column: allocate_alias(f"__r2x_pivot_index_{index}")
-        for index, column in enumerate(step.group_by)
+        column: allocate_alias(f"__r2x_pivot_index_{index}") for index, column in enumerate(step.group_by)
     }
     value_columns = {
         column: allocate_alias(
@@ -572,7 +570,7 @@ def pivot_table(
             for input_column, alias in value_columns.items():
                 prefix = f"{alias}_"
                 if result_column.startswith(prefix):
-                    restored_columns[result_column] = f"{input_column}{result_column[len(alias):]}"
+                    restored_columns[result_column] = f"{input_column}{result_column[len(alias) :]}"
     return result.rename(restored_columns)
 
 

@@ -31,6 +31,7 @@ def test_empty_illustrative_raw_builds_empty_outputs(tmp_path: Path, monkeypatch
     system = build_system(
         config,
         name="empty-illustrative-case",
+        input_folder=tmp_path,
         readers={"dummy_raw": reader_module.DummyPSSEReader()},
     )
 

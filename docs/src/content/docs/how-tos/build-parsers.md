@@ -59,7 +59,7 @@ the CSV input, validates component instances, and adds them to the `System`.
 ...         "name,capacity_mw\nAlpha,100\n", encoding="utf-8"
 ...     )
 ...     _ = (config_dir / "file_mapping.json").write_text(
-...         json.dumps([{"name": "generators", "relative_fpath": "../generators.csv"}]),
+...         json.dumps([{"name": "generators", "relative_fpath": "generators.csv"}]),
 ...         encoding="utf-8",
 ...     )
 ...     _ = (config_dir / "parser_rules.json").write_text(
@@ -70,7 +70,7 @@ the CSV input, validates component instances, and adds them to the `System`.
 ...         models=(module.__name__,),
 ...         config_path_override=config_dir,
 ...     )
-...     system = build_system(config, name="parsed")
+...     system = build_system(config, name="parsed", input_folder=root)
 ...     generators = tuple(system.get_components(Generator))
 ...     len(generators), generators[0].name, generators[0].capacity_mw
 (1, 'Alpha', 100.0)

@@ -15,6 +15,7 @@ from ..datafile import ReaderConfig
 from ..file_reader import ArraySource, DecodedSources, FileReader, TabularSource
 from ..h5_adapter import H5PyFileReader, H5Reader
 from ..models import StrictConfigModel
+from ..tabular_backend import StepHandlers
 from ..type_vocabulary import NonEmptyString, PositiveInteger
 from .backend import PolarsTabularBackend
 
@@ -146,10 +147,15 @@ def read_polars_h5_file(
 class PolarsTabularFileReader(FileReader):
     """Read supported tabular files into Polars lazy frames."""
 
-    def __init__(self, *, h5_reader: H5Reader | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        h5_reader: H5Reader | None = None,
+        step_handlers: StepHandlers | None = None,
+    ) -> None:
         """Select the HDF5 format reader and matching processing backend."""
         self.h5_reader = h5_reader
-        self.backend: PolarsTabularBackend = PolarsTabularBackend()
+        self.backend: PolarsTabularBackend = PolarsTabularBackend(step_handlers=step_handlers)
 
     def read_file(
         self,

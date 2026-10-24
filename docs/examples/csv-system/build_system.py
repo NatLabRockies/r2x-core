@@ -20,7 +20,13 @@ class BuildScenario(Plugin[BuildConfig]):
     """Use core construction, then apply the application's scenario."""
 
     def on_build(self) -> Result[System, str]:
-        return Ok(build_system(self.config, name="capacity-scenario"))
+        return Ok(
+            build_system(
+                self.config,
+                name="capacity-scenario",
+                input_folder=self.config.config_path.parent,
+            )
+        )
 
     def on_transform(self) -> Result[System, str]:
         for generator in self.system.get_components(Generator):

@@ -43,6 +43,110 @@ def read_one(
     return reader.read_data_files([item], folder_path=folder, placeholders=placeholders).get(item.name)
 
 
+def test_application_step_handlers_process_file_and_inline_tables(tmp_path: Path) -> None:
+    """Registering one application handler covers both built-in input paths."""
+    from pydantic import BaseModel
+
+    class MultiplyOptions(BaseModel):
+        factor: int
+
+    class MultiplyHandler:
+        options_model: type[MultiplyOptions] = MultiplyOptions
+        input_type: type[pl.LazyFrame] = pl.LazyFrame
+        output_type: type[pl.LazyFrame] = pl.LazyFrame
+
+        def apply(self, value: pl.LazyFrame, *, options: MultiplyOptions) -> pl.LazyFrame:
+            return value.with_columns((pl.col("value") * options.factor).alias("value"))
+
+    (tmp_path / "values.csv").write_text("value\n2\n", encoding="utf-8")
+    processing = TabularProcessing(steps=[{"op": "custom", "handler": "multiply", "kwargs": {"factor": 3}}])
+    reader = DataReader(step_handlers={"multiply": MultiplyHandler()})
+    files = [
+        DataFile(name="physical", relative_fpath="values.csv", proc_spec=processing),
+        DataFile(
+            name="inline",
+            inline_table={"schema": {"value": "int64"}, "rows": [{"value": 2}]},
+            proc_spec=processing,
+        ),
+    ]
+
+    sources = reader.read_data_files(files, folder_path=tmp_path)
+
+    assert table_data(sources["physical"]).collect().to_dicts() == [{"value": 6}]
+    assert table_data(sources["inline"]).collect().to_dicts() == [{"value": 6}]
+
+
+@pytest.mark.parametrize(
+    ("dependent", "purpose"),
+    [
+        pytest.param(DataFile(name="derived", source="later"), "source", id="named-source"),
+        pytest.param(
+            DataFile(
+                name="joined",
+                inline_table={"schema": {"id": "int64"}, "rows": [{"id": 1}]},
+                proc_spec={
+                    "kind": "tabular",
+                    "steps": [{"op": "join", "source": "later", "how": "inner", "on": ["id"]}],
+                },
+            ),
+            "operation 0 (join)",
+            id="join-source",
+        ),
+    ],
+)
+def test_data_reader_rejects_forward_source_dependencies_before_reading(
+    tmp_path: Path, dependent: DataFile, purpose: str
+) -> None:
+    """Dependency errors identify the declaration and operation before input IO."""
+    later = DataFile(name="later", inline_table={"schema": {"id": "int64"}, "rows": [{"id": 1}]})
+
+    with pytest.raises(ValueError) as captured:
+        DataReader().read_data_files([dependent, later], folder_path=tmp_path)
+
+    assert purpose in str(captured.value)
+    assert "source 'later' before it is declared" in str(captured.value)
+
+
+@pytest.mark.parametrize("dependency", ["source", "join", "concat"])
+def test_data_reader_resolves_placeholder_dependencies_before_preflight(
+    tmp_path: Path, dependency: str
+) -> None:
+    """Placeholders naming declared sources work for every supported dependency form."""
+    base = DataFile(
+        name="base",
+        inline_table={"schema": {"id": "int64", "value": "int64"}, "rows": [{"id": 1, "value": 7}]},
+    )
+    if dependency == "source":
+        dependent = DataFile(name="derived", source="{input_source}")
+        expected = [{"id": 1, "value": 7}]
+    elif dependency == "join":
+        dependent = DataFile(
+            name="derived",
+            inline_table={"schema": {"id": "int64"}, "rows": [{"id": 1}]},
+            proc_spec={
+                "kind": "tabular",
+                "steps": [{"op": "join", "source": "{input_source}", "how": "left", "on": ["id"]}],
+            },
+        )
+        expected = [{"id": 1, "value": 7}]
+    else:
+        dependent = DataFile(
+            name="derived",
+            inline_table={"schema": {"id": "int64", "value": "int64"}, "rows": [{"id": 2, "value": 8}]},
+            proc_spec={
+                "kind": "tabular",
+                "steps": [{"op": "concat", "sources": ["{input_source}"]}],
+            },
+        )
+        expected = [{"id": 2, "value": 8}, {"id": 1, "value": 7}]
+
+    sources = DataReader().read_data_files(
+        [base, dependent], folder_path=tmp_path, placeholders={"input_source": "base"}
+    )
+
+    assert table_data(sources["derived"]).collect().to_dicts() == expected
+
+
 def table_data(source: object) -> pl.LazyFrame:
     """Require a Polars-backed source in tests of the built-in tabular reader."""
     assert isinstance(source, TabularSource)
@@ -1409,7 +1513,7 @@ def test_source_selection_rejects_undeclared_candidate_even_with_fallback(tmp_pa
         ),
     ]
 
-    with pytest.raises(ValueError, match="must be declared before 'selected'"):
+    with pytest.raises(ValueError, match="references source 'actaul' before it is declared"):
         DataReader().read_data_files(files, folder_path=tmp_path)
 
 
@@ -1426,7 +1530,7 @@ def test_source_selection_rejects_forward_candidate_even_with_fallback(tmp_path:
         DataFile(name="later", inline_table={"schema": {"id": "int64"}, "rows": [{"id": 1}]}),
     ]
 
-    with pytest.raises(ValueError, match="must be declared before 'selected'"):
+    with pytest.raises(ValueError, match="references source 'later' before it is declared"):
         DataReader().read_data_files(files, folder_path=tmp_path)
 
 
@@ -1880,7 +1984,7 @@ def test_inline_table_source_constructor_rejects_unresolved_rows() -> None:
     table = InlineTable.model_validate({"schema": {"id": "int64"}, "rows": "{rows}"})
 
     with pytest.raises(ValueError, match="row placeholder was not resolved"):
-        DataReader.create_inline_table_source(table)
+        DataReader().create_inline_table_source(table)
 
 
 def test_inline_table_missing_row_placeholder_is_an_error(tmp_path: Path) -> None:
@@ -2060,7 +2164,9 @@ def test_match_patterns_allows_an_explicit_empty_pattern_list(tmp_path: Path) ->
     assert frame.collect().to_dicts() == [{"technology": "solar", "category": "solar"}]
 
 
-@pytest.mark.parametrize(("case_sensitive", "expected"), [(True, []), (False, [{"technology": "GAS-CC", "category": "thermal"}])])
+@pytest.mark.parametrize(
+    ("case_sensitive", "expected"), [(True, []), (False, [{"technology": "GAS-CC", "category": "thermal"}])]
+)
 def test_match_patterns_uses_literal_case_policy(
     tmp_path: Path, case_sensitive: bool, expected: list[dict[str, str]]
 ) -> None:
@@ -2127,7 +2233,12 @@ def test_match_patterns_preserves_group_order_duplicates_and_literal_names(tmp_p
     assert frame.collect().to_dicts() == [
         {"^tech.*$": "Wind.Ons-1", "category": "renewable", "is_dispatchable": False, "unsupported": False},
         {"^tech.*$": "Wind.Ons-1", "category": "renewable", "is_dispatchable": False, "unsupported": False},
-        {"^tech.*$": "wind.*literal", "category": "renewable", "is_dispatchable": False, "unsupported": False},
+        {
+            "^tech.*$": "wind.*literal",
+            "category": "renewable",
+            "is_dispatchable": False,
+            "unsupported": False,
+        },
         {"^tech.*$": "Wind.Ons-1", "category": "wind", "is_dispatchable": True, "unsupported": False},
         {"^tech.*$": "Wind.Ons-1", "category": "wind", "is_dispatchable": True, "unsupported": False},
         {"^tech.*$": "wind.*literal", "category": "wind", "is_dispatchable": True, "unsupported": False},
@@ -2157,7 +2268,9 @@ def test_match_patterns_keeps_attribute_schema_for_empty_results(tmp_path: Path)
     )
 
     empty_frame = table_data(DataReader().read_data_files([empty], folder_path=tmp_path)[empty.name])
-    populated_frame = table_data(DataReader().read_data_files([populated], folder_path=tmp_path)[populated.name])
+    populated_frame = table_data(
+        DataReader().read_data_files([populated], folder_path=tmp_path)[populated.name]
+    )
 
     assert empty_frame.collect().to_dicts() == []
     assert empty_frame.collect_schema() == populated_frame.collect_schema()
@@ -2168,7 +2281,10 @@ def test_match_patterns_keeps_attribute_schema_for_empty_results(tmp_path: Path)
 def test_match_patterns_merges_defaults_without_coercing_explicit_values(tmp_path: Path) -> None:
     source = DataFile(
         name="attribute_defaults",
-        inline_table={"schema": {"technology": "string"}, "rows": [{"technology": "solar"}, {"technology": "wind"}]},
+        inline_table={
+            "schema": {"technology": "string"},
+            "rows": [{"technology": "solar"}, {"technology": "wind"}],
+        },
         proc_spec={
             "kind": "tabular",
             "steps": [

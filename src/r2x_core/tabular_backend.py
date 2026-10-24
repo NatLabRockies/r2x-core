@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Protocol, TypeVar
+from typing import Any, Protocol, TypeVar
 
 from pydantic import BaseModel
 from rust_ok import Ok, Result, is_ok
@@ -38,6 +38,9 @@ class MappingStepHandler(Protocol[HandlerOptionsT, HandlerInputT, HandlerOutputT
     def apply(self, value: HandlerInputT, *, options: HandlerOptionsT) -> HandlerOutputT:
         """Consume an input value and return its declared output type."""
         ...
+
+
+StepHandlers = Mapping[str, MappingStepHandler[Any, Any, Any]]
 
 
 class MappingStepBackend(Protocol[FrameT]):

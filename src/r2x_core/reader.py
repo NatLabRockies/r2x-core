@@ -15,8 +15,9 @@ from .datafile import DataFile, InlineTable, ReaderConfig, SourceSelection
 from .exceptions import ConfiguredGroupNotFoundError, ReaderError
 from .file_reader import DecodedSource, DecodedSources, FileReader, TabularSource
 from .json_adapter import JSONFileReader
-from .models import FilterStep, SourcePredicate, TabularProcessing
+from .models import ConcatStep, FilterStep, JoinStep, SourcePredicate, TabularProcessing
 from .processors import substitute_placeholders
+from .tabular_backend import StepHandlers
 from .types import FileProcessing, FileRequirement, JSONValue
 from .utils.files import get_fpath
 from .xml_adapter import XMLFileReader
@@ -42,19 +43,60 @@ def reject_source_name_collisions(existing: Mapping[str, DecodedSource], names: 
         raise ValueError(msg)
 
 
+def validate_data_file_dependencies(data_files: Iterable[DataFile], /, *, initial_names: set[str]) -> None:
+    """Validate ordered source dependencies before decoding any input."""
+    declared_names = set(initial_names)
+    for data_file in data_files:
+        if data_file.name in declared_names:
+            msg = f"Duplicate named source {data_file.name!r}"
+            raise ValueError(msg)
+
+        dependencies: list[tuple[str, str]] = []
+        if data_file.source is not None:
+            dependencies.append((data_file.source, "source"))
+        if data_file.source_selection is not None:
+            dependencies.extend((name, "source selection") for name in data_file.source_selection.sources)
+        if data_file.required_when is not None:
+            dependencies.append((data_file.required_when.source, "required_when"))
+        if isinstance(data_file.proc_spec, TabularProcessing):
+            for index, step in enumerate(data_file.proc_spec.steps):
+                if isinstance(step, JoinStep):
+                    dependencies.append((step.source, f"operation {index} ({step.op})"))
+                elif isinstance(step, ConcatStep):
+                    dependencies.extend((name, f"operation {index} ({step.op})") for name in step.sources)
+
+        for source_name, purpose in dependencies:
+            available = source_name in declared_names or any(
+                source_name.startswith(f"{declared_name}.") for declared_name in declared_names
+            )
+            if not available:
+                msg = (
+                    f"DataFile {data_file.name!r} {purpose} references source "
+                    f"{source_name!r} before it is declared"
+                )
+                raise ValueError(msg)
+        declared_names.add(data_file.name)
+
+
 class DataReader:
     """Read configured files into named sources and execute declared operations."""
 
-    def __init__(self, *, file_readers: Mapping[str, FileReader] | None = None) -> None:
-        """Register app readers by symbolic format name."""
+    def __init__(
+        self,
+        *,
+        file_readers: Mapping[str, FileReader] | None = None,
+        step_handlers: StepHandlers | None = None,
+    ) -> None:
+        """Register app readers and mapping handlers by symbolic name."""
         self.file_readers = dict(file_readers or {})
+        self.step_handlers = dict(step_handlers or {})
 
     @cached_property
     def polars_file_reader(self) -> FileReader:
         """Load built-in tabular support on first use."""
         from .polars_adapter import PolarsTabularFileReader
 
-        return PolarsTabularFileReader()
+        return PolarsTabularFileReader(step_handlers=self.step_handlers)
 
     @cached_property
     def json_file_reader(self) -> FileReader:
@@ -100,11 +142,14 @@ class DataReader:
         """
         sources: dict[str, DecodedSource] = dict(initial_sources or {})
         validate_initial_sources(sources)
+        configured_files = tuple(
+            self.resolve_placeholders(data_file, placeholders=placeholders) for data_file in data_files
+        )
+        validate_data_file_dependencies(configured_files, initial_names=set(sources))
         declared_source_names = set(sources)
         configured_file_names: set[str] = set()
         decoded_cache: dict[tuple[Path, str, str], DecodedSources] = {}
-        for configured_file in data_files:
-            data_file = self.resolve_placeholders(configured_file, placeholders=placeholders)
+        for data_file in configured_files:
             required = data_file.info.requirement is FileRequirement.REQUIRED or self.is_required_by_source(
                 data_file, sources=sources
             )
@@ -204,13 +249,14 @@ class DataReader:
             msg = f"Source selection candidates must be declared before {data_file.name!r}: {undeclared}"
             raise ValueError(msg)
 
-    @staticmethod
-    def get_configured_source(data_file: DataFile, *, sources: Mapping[str, DecodedSource]) -> DecodedSource:
+    def get_configured_source(
+        self, data_file: DataFile, *, sources: Mapping[str, DecodedSource]
+    ) -> DecodedSource:
         """Resolve one inline, selected, or named source for a derived file."""
         if data_file.inline_table is not None:
-            return DataReader.create_inline_table_source(data_file.inline_table)
+            return self.create_inline_table_source(data_file.inline_table)
         if data_file.source_selection is not None:
-            return DataReader.select_source(data_file.source_selection, sources=sources)
+            return self.select_source(data_file.source_selection, sources=sources)
         source_name = data_file.source
         if source_name is None:
             msg = f"Data file {data_file.name!r} has no source definition"
@@ -221,8 +267,7 @@ class DataReader:
             msg = f"Named source {source_name!r} must be declared before {data_file.name!r}"
             raise ValueError(msg) from None
 
-    @staticmethod
-    def create_inline_table_source(table: InlineTable) -> DecodedSource:
+    def create_inline_table_source(self, table: InlineTable) -> DecodedSource:
         """Create a typed Polars source from validated raw inline records."""
         import polars as pl
 
@@ -239,17 +284,18 @@ class DataReader:
         }
         schema = {column: dtype_mapping[column_type] for column, column_type in table.raw_schema.items()}
         frame = pl.DataFrame(table.rows, schema=schema, strict=True)
-        return TabularSource(frame.lazy(), PolarsTabularBackend())
+        return TabularSource(frame.lazy(), PolarsTabularBackend(step_handlers=self.step_handlers))
 
-    @staticmethod
-    def select_source(selection: SourceSelection, *, sources: Mapping[str, DecodedSource]) -> DecodedSource:
+    def select_source(
+        self, selection: SourceSelection, *, sources: Mapping[str, DecodedSource]
+    ) -> DecodedSource:
         """Choose a prior source by configured presence or nonemptiness."""
         for name in selection.sources:
             source = sources.get(name)
             if source is not None and (selection.mode == "first_present" or not source.is_empty()):
                 return source
         if selection.empty_fallback is not None:
-            return DataReader.create_inline_table_source(selection.empty_fallback)
+            return self.create_inline_table_source(selection.empty_fallback)
         msg = f"No source matched {selection.mode!r} selection among {selection.sources!r}"
         raise ValueError(msg)
 

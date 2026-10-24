@@ -12,7 +12,12 @@ def main() -> None:
     """Build from configuration, registering only application models and reader."""
     example = Path(__file__).parent
     config = PluginConfig(models=("psse_models",), config_path_override=example / "config")
-    system = build_system(config, name="illustrative-case", readers={"dummy_raw": DummyPSSEReader()})
+    system = build_system(
+        config,
+        name="illustrative-case",
+        input_folder=example,
+        readers={"dummy_raw": DummyPSSEReader()},
+    )
     buses = tuple(system.get_components(PSSEBus))
     generators = tuple(system.get_components(PSSEGenerator))
     print(f"{len(buses)} buses")

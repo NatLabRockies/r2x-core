@@ -38,7 +38,7 @@ def test_build_system_runs_upgrade_handler_when_input_is_missing(tmp_path: Path)
         config_path_override=config_dir,
         upgrade_handler=upgrade_handler,
     )
-    system = build_system(config, name="upgraded")
+    system = build_system(config, name="upgraded", input_folder=config_dir)
 
     assert calls == 1
     assert [bus.name for bus in system.get_components(PSSEBus)] == ["NORTH"]

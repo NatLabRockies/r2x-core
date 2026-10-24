@@ -61,7 +61,9 @@ step object itself keeps its existing `op` key:
 `{"optional_column": "field"}` reads the named column when present and
 produces null when it is absent. `{"values": [...]}` supplies a typed
 membership list. Literal and list placeholders are substituted before the
-processing model is validated again.
+processing model is validated again. Date expressions include `year` and
+`month`, which extract calendar fields from a date or datetime column, and
+`strftime`, which formats one with a literal Polars/Chrono format string.
 
 ### Common operations
 
@@ -74,7 +76,8 @@ processing model is validated again.
 - `rename_columns` renames columns, and `drop_columns` removes them.
 - `with_columns` adds or replaces columns using expressions. Expressions include
   exact `eq`/`neq`, expression-based `starts_with`, binary `add`, and `repeat_by`
-  for creating lists from row values and per-row counts.
+  for creating lists from row values and per-row counts. `month`, `year`, and
+  `strftime` extract or format date and datetime values.
 - `explode` expands one or more list columns into rows. Empty lists produce no
   rows, and null lists retain one null element. These semantics are explicit
   across the supported Polars versions.

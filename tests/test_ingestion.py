@@ -259,6 +259,20 @@ class CustomTableReader(FileReader):
 
 
 def test_build_system_reads_and_attaches_components_attributes_and_time_series(tmp_path: Path) -> None:
+    from pydantic import BaseModel
+
+    class UppercaseOptions(BaseModel):
+        pass
+
+    class UppercaseRegion:
+        options_model: type[UppercaseOptions] = UppercaseOptions
+        input_type: type[pl.LazyFrame] = pl.LazyFrame
+        output_type: type[pl.LazyFrame] = pl.LazyFrame
+
+        def apply(self, value: pl.LazyFrame, *, options: UppercaseOptions) -> pl.LazyFrame:
+            return value.with_columns(pl.col("region").str.to_uppercase().alias("region"))
+
+    step_handlers = {"uppercase_region": UppercaseRegion()}
     config_dir = tmp_path / "config"
     input_dir = tmp_path / "inputs"
     config_dir.mkdir()
@@ -267,13 +281,8 @@ def test_build_system_reads_and_attaches_components_attributes_and_time_series(t
         "BUS,101,NORTH,230\nBUS,102,SOUTH,115\nGEN,101,1,100,1\nGEN,102,1,0,1\nGEN,101,2,25,0\n",
         encoding="utf-8",
     )
-    (input_dir / "geography.json").write_text(
-        json.dumps(
-            [
-                {"bus_name": "NORTH", "region": "north"},
-                {"bus_name": "SOUTH", "region": "south"},
-            ]
-        ),
+    (input_dir / "geography.csv").write_text(
+        "bus_name,region\nNORTH,north\nSOUTH,south\n",
         encoding="utf-8",
     )
     with h5py.File(input_dir / "loads.h5", "w") as h5_file:
@@ -284,7 +293,7 @@ def test_build_system_reads_and_attaches_components_attributes_and_time_series(t
             [
                 {
                     "name": "case",
-                    "relative_fpath": "../inputs/case.raw",
+                    "relative_fpath": "case.raw",
                     "reader": {"format": "dummy_raw", "options": {"encoding": "utf-8"}},
                 },
                 {
@@ -306,10 +315,7 @@ def test_build_system_reads_and_attaches_components_attributes_and_time_series(t
                     "proc_spec": {
                         "kind": "tabular",
                         "steps": [
-                            {
-                                "op": "filter",
-                                "predicate": {"eq": ["status", 1]},
-                            },
+                            {"op": "filter", "predicate": {"eq": ["status", 1]}},
                             {"op": "join", "source": "bus_names", "how": "left", "on": ["bus_number"]},
                             {
                                 "op": "with_columns",
@@ -320,10 +326,19 @@ def test_build_system_reads_and_attaches_components_attributes_and_time_series(t
                         ],
                     },
                 },
-                {"name": "geography", "relative_fpath": "../inputs/geography.json"},
+                {
+                    "name": "geography",
+                    "relative_fpath": "geography.csv",
+                    "proc_spec": {
+                        "kind": "tabular",
+                        "steps": [
+                            {"op": "custom", "handler": "uppercase_region"},
+                        ],
+                    },
+                },
                 {
                     "name": "loads",
-                    "relative_fpath": "../inputs/loads.h5",
+                    "relative_fpath": "loads.h5",
                     "reader": {"format": "hdf5_array", "options": {"data_key": "samples"}},
                 },
             ]
@@ -380,12 +395,17 @@ def test_build_system_reads_and_attaches_components_attributes_and_time_series(t
     system = build_system(
         config,
         name="dummy-psse",
+        input_folder=input_dir,
         readers={"dummy_raw": DummyRawReader()},
+        step_handlers=step_handlers,
+        system_options={"system_base": 100.0, "description": "Configured system"},
     )
 
     buses = {bus.name: bus for bus in system.get_components(PSSEBus)}
     generators = {generator.name: generator for generator in system.get_components(PSSEGenerator)}
     assert system.name == "dummy-psse"
+    assert system.base_power == 100.0
+    assert system.description == "Configured system"
     assert set(buses) == {"NORTH", "SOUTH"}
     assert generators["NORTH_1"].bus is buses["NORTH"]
     assert generators["SOUTH_1"].bus is buses["SOUTH"]
@@ -394,10 +414,10 @@ def test_build_system_reads_and_attaches_components_attributes_and_time_series(t
     assert generators["NORTH_1"].available is True
     assert len(tuple(system.get_components(PSSEGenerator))) == 2
     assert [item.region for item in system.get_supplemental_attributes_with_component(buses["NORTH"])] == [
-        "north"
+        "NORTH"
     ]
     assert [item.region for item in system.get_supplemental_attributes_with_component(buses["SOUTH"])] == [
-        "south"
+        "SOUTH"
     ]
     series = system.get_time_series(buses["NORTH"], name="load_mw")
     np.testing.assert_array_equal(series.data_array, np.array([0.0, 4.0, 8.0]))
@@ -414,9 +434,9 @@ def test_build_system_reads_and_attaches_components_attributes_and_time_series(t
         DataFile.model_validate(record)
         for record in json.loads((config_dir / "file_mapping.json").read_bytes())
     ]
-    sources = DataReader(file_readers={"dummy_raw": DummyRawReader()}).read_data_files(
-        data_files, folder_path=config_dir
-    )
+    sources = DataReader(
+        file_readers={"dummy_raw": DummyRawReader()}, step_handlers=step_handlers
+    ).read_data_files(data_files, folder_path=input_dir)
     instructions = TypeAdapter(list[ParserInstruction]).validate_python(
         json.loads((config_dir / "parser_rules.json").read_bytes())
     )
@@ -429,6 +449,7 @@ def test_build_system_reads_and_attaches_components_attributes_and_time_series(t
         config=source_config,
         instructions=instructions,
         name="dummy-psse",
+        system_options={"system_base": 100.0, "description": "Configured system"},
     )
 
     assert not source_config.config_path_override.exists()
@@ -767,9 +788,9 @@ def test_csv_column_axis_creates_owner_specific_and_explicitly_shared_series(tmp
     (config_dir / "file_mapping.json").write_text(
         json.dumps(
             [
-                {"name": "buses", "relative_fpath": "../buses.csv"},
-                {"name": "long", "relative_fpath": "../long.csv"},
-                {"name": "shared", "relative_fpath": "../shared.csv"},
+                {"name": "buses", "relative_fpath": "buses.csv"},
+                {"name": "long", "relative_fpath": "long.csv"},
+                {"name": "shared", "relative_fpath": "shared.csv"},
             ]
         ),
         encoding="utf-8",
@@ -807,6 +828,7 @@ def test_csv_column_axis_creates_owner_specific_and_explicitly_shared_series(tmp
     system = build_system(
         PluginConfig(models=("fixtures.ingestion_models",), config_path_override=config_dir),
         name="csv-series",
+        input_folder=tmp_path,
     )
     buses = {bus.name: bus for bus in system.get_components(PSSEBus)}
 
@@ -826,7 +848,7 @@ def test_build_system_preserves_array_time_axes_for_each_owner_mode(tmp_path: Pa
             [
                 {
                     "name": "arrays",
-                    "relative_fpath": "../samples.array",
+                    "relative_fpath": "samples.array",
                     "reader": {"format": "array_time_axis"},
                 }
             ]
@@ -866,6 +888,7 @@ def test_build_system_preserves_array_time_axes_for_each_owner_mode(tmp_path: Pa
     system = build_system(
         PluginConfig(models=("fixtures.ingestion_models",), config_path_override=config_dir),
         name=f"array-time-{unit}",
+        input_folder=tmp_path,
         readers={"array_time_axis": ArrayTimeAxisReader(unit)},
     )
     buses = {bus.name: bus for bus in system.get_components(PSSEBus)}
@@ -1529,6 +1552,68 @@ def test_time_series_partitions_interleaved_rows_by_owner_and_metadata() -> None
             system.get_time_series(owner, name="shared_load", scenario=0).data_array,
             [200.0, 201.0],
         )
+
+
+def test_time_series_large_owner_partitions_preserve_values() -> None:
+    """Resolve owner identities once while keeping 20 long profiles independent."""
+    from r2x_core import build_system_from_sources
+
+    owners = [
+        {"name": f"BUS-{owner_index}", "number": owner_index, "base_kv": 115.0} for owner_index in range(10)
+    ]
+    timestamps = [(datetime(2024, 1, 1) + timedelta(hours=hour)).isoformat() for hour in range(8760)]
+    solve_years = (2032, 2035)
+    profiles = []
+    expected: dict[tuple[str, int], np.ndarray] = {}
+    for owner_index, owner in enumerate(owners):
+        for year_index, solve_year in enumerate(solve_years):
+            values = owner_index * 100_000 + year_index * 10_000 + np.arange(8760)
+            expected[(owner["name"], solve_year)] = values
+            profiles.extend(
+                {
+                    "owner_name": owner["name"],
+                    "timestamp": timestamp,
+                    "load": int(value),
+                    "solve_year": solve_year,
+                }
+                for timestamp, value in zip(timestamps, values, strict=True)
+            )
+
+    config = PluginConfig(
+        models=("fixtures.ingestion_models",),
+        config_path_override=Path("missing-config-directory"),
+    )
+    instructions = [
+        ComponentInstruction(
+            kind="component",
+            source="buses",
+            component_type="PSSEBus",
+            fields={"name": "name", "number": "number", "base_kv": "base_kv"},
+        ),
+        TimeSeriesInstruction(
+            kind="time_series",
+            source="profiles",
+            name="load",
+            values="load",
+            time_axis=ColumnTimeAxis(kind="column", column="timestamp", resolution_seconds=3600),
+            metadata_columns={"solve_year": "solve_year"},
+            owners=[ComponentOwner(component_type="PSSEBus", name_field="owner_name")],
+        ),
+    ]
+    system = build_system_from_sources(
+        {
+            "buses": DocumentSource(owners, None),
+            "profiles": DocumentSource(profiles, None),
+        },
+        config=config,
+        instructions=instructions,
+        name="large-owner-partitions",
+    )
+
+    for (owner_name, solve_year), values in expected.items():
+        owner = system.get_component(PSSEBus, owner_name)
+        series = system.get_time_series(owner, name="load", solve_year=solve_year)
+        np.testing.assert_array_equal(series.data_array, values)
 
 
 @pytest.mark.parametrize(

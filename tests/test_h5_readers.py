@@ -23,6 +23,22 @@ def test_read_h5_file_opens_file_and_reads_configured_columns(tmp_path: Path) ->
 
 
 @pytest.mark.parametrize(
+    ("decode_bytes", "expected"),
+    [(True, ["north", "south"]), (False, [b"north", b"south"])],
+)
+def test_read_h5_file_decodes_default_string_dataset(
+    tmp_path: Path, decode_bytes: bool, expected: list[str] | list[bytes]
+) -> None:
+    h5_path = tmp_path / "regions.h5"
+    with h5py.File(h5_path, "w") as h5_file:
+        h5_file.create_dataset("regions", data=np.asarray([b"north", b"south"], dtype="S"))
+
+    result = read_h5_file(file_path=h5_path, decode_bytes=decode_bytes)
+
+    assert result["regions"].tolist() == expected
+
+
+@pytest.mark.parametrize(
     ("dataset_name", "data", "expected"),
     [
         (
@@ -221,6 +237,59 @@ def test_configurable_h5_reader_reads_row_data(
     assert list(result) == list(expected)
     for name, values in expected.items():
         np.testing.assert_array_equal(result[name], values)
+
+
+@pytest.mark.parametrize(
+    ("decode_bytes", "expected_fuel", "expected_technology"),
+    [
+        (True, ["ngas", "coal"], ["gas-cc", "coal"]),
+        (False, [b"ngas", b"coal"], [b"gas-cc", b"coal"]),
+    ],
+)
+def test_h5_reader_decodes_declared_string_data_and_additional_keys(
+    tmp_path: Path,
+    decode_bytes: bool,
+    expected_fuel: list[str] | list[bytes],
+    expected_technology: list[str] | list[bytes],
+) -> None:
+    """Decode HDF5 strings consistently for row data and additional columns."""
+    h5_path = tmp_path / "fuel-map.h5"
+    with h5py.File(h5_path, "w") as h5_file:
+        group = h5_file.create_group("fuel2tech")
+        group.create_dataset("f", data=np.asarray([b"ngas", b"coal"], dtype="S"))
+        group.create_dataset("i", data=np.asarray([b"gas-cc", b"coal"], dtype="S"))
+        group.create_dataset("capacity", data=np.asarray([1.0, 2.0]))
+
+    result = read_h5_file(
+        file_path=h5_path,
+        group_key="fuel2tech",
+        data_key="f",
+        additional_keys=["i", "capacity"],
+        decode_bytes=decode_bytes,
+    )
+
+    assert result["f"].tolist() == expected_fuel
+    assert result["i"].tolist() == expected_technology
+    np.testing.assert_array_equal(result["capacity"], np.asarray([1.0, 2.0]))
+
+
+def test_h5_reader_preserves_numeric_columnar_array_dtype(tmp_path: Path) -> None:
+    h5_path = tmp_path / "capacity.h5"
+    with h5py.File(h5_path, "w") as h5_file:
+        group = h5_file.create_group("capacity")
+        group.create_dataset("columns", data=np.asarray([b"mw"], dtype="S"))
+        group.create_dataset("mw", data=np.asarray([1.25, 2.5], dtype=np.float32))
+
+    result = read_h5_file(
+        file_path=h5_path,
+        group_key="capacity",
+        columns_key="columns",
+        columns_as_datasets=True,
+    )
+
+    assert isinstance(result["mw"], np.ndarray)
+    assert result["mw"].dtype == np.dtype(np.float32)
+    np.testing.assert_array_equal(result["mw"], np.asarray([1.25, 2.5], dtype=np.float32))
 
 
 @pytest.mark.parametrize(

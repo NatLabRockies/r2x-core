@@ -167,6 +167,33 @@ def unpivot_polars_frame(
     return joined.select(result)
 
 
+def allocate_pivot_alias(prefix: str, /, *, occupied_names: set[str], suffixes: tuple[str, ...] = ()) -> str:
+    """Reserve a pivot alias without colliding with existing output names.
+
+    Parameters
+    ----------
+    prefix : str
+        Preferred alias.
+    occupied_names : set[str]
+        Names already used or reserved for the pivot output.
+    suffixes : tuple of str, optional
+        Pivot suffixes whose generated names must also be available.
+
+    Returns
+    -------
+    str
+        An available alias reserved with its requested suffix names.
+    """
+    candidate = prefix
+    while candidate in occupied_names or any(
+        f"{candidate}_{suffix}" in occupied_names for suffix in suffixes
+    ):
+        candidate = f"_{candidate}"
+    occupied_names.add(candidate)
+    occupied_names.update(f"{candidate}_{suffix}" for suffix in suffixes)
+    return candidate
+
+
 def pivot_table(
     data_frame: pl.LazyFrame, *, step: PivotStep, data_file: DataFile | None = None
 ) -> pl.LazyFrame:
@@ -199,37 +226,15 @@ def pivot_table(
 
     occupied_names = set(schema_names) | {str(value) for value in pivot_values}
 
-    def allocate_alias(prefix: str, *, suffixes: tuple[str, ...] = ()) -> str:
-        """Reserve a pivot alias without colliding with existing output names.
-
-        Parameters
-        ----------
-        prefix : str
-            Preferred alias.
-        suffixes : tuple of str, optional
-            Pivot suffixes whose generated names must also be available.
-
-        Returns
-        -------
-        str
-            An available alias reserved with its requested suffix names.
-        """
-        candidate = prefix
-        while candidate in occupied_names or any(
-            f"{candidate}_{suffix}" in occupied_names for suffix in suffixes
-        ):
-            candidate = f"_{candidate}"
-        occupied_names.add(candidate)
-        occupied_names.update(f"{candidate}_{suffix}" for suffix in suffixes)
-        return candidate
-
-    pivot_column = allocate_alias("__r2x_pivot_key")
+    pivot_column = allocate_pivot_alias("__r2x_pivot_key", occupied_names=occupied_names)
     index_columns = {
-        column: allocate_alias(f"__r2x_pivot_index_{index}") for index, column in enumerate(step.group_by)
+        column: allocate_pivot_alias(f"__r2x_pivot_index_{index}", occupied_names=occupied_names)
+        for index, column in enumerate(step.group_by)
     }
     value_columns = {
-        column: allocate_alias(
+        column: allocate_pivot_alias(
             f"__r2x_pivot_value_{index}",
+            occupied_names=occupied_names,
             suffixes=tuple(str(value) for value in pivot_values) if len(step.aggregate_on) > 1 else (),
         )
         for index, column in enumerate(step.aggregate_on)

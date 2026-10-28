@@ -26,6 +26,9 @@ class JSONFileReader(FileReader):
         if format_name != "json":
             msg = f"JSON reader cannot read format {format_name!r}"
             raise ValueError(msg)
+        if reader_config.columns:
+            msg = "JSON reader does not support native table column declarations"
+            raise ValueError(msg)
         if reader_config.options:
             msg = f"JSON reader has no options: {sorted(reader_config.options)}"
             raise ValueError(msg)

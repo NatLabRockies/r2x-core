@@ -7,7 +7,7 @@ from types import ModuleType
 
 import pytest
 
-from r2x_core import PluginConfig, build_system
+from r2x_core import InputColumn, PluginConfig, ReaderConfig, build_system
 
 EXAMPLE = Path(__file__).parents[1] / "docs" / "examples" / "psse-raw"
 
@@ -37,3 +37,17 @@ def test_empty_illustrative_raw_builds_empty_outputs(tmp_path: Path, monkeypatch
 
     assert tuple(system.get_components(models.PSSEBus)) == ()
     assert tuple(system.get_components(models.PSSEGenerator)) == ()
+
+
+@pytest.mark.polars
+def test_multisource_reader_rejects_ambiguous_native_columns(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Reject one input schema when the reader emits distinct table schemas."""
+    monkeypatch.syspath_prepend(str(EXAMPLE))
+    reader_module: ModuleType = importlib.import_module("psse_reader")
+
+    with pytest.raises(ValueError, match=r"multiple sources.*shared column schema"):
+        reader_module.DummyPSSEReader().read_file(
+            "dummy_raw",
+            file_path=EXAMPLE / "inputs" / "case.raw",
+            reader_config=ReaderConfig(columns=(InputColumn(name="bus_number", dtype="int64"),)),
+        )

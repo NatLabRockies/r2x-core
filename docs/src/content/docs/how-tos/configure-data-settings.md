@@ -65,6 +65,33 @@ A record accepts exactly one path source: `fpath`, `relative_fpath`, or `glob`.
 A glob must contain a wildcard and resolve to one file at read time. Placeholder
 substitution and path availability are execution-time behavior.
 
+Physical inputs may declare native columns, optional output renames, and a
+strict `required` boolean (default `true`). These records provide the typed
+schema for a missing optional input and distinguish a missing optional column
+inside a present file:
+
+```json
+{
+  "name": "optional_profile",
+  "relative_fpath": "profile.csv",
+  "info": {"requirement": "optional"},
+  "columns": [
+    {"name": "year", "dtype": "int64"},
+    {"name": "value", "dtype": "float64", "rename": "load_mw", "required": false}
+  ]
+}
+```
+
+Missing required names in a present file are errors. A missing `required: false`
+column becomes a typed null field without changing the file's rows. Present
+columns are cast strictly and renamed before configured processing. Floating-
+point columns declared as `int64` are rejected rather than truncated. Supported
+types are `bool`, `int64`, `float64`, `string`, and `datetime`. Other columns in
+a present table remain available with reader-provided types. If this optional
+input file is missing, core retains its declared typed schema while marking the
+source absent. Without `columns`, a missing optional file remains omitted.
+Neither absence case creates rows.
+
 See [Read data files](/r2x-core/how-tos/read-data-files/),
 [Build a parser](/r2x-core/how-tos/build-parsers/), and the
 [processor reference](/r2x-core/references/processors/).

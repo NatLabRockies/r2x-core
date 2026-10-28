@@ -92,6 +92,31 @@ def test_application_step_handlers_process_file_and_inline_tables(tmp_path: Path
             "operation 0 (join)",
             id="join-source",
         ),
+        pytest.param(
+            DataFile(
+                name="matched",
+                inline_table={"schema": {"asset_id": "string"}, "rows": []},
+                proc_spec={
+                    "kind": "tabular",
+                    "steps": [
+                        {
+                            "op": "match_source_patterns",
+                            "column": "asset_id",
+                            "source": "later",
+                            "pattern_column": "pattern",
+                            "range_separator": "..",
+                            "prefix_separator": ".",
+                            "precedence": ["exact", "range", "prefix"],
+                            "prefix_policy": "longest",
+                            "duplicate_policy": "first",
+                            "unmatched": "keep",
+                        }
+                    ],
+                },
+            ),
+            "operation 0 (match_source_patterns)",
+            id="pattern-source",
+        ),
     ],
 )
 def test_data_reader_rejects_forward_source_dependencies_before_reading(
@@ -677,6 +702,315 @@ def test_repeat_by_rejects_negative_repetition_count(tmp_path: Path) -> None:
 
     with pytest.raises(pl.exceptions.InvalidOperationError):
         list(sources["monthly"].iter_rows())
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "expected"),
+    [
+        pytest.param(
+            pl.Series([None], dtype=pl.Null), pl.Series([3], dtype=pl.Int64), [None, 3], id="null-int"
+        ),
+        pytest.param(pl.Series(["wind"]), pl.Series([3]), ["wind", "3"], id="string-int"),
+        pytest.param(pl.Series([True]), pl.Series([3]), [1, 3], id="bool-int"),
+        pytest.param(pl.Series([1], dtype=pl.Int32), pl.Series([3], dtype=pl.Int64), [1, 3], id="int-widths"),
+    ],
+)
+def test_unpivot_coerces_compatible_input_values(
+    tmp_path: Path, first: pl.Series, second: pl.Series, expected: list[object]
+) -> None:
+    """File processing uses Polars' common dtype for compatible wide columns."""
+    frame = pl.DataFrame({"id": [1], "first": first, "second": second})
+    source = DataFile(
+        name="unpivoted",
+        source="native",
+        proc_spec={
+            "kind": "tabular",
+            "steps": [{"op": "unpivot", "index": ["id"], "variable_name": "kind", "value_name": "value"}],
+        },
+    )
+
+    sources = DataReader().read_data_files(
+        [source],
+        folder_path=tmp_path,
+        initial_sources={"native": TabularSource(frame.lazy(), PolarsTabularBackend())},
+    )
+
+    assert list(sources["unpivoted"].iter_rows()) == [
+        {"id": 1, "kind": "first", "value": expected[0]},
+        {"id": 1, "kind": "second", "value": expected[1]},
+    ]
+
+
+@pytest.mark.parametrize(("value", "expected"), [(1.0, 1), (1.9, 1), (-2.9, -2)])
+def test_cast_columns_explicitly_converts_float_values_to_integers(
+    tmp_path: Path, value: float, expected: int
+) -> None:
+    """Explicit casts may truncate, unlike native input-schema validation."""
+    source = DataFile(
+        name="numbers",
+        inline_table={"schema": {"value": "float64"}, "rows": [{"value": value}]},
+        proc_spec={"kind": "tabular", "steps": [{"op": "cast_columns", "column_schema": {"value": "int64"}}]},
+    )
+
+    result = DataReader().read_data_files([source], folder_path=tmp_path)["numbers"]
+
+    assert list(result.iter_rows()) == [{"value": expected}]
+
+
+def test_cast_columns_warns_about_float_to_integer_truncation(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A potentially lossy cast includes guidance for the strict policy."""
+    source = DataFile(
+        name="numbers",
+        inline_table={"schema": {"value": "float64"}, "rows": [{"value": 1.9}]},
+        proc_spec={"kind": "tabular", "steps": [{"op": "cast_columns", "column_schema": {"value": "int64"}}]},
+    )
+
+    DataReader().read_data_files([source], folder_path=tmp_path)
+
+    assert "truncates fractional values" in caplog.text
+    assert "float_to_int='reject'" in caplog.text
+
+
+@pytest.mark.parametrize("dtype", ["int32", "int64"])
+def test_cast_columns_can_reject_float_to_integer_conversions(tmp_path: Path, dtype: str) -> None:
+    """An explicit reject policy blocks float-to-integer conversions."""
+    source = DataFile(
+        name="numbers",
+        inline_table={"schema": {"value": "float64"}, "rows": [{"value": 1.0}]},
+        proc_spec={
+            "kind": "tabular",
+            "steps": [{"op": "cast_columns", "column_schema": {"value": dtype}, "float_to_int": "reject"}],
+        },
+    )
+
+    with pytest.raises(ReaderError, match="floating-point to integer"):
+        DataReader().read_data_files([source], folder_path=tmp_path)
+
+
+def test_unpivot_can_emit_source_dtype_for_mixed_boolean_and_string_values(tmp_path: Path) -> None:
+    native_flags = TabularSource(
+        pl.DataFrame(
+            {
+                "technology": ["wind_x", "solar_x", "gas_x"],
+                "wind": [True, False, None],
+                "vre": ["yes", "true", None],
+            }
+        ).lazy(),
+        PolarsTabularBackend(),
+    )
+    source = DataFile(
+        name="membership_flags",
+        source="native_flags",
+        proc_spec={
+            "kind": "tabular",
+            "steps": [
+                {
+                    "op": "unpivot",
+                    "index": ["technology"],
+                    "variable_name": "membership_flag",
+                    "value_name": "membership_value",
+                    "value_type_name": "membership_type",
+                }
+            ],
+        },
+    )
+
+    sources = DataReader().read_data_files(
+        [source], folder_path=tmp_path, initial_sources={"native_flags": native_flags}
+    )
+
+    assert list(table_data(sources["membership_flags"]).collect().iter_rows(named=True)) == [
+        {
+            "technology": "wind_x",
+            "membership_flag": "wind",
+            "membership_value": "true",
+            "membership_type": "bool",
+        },
+        {
+            "technology": "solar_x",
+            "membership_flag": "wind",
+            "membership_value": "false",
+            "membership_type": "bool",
+        },
+        {
+            "technology": "gas_x",
+            "membership_flag": "wind",
+            "membership_value": None,
+            "membership_type": "bool",
+        },
+        {
+            "technology": "wind_x",
+            "membership_flag": "vre",
+            "membership_value": "yes",
+            "membership_type": "string",
+        },
+        {
+            "technology": "solar_x",
+            "membership_flag": "vre",
+            "membership_value": "true",
+            "membership_type": "string",
+        },
+        {
+            "technology": "gas_x",
+            "membership_flag": "vre",
+            "membership_value": None,
+            "membership_type": "string",
+        },
+    ]
+
+
+@pytest.mark.parametrize(
+    ("value", "dtype", "logical_type", "expected_value"),
+    [
+        pytest.param(True, pl.Boolean, "bool", "true", id="bool"),
+        pytest.param("true", pl.String, "string", "true", id="string"),
+        pytest.param(42, pl.Int64, "int64", "42", id="int64"),
+        pytest.param(1.25, pl.Float64, "float64", "1.25", id="float64"),
+        pytest.param(
+            datetime(2032, 1, 1),
+            pl.Datetime("us"),
+            "datetime",
+            "2032-01-01 00:00:00.000000",
+            id="datetime",
+        ),
+    ],
+)
+def test_unpivot_dtype_metadata_uses_declared_scalar_type_names(
+    tmp_path: Path, value: object, dtype: pl.DataType, logical_type: str, expected_value: str
+) -> None:
+    native = TabularSource(
+        pl.DataFrame({"id": ["row"], "value": pl.Series("value", [value], dtype=dtype)}).lazy(),
+        PolarsTabularBackend(),
+    )
+    source = DataFile(
+        name="typed_values",
+        source="native",
+        proc_spec={
+            "kind": "tabular",
+            "steps": [
+                {
+                    "op": "unpivot",
+                    "index": ["id"],
+                    "variable_name": "field",
+                    "value_name": "value_text",
+                    "value_type_name": "value_type",
+                }
+            ],
+        },
+    )
+
+    sources = DataReader().read_data_files([source], folder_path=tmp_path, initial_sources={"native": native})
+
+    assert list(table_data(sources["typed_values"]).collect().iter_rows(named=True)) == [
+        {"id": "row", "field": "value", "value_text": expected_value, "value_type": logical_type}
+    ]
+
+
+@pytest.mark.parametrize(
+    ("value_type_name", "message"),
+    [(None, "must be omitted when unused"), ("id", "must be distinct")],
+    ids=["explicit-null", "output-collision"],
+)
+def test_unpivot_dtype_metadata_rejects_null_or_colliding_names(
+    value_type_name: str | None, message: str
+) -> None:
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match=message):
+        DataFile.model_validate(
+            {
+                "name": "invalid-unpivot",
+                "inline_table": {"schema": {"id": "string", "value": "int64"}, "rows": []},
+                "proc_spec": {
+                    "kind": "tabular",
+                    "steps": [
+                        {
+                            "op": "unpivot",
+                            "index": ["id"],
+                            "variable_name": "field",
+                            "value_name": "value_text",
+                            "value_type_name": value_type_name,
+                        }
+                    ],
+                },
+            }
+        )
+
+
+def test_unpivot_dtype_metadata_preserves_typed_empty_schema(tmp_path: Path) -> None:
+    native = TabularSource(
+        pl.DataFrame(schema={"id": pl.String, "flag": pl.Boolean, "label": pl.String}).lazy(),
+        PolarsTabularBackend(),
+    )
+    source = DataFile(
+        name="empty_values",
+        source="native",
+        proc_spec={
+            "kind": "tabular",
+            "steps": [
+                {
+                    "op": "unpivot",
+                    "index": ["id"],
+                    "variable_name": "field",
+                    "value_name": "value_text",
+                    "value_type_name": "value_type",
+                }
+            ],
+        },
+    )
+
+    result = DataReader().read_data_files([source], folder_path=tmp_path, initial_sources={"native": native})[
+        "empty_values"
+    ]
+
+    assert list(table_data(result).collect().iter_rows()) == []
+    assert dict(table_data(result).collect_schema()) == {
+        "id": pl.String,
+        "field": pl.String,
+        "value_text": pl.String,
+        "value_type": pl.String,
+    }
+
+
+@pytest.mark.parametrize(
+    ("dtype", "values"),
+    [
+        pytest.param(pl.List(pl.Int64), [[1]], id="list"),
+        pytest.param(pl.Null, [None], id="untyped-null"),
+    ],
+)
+def test_unpivot_dtype_metadata_rejects_unsupported_source_types(
+    tmp_path: Path, dtype: pl.DataType, values: list[object]
+) -> None:
+    native = TabularSource(
+        pl.DataFrame(
+            {"id": ["row"], "value": values},
+            schema={"id": pl.String, "value": dtype},
+            strict=False,
+        ).lazy(),
+        PolarsTabularBackend(),
+    )
+    source = DataFile(
+        name="unsupported_values",
+        source="native",
+        proc_spec={
+            "kind": "tabular",
+            "steps": [
+                {
+                    "op": "unpivot",
+                    "index": ["id"],
+                    "variable_name": "field",
+                    "value_name": "value_text",
+                    "value_type_name": "value_type",
+                }
+            ],
+        },
+    )
+
+    with pytest.raises(ReaderError, match="does not support column 'value'"):
+        DataReader().read_data_files([source], folder_path=tmp_path, initial_sources={"native": native})
 
 
 def test_datetime_range_expands_each_seed_to_a_regular_axis(tmp_path: Path) -> None:
@@ -2110,6 +2444,617 @@ def test_pivot_aliases_do_not_collide_with_pivot_values(tmp_path: Path) -> None:
     frame = table_data(DataReader().read_data_files([source], folder_path=tmp_path)[source.name])
 
     assert frame.collect().to_dicts() == [{"region": "north", "__r2x_pivot_index_0": 3}]
+
+
+def test_match_source_patterns_normalizes_range_endpoints_when_case_insensitive(tmp_path: Path) -> None:
+    files = [
+        DataFile(
+            name="asset",
+            inline_table={"schema": {"asset_id": "string"}, "rows": [{"asset_id": "Rack.2"}]},
+        ),
+        DataFile(
+            name="patterns",
+            inline_table={
+                "schema": {"pattern": "string", "policy": "string"},
+                "rows": [{"pattern": "RACK.1..rack.10", "policy": "range"}],
+            },
+        ),
+        DataFile(
+            name="classified",
+            source="asset",
+            proc_spec={
+                "kind": "tabular",
+                "steps": [
+                    {
+                        "op": "match_source_patterns",
+                        "column": "asset_id",
+                        "source": "patterns",
+                        "pattern_column": "pattern",
+                        "range_separator": "..",
+                        "prefix_separator": ".",
+                        "precedence": ["exact", "range", "prefix"],
+                        "prefix_policy": "longest",
+                        "duplicate_policy": "first",
+                        "unmatched": "keep",
+                        "case_sensitive": False,
+                    }
+                ],
+            },
+        ),
+    ]
+
+    sources = DataReader().read_data_files(files, folder_path=tmp_path)
+
+    assert list(sources["classified"].iter_rows()) == [{"asset_id": "Rack.2", "policy": "range"}]
+
+
+def test_match_source_patterns_in_file_processing_casefolds_exact_column_names(tmp_path: Path) -> None:
+    """Match Unicode strings while preserving literal selector-shaped column names."""
+    files = [
+        DataFile(
+            name="assets",
+            inline_table={
+                "schema": {"^technology$": "string", "technology": "string"},
+                "rows": [{"^technology$": "STRASSE", "technology": "decoy"}],
+            },
+        ),
+        DataFile(
+            name="patterns",
+            inline_table={
+                "schema": {"^pattern$": "string", "^label$": "string", "label": "string"},
+                "rows": [{"^pattern$": "straße", "^label$": "matched", "label": "decoy"}],
+            },
+        ),
+        DataFile(
+            name="classified",
+            source="assets",
+            proc_spec={
+                "kind": "tabular",
+                "steps": [
+                    {
+                        "op": "match_source_patterns",
+                        "column": "^technology$",
+                        "source": "patterns",
+                        "pattern_column": "^pattern$",
+                        "range_separator": "..",
+                        "prefix_separator": "_",
+                        "precedence": ["exact", "range", "prefix"],
+                        "prefix_policy": "longest",
+                        "duplicate_policy": "first",
+                        "unmatched": "keep",
+                        "case_sensitive": False,
+                    }
+                ],
+            },
+        ),
+    ]
+
+    result = DataReader().read_data_files(files, folder_path=tmp_path)["classified"]
+
+    assert list(result.iter_rows()) == [
+        {"^technology$": "STRASSE", "technology": "decoy", "^label$": "matched", "label": "decoy"}
+    ]
+
+
+@pytest.mark.parametrize(("case_sensitive", "invalid"), [(False, True), (True, False)])
+def test_match_source_patterns_validates_delimiters_after_case_normalization(
+    case_sensitive: bool, invalid: bool
+) -> None:
+    """Reject delimiters that collide after casefold only in case-insensitive mode."""
+    record = {
+        "name": "assets",
+        "inline_table": {"schema": {"asset_id": "string"}, "rows": []},
+        "proc_spec": {
+            "kind": "tabular",
+            "steps": [
+                {
+                    "op": "match_source_patterns",
+                    "column": "asset_id",
+                    "source": "patterns",
+                    "pattern_column": "pattern",
+                    "range_separator": "ß",
+                    "prefix_separator": "ss",
+                    "precedence": ["exact", "range", "prefix"],
+                    "prefix_policy": "first",
+                    "duplicate_policy": "first",
+                    "unmatched": "keep",
+                    "case_sensitive": case_sensitive,
+                }
+            ],
+        },
+    }
+
+    if invalid:
+        with pytest.raises(ValueError, match="casefold"):
+            DataFile.model_validate(record)
+    else:
+        assert DataFile.model_validate(record).proc_spec is not None
+
+
+def test_match_source_patterns_uses_configured_delimiters_and_selection_rules(tmp_path: Path) -> None:
+    files = [
+        DataFile(
+            name="assets",
+            inline_table={
+                "schema": {"asset_id": "string"},
+                "rows": [
+                    {"asset_id": "RACK.2"},
+                    {"asset_id": "rack.2"},
+                    {"asset_id": "rack.3"},
+                    {"asset_id": "rack.11"},
+                    {"asset_id": "rack.node.1"},
+                    {"asset_id": "rackish.2"},
+                    {"asset_id": None},
+                ],
+            },
+        ),
+        DataFile(
+            name="asset_patterns",
+            inline_table={
+                "schema": {"pattern": "string", "policy": "string"},
+                "rows": [
+                    {"pattern": "rack", "policy": "prefix"},
+                    {"pattern": "rack.1..rack.10", "policy": "first range"},
+                    {"pattern": "rack.1..rack.10", "policy": "second range"},
+                    {"pattern": "rack.2", "policy": "exact"},
+                    {"pattern": "rack.node", "policy": "longest prefix"},
+                    {"pattern": None, "policy": "null pattern"},
+                ],
+            },
+        ),
+        DataFile(
+            name="classified",
+            source="assets",
+            proc_spec={
+                "kind": "tabular",
+                "steps": [
+                    {
+                        "op": "match_source_patterns",
+                        "column": "asset_id",
+                        "source": "asset_patterns",
+                        "pattern_column": "pattern",
+                        "range_separator": "..",
+                        "prefix_separator": ".",
+                        "precedence": ["exact", "range", "prefix"],
+                        "prefix_policy": "longest",
+                        "duplicate_policy": "first",
+                        "unmatched": "keep",
+                        "case_sensitive": False,
+                    }
+                ],
+            },
+        ),
+    ]
+
+    sources = DataReader().read_data_files(files, folder_path=tmp_path)
+    frame = table_data(sources["classified"])
+
+    assert frame.collect().to_dicts() == [
+        {"asset_id": "RACK.2", "policy": "exact"},
+        {"asset_id": "rack.2", "policy": "exact"},
+        {"asset_id": "rack.3", "policy": "first range"},
+        {"asset_id": "rack.11", "policy": "prefix"},
+        {"asset_id": "rack.node.1", "policy": "longest prefix"},
+        {"asset_id": "rackish.2", "policy": None},
+        {"asset_id": None, "policy": None},
+    ]
+    assert frame.collect_schema()["policy"] == pl.String
+
+
+@pytest.mark.parametrize(
+    ("duplicate_policy", "expected"),
+    [
+        (
+            "first",
+            [
+                {"asset_id": "rack.2", "policy": "first exact"},
+                {"asset_id": "rack.3", "policy": "first range"},
+            ],
+        ),
+        (
+            "last",
+            [{"asset_id": "rack.2", "policy": "last exact"}, {"asset_id": "rack.3", "policy": "last range"}],
+        ),
+    ],
+)
+def test_match_source_patterns_selects_duplicate_policy_and_drops_unmatched_rows(
+    tmp_path: Path, duplicate_policy: str, expected: list[dict[str, str]]
+) -> None:
+    files = [
+        DataFile(
+            name="assets",
+            inline_table={
+                "schema": {"asset_id": "string"},
+                "rows": [{"asset_id": "rack.2"}, {"asset_id": "rack.3"}, {"asset_id": "unknown.1"}],
+            },
+        ),
+        DataFile(
+            name="patterns",
+            inline_table={
+                "schema": {"pattern": "string", "policy": "string"},
+                "rows": [
+                    {"pattern": "rack.1..rack.10", "policy": "first range"},
+                    {"pattern": "rack.1..rack.10", "policy": "last range"},
+                    {"pattern": "rack.2", "policy": "first exact"},
+                    {"pattern": "rack.2", "policy": "last exact"},
+                    {"pattern": "rack", "policy": "prefix"},
+                ],
+            },
+        ),
+        DataFile(
+            name="matched",
+            source="assets",
+            proc_spec={
+                "kind": "tabular",
+                "steps": [
+                    {
+                        "op": "match_source_patterns",
+                        "column": "asset_id",
+                        "source": "patterns",
+                        "pattern_column": "pattern",
+                        "range_separator": "..",
+                        "prefix_separator": ".",
+                        "precedence": ["exact", "range", "prefix"],
+                        "prefix_policy": "longest",
+                        "duplicate_policy": duplicate_policy,
+                        "unmatched": "drop",
+                    }
+                ],
+            },
+        ),
+    ]
+
+    sources = DataReader().read_data_files(files, folder_path=tmp_path)
+
+    assert list(sources["matched"].iter_rows()) == expected
+
+
+def test_match_source_patterns_uses_configured_precedence_and_first_prefix(tmp_path: Path) -> None:
+    files = [
+        DataFile(
+            name="assets",
+            inline_table={"schema": {"asset_id": "string"}, "rows": [{"asset_id": "node.child.3"}]},
+        ),
+        DataFile(
+            name="patterns",
+            inline_table={
+                "schema": {"pattern": "string", "policy": "string"},
+                "rows": [
+                    {"pattern": "node", "policy": "first prefix"},
+                    {"pattern": "node.child", "policy": "longer prefix"},
+                    {"pattern": "node.child.1..node.child.5", "policy": "range"},
+                    {"pattern": "node.child.3", "policy": "exact"},
+                ],
+            },
+        ),
+        DataFile(
+            name="matched",
+            source="assets",
+            proc_spec={
+                "kind": "tabular",
+                "steps": [
+                    {
+                        "op": "match_source_patterns",
+                        "column": "asset_id",
+                        "source": "patterns",
+                        "pattern_column": "pattern",
+                        "range_separator": "..",
+                        "prefix_separator": ".",
+                        "precedence": ["prefix", "range", "exact"],
+                        "prefix_policy": "first",
+                        "duplicate_policy": "first",
+                        "unmatched": "keep",
+                    }
+                ],
+            },
+        ),
+    ]
+
+    sources = DataReader().read_data_files(files, folder_path=tmp_path)
+
+    assert list(sources["matched"].iter_rows()) == [{"asset_id": "node.child.3", "policy": "first prefix"}]
+
+
+def test_match_source_patterns_preserves_typed_schema_for_empty_inputs(tmp_path: Path) -> None:
+    step = {
+        "op": "match_source_patterns",
+        "column": "asset_id",
+        "source": "empty_patterns",
+        "pattern_column": "pattern",
+        "range_separator": "..",
+        "prefix_separator": ".",
+        "precedence": ["exact", "range", "prefix"],
+        "prefix_policy": "longest",
+        "duplicate_policy": "first",
+        "unmatched": "keep",
+    }
+    files = [
+        DataFile(name="empty_assets", inline_table={"schema": {"asset_id": "string"}, "rows": []}),
+        DataFile(
+            name="empty_patterns",
+            inline_table={"schema": {"pattern": "string", "policy": "string"}, "rows": []},
+        ),
+        DataFile(
+            name="empty_result",
+            source="empty_assets",
+            proc_spec={"kind": "tabular", "steps": [step]},
+        ),
+        DataFile(
+            name="one_asset",
+            inline_table={"schema": {"asset_id": "string"}, "rows": [{"asset_id": "no.match"}]},
+        ),
+        DataFile(
+            name="no_matches",
+            source="one_asset",
+            proc_spec={"kind": "tabular", "steps": [step]},
+        ),
+        DataFile(
+            name="present_patterns",
+            inline_table={
+                "schema": {"pattern": "string", "policy": "string"},
+                "rows": [{"pattern": "rack", "policy": "prefix"}],
+            },
+        ),
+        DataFile(name="no_assets", inline_table={"schema": {"asset_id": "string"}, "rows": []}),
+        DataFile(
+            name="empty_left_result",
+            source="no_assets",
+            proc_spec={
+                "kind": "tabular",
+                "steps": [{**step, "source": "present_patterns"}],
+            },
+        ),
+    ]
+
+    sources = DataReader().read_data_files(files, folder_path=tmp_path)
+    empty = table_data(sources["empty_result"])
+    no_matches = table_data(sources["no_matches"])
+    empty_left = table_data(sources["empty_left_result"])
+
+    assert empty.collect().to_dicts() == []
+    assert empty.collect_schema().names() == ["asset_id", "policy"]
+    assert empty.collect_schema()["policy"] == pl.String
+    assert no_matches.collect().to_dicts() == [{"asset_id": "no.match", "policy": None}]
+    assert no_matches.collect_schema()["policy"] == pl.String
+    assert empty_left.collect().to_dicts() == []
+    assert empty_left.collect_schema().names() == ["asset_id", "policy"]
+    assert empty_left.collect_schema()["policy"] == pl.String
+
+
+def test_match_source_patterns_keeps_only_unmatched_fallback_rows_at_scale(tmp_path: Path) -> None:
+    asset_ids = [f"asset-{index}" for index in range(512)]
+    patterns = [f"other-{index}" for index in range(512)]
+    files = [
+        DataFile(
+            name="assets",
+            inline_table={
+                "schema": {"asset_id": "string"},
+                "rows": [{"asset_id": value} for value in asset_ids],
+            },
+        ),
+        DataFile(
+            name="patterns",
+            inline_table={
+                "schema": {"pattern": "string", "policy": "string"},
+                "rows": [{"pattern": value, "policy": value} for value in patterns],
+            },
+        ),
+        DataFile(
+            name="classified",
+            source="assets",
+            proc_spec={
+                "kind": "tabular",
+                "steps": [
+                    {
+                        "op": "match_source_patterns",
+                        "column": "asset_id",
+                        "source": "patterns",
+                        "pattern_column": "pattern",
+                        "range_separator": "..",
+                        "prefix_separator": ".",
+                        "precedence": ["exact", "range", "prefix"],
+                        "prefix_policy": "longest",
+                        "duplicate_policy": "last",
+                        "unmatched": "keep",
+                    }
+                ],
+            },
+        ),
+    ]
+
+    sources = DataReader().read_data_files(files, folder_path=tmp_path)
+    rows = list(sources["classified"].iter_rows())
+
+    assert len(rows) == 512
+    assert rows[0] == {"asset_id": "asset-0", "policy": None}
+    assert rows[-1] == {"asset_id": "asset-511", "policy": None}
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        "rack.1..rack.x",
+        "rack.1..cabinet.10",
+        "rack.10..rack.1",
+        "rack.1....rack.10",
+    ],
+    ids=["malformed-endpoint", "unequal-prefixes", "reversed-bounds", "repeated-separator"],
+)
+def test_match_source_patterns_rejects_malformed_present_ranges(tmp_path: Path, pattern: str) -> None:
+    files = [
+        DataFile(name="assets", inline_table={"schema": {"asset_id": "string"}, "rows": []}),
+        DataFile(
+            name="patterns",
+            inline_table={
+                "schema": {"pattern": "string", "policy": "string"},
+                "rows": [{"pattern": pattern, "policy": "bad"}],
+            },
+        ),
+        DataFile(
+            name="matched",
+            source="assets",
+            proc_spec={
+                "kind": "tabular",
+                "steps": [
+                    {
+                        "op": "match_source_patterns",
+                        "column": "asset_id",
+                        "source": "patterns",
+                        "pattern_column": "pattern",
+                        "range_separator": "..",
+                        "prefix_separator": ".",
+                        "precedence": ["exact", "range", "prefix"],
+                        "prefix_policy": "longest",
+                        "duplicate_policy": "first",
+                        "unmatched": "keep",
+                    }
+                ],
+            },
+        ),
+    ]
+
+    with pytest.raises(ReaderError, match="Invalid numeric range pattern"):
+        DataReader().read_data_files(files, folder_path=tmp_path)
+
+
+def test_match_source_patterns_rejects_payload_collisions(tmp_path: Path) -> None:
+    files = [
+        DataFile(
+            name="assets",
+            inline_table={"schema": {"asset_id": "string", "policy": "string"}, "rows": []},
+        ),
+        DataFile(
+            name="patterns",
+            inline_table={"schema": {"pattern": "string", "policy": "string"}, "rows": []},
+        ),
+        DataFile(
+            name="matched",
+            source="assets",
+            proc_spec={
+                "kind": "tabular",
+                "steps": [
+                    {
+                        "op": "match_source_patterns",
+                        "column": "asset_id",
+                        "source": "patterns",
+                        "pattern_column": "pattern",
+                        "range_separator": "..",
+                        "prefix_separator": ".",
+                        "precedence": ["exact", "range", "prefix"],
+                        "prefix_policy": "longest",
+                        "duplicate_policy": "first",
+                        "unmatched": "keep",
+                    }
+                ],
+            },
+        ),
+    ]
+
+    with pytest.raises(ReaderError, match=r"output column.*policy"):
+        DataReader().read_data_files(files, folder_path=tmp_path)
+
+
+def test_match_source_patterns_lowercases_unicode_values_when_case_insensitive(tmp_path: Path) -> None:
+    files = [
+        DataFile(
+            name="assets",
+            inline_table={"schema": {"asset_id": "string"}, "rows": [{"asset_id": "münchen.node"}]},
+        ),
+        DataFile(
+            name="patterns",
+            inline_table={
+                "schema": {"pattern": "string", "policy": "string"},
+                "rows": [{"pattern": "MÜNCHEN", "policy": "city prefix"}],
+            },
+        ),
+        DataFile(
+            name="matched",
+            source="assets",
+            proc_spec={
+                "kind": "tabular",
+                "steps": [
+                    {
+                        "op": "match_source_patterns",
+                        "column": "asset_id",
+                        "source": "patterns",
+                        "pattern_column": "pattern",
+                        "range_separator": "..",
+                        "prefix_separator": ".",
+                        "precedence": ["exact", "range", "prefix"],
+                        "prefix_policy": "longest",
+                        "duplicate_policy": "first",
+                        "unmatched": "keep",
+                        "case_sensitive": False,
+                    }
+                ],
+            },
+        ),
+    ]
+
+    sources = DataReader().read_data_files(files, folder_path=tmp_path)
+
+    assert list(sources["matched"].iter_rows()) == [{"asset_id": "münchen.node", "policy": "city prefix"}]
+
+
+def test_match_source_patterns_uses_unicode_casefold_not_lowercase(tmp_path: Path) -> None:
+    """Use full Unicode casefold for ranges and separators while keeping dotless i distinct."""
+    files = [
+        DataFile(
+            name="assets",
+            inline_table={
+                "schema": {"asset_id": "string"},
+                "rows": [
+                    {"asset_id": "stra\u00dfe"},
+                    {"asset_id": "\u0131sparta"},
+                    {"asset_id": "stra\u00dfe2"},
+                    {"asset_id": "ITEM\u0130node"},
+                ],
+            },
+        ),
+        DataFile(
+            name="patterns",
+            inline_table={
+                "schema": {"pattern": "string", "policy": "string"},
+                "rows": [
+                    {"pattern": "STRASSE", "policy": "sharp-s"},
+                    {"pattern": "isparta", "policy": "dotted-i"},
+                    {"pattern": "stra\u00dfe1..STRASSE3", "policy": "range"},
+                    {"pattern": "item", "policy": "prefix"},
+                ],
+            },
+        ),
+        DataFile(
+            name="classified",
+            source="assets",
+            proc_spec={
+                "kind": "tabular",
+                "steps": [
+                    {
+                        "op": "match_source_patterns",
+                        "column": "asset_id",
+                        "source": "patterns",
+                        "pattern_column": "pattern",
+                        "range_separator": "..",
+                        "prefix_separator": "İ",
+                        "precedence": ["exact", "range", "prefix"],
+                        "prefix_policy": "longest",
+                        "duplicate_policy": "first",
+                        "unmatched": "keep",
+                        "case_sensitive": False,
+                    }
+                ],
+            },
+        ),
+    ]
+
+    sources = DataReader().read_data_files(files, folder_path=tmp_path)
+
+    assert list(sources["classified"].iter_rows()) == [
+        {"asset_id": "stra\u00dfe", "policy": "sharp-s"},
+        {"asset_id": "\u0131sparta", "policy": None},
+        {"asset_id": "stra\u00dfe2", "policy": "range"},
+        {"asset_id": "ITEM\u0130node", "policy": "prefix"},
+    ]
 
 
 def test_match_patterns_emits_defaulted_attributes_for_one_group(tmp_path: Path) -> None:

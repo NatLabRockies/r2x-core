@@ -5,14 +5,17 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from r2x_core import DataFile, InlineTable, SourcePredicate
+from r2x_core import DataFile, DataReader, InlineTable, SourcePredicate
 from r2x_core.datafile import FileInfo, ReaderConfig, extension_for_path_source
 from r2x_core.models import (
+    CastColumnsStep,
     JSONProcessing,
     RenameColumnsStep,
+    ScaleColumnsStep,
     SelectColumnsStep,
     SplitColumnSpec,
     TabularProcessing,
+    UnpivotStep,
 )
 from r2x_core.types import FileRequirement, FileType
 
@@ -63,6 +66,36 @@ def test_datafile_nested_json_roundtrip() -> None:
     assert isinstance(restored.required_when, SourcePredicate)
     assert restored.required_when.source == "conditions"
     assert isinstance(restored.proc_spec, JSONProcessing)
+
+
+def test_native_columns_roundtrip_at_the_input_boundary() -> None:
+    """Native schema remains on the DataFile rather than in reader options."""
+    record = {
+        "name": "input",
+        "relative_fpath": "input.csv",
+        "reader": {"format": "csv"},
+        "columns": [{"name": "id", "dtype": "string"}],
+    }
+    data_file = DataFile.model_validate(record)
+    dumped = data_file.model_dump(mode="json")
+
+    assert dumped["columns"] == [{"name": "id", "dtype": "string", "rename": None, "required": True}]
+    assert "columns" not in dumped["reader"]
+    assert DataFile.model_validate(dumped).columns == data_file.columns
+    with pytest.raises(ValidationError, match="Declare native columns on the DataFile"):
+        DataFile.model_validate(
+            {
+                "name": "invalid",
+                "relative_fpath": "input.csv",
+                "reader": {"format": "csv", "columns": [{"name": "id", "dtype": "string"}]},
+            }
+        )
+
+
+def test_native_columns_cannot_be_configured_inside_reader_even_when_empty() -> None:
+    """Empty reader-local columns are still a misplaced schema declaration."""
+    with pytest.raises(ValidationError, match="Declare native columns on the DataFile"):
+        DataFile.model_validate({"name": "input", "relative_fpath": "input.csv", "reader": {"columns": []}})
 
 
 def test_explicit_registered_format_supports_new_extensions() -> None:
@@ -185,3 +218,53 @@ def test_datafile_path_resolution_does_not_require_file_existence(tmp_path: Path
     data_file = DataFile(name="missing", fpath=tmp_path / "not-created.csv")
 
     assert data_file.fpath == tmp_path / "not-created.csv"
+
+
+def test_unpivot_step_dump_roundtrips_through_datafile() -> None:
+    """An omitted unpivot type name stays omitted in nested configuration dumps."""
+    unpivot = UnpivotStep(op="unpivot", index=["id"], variable_name="field", value_name="value")
+    data_file = DataFile.model_validate(
+        {
+            "name": "input",
+            "relative_fpath": "input.csv",
+            "proc_spec": {"kind": "tabular", "steps": [unpivot.model_dump()]},
+        }
+    )
+
+    restored = DataFile.model_validate(data_file.model_dump(mode="json"))
+
+    assert restored == data_file
+
+
+def test_datareader_resolves_placeholder_processing_after_unpivot(tmp_path: Path) -> None:
+    """A placeholder elsewhere in processing does not make an omitted unpivot field explicit."""
+    (tmp_path / "input.csv").write_text("id,value\na,3\n", encoding="utf-8")
+    data_file = DataFile(
+        name="input",
+        relative_fpath="input.csv",
+        proc_spec=TabularProcessing(
+            steps=[
+                UnpivotStep(op="unpivot", index=["id"], variable_name="field", value_name="value"),
+                ScaleColumnsStep(op="scale_columns", scale={"value": "{factor}"}),
+            ]
+        ),
+    )
+
+    sources = DataReader().read_data_files([data_file], folder_path=tmp_path, placeholders={"factor": 2})
+
+    assert list(sources["input"].iter_rows()) == [
+        {"id": "a", "field": "value", "value": 6.0},
+    ]
+
+
+def test_cast_columns_declares_strict_float_to_integer_policy() -> None:
+    """Expose the explicit numeric conversion policy with a strict default."""
+    step = CastColumnsStep(op="cast_columns", column_schema={"value": "int64"})
+
+    assert step.float_to_int == "truncate"
+    assert CastColumnsStep.model_validate(step.model_dump()) == step
+    assert CastColumnsStep(op="cast_columns", column_schema={"value": "int64"}, float_to_int="reject")
+    with pytest.raises(ValidationError):
+        CastColumnsStep.model_validate(
+            {"op": "cast_columns", "column_schema": {"value": "int64"}, "float_to_int": "round"}
+        )

@@ -10,8 +10,13 @@ registration mapping. JSON configuration never imports implementation names.
 
 A reader returns a mapping of source names to `DecodedSource` instances. One
 physical input may return several names. `DataReader` resolves input paths,
-validates options through the selected reader, reuses decodes only within one
-read execution, and resolves named processing dependencies. Use
+validates options through the selected reader, passes declared native columns as
+`reader_config.columns`, reuses decodes only within one read execution, and
+resolves named processing dependencies. `reader_config.columns` is empty when
+no columns are declared. It is read-time metadata and is not serialized in
+reader settings. Declare columns on the `DataFile`. For direct reader calls,
+pass them to `ReaderConfig(columns=...)`. Core rejects a shared column schema
+when a reader returns multiple sources. Use
 `DataReader.read_data_files` when an application needs decoded sources without
 constructing a `System`.
 
@@ -56,6 +61,10 @@ class VendorReader(FileReader):
         file_path: Path,
         reader_config: ReaderConfig,
     ) -> DecodedSources:
+        # This reader emits multiple differently shaped sources.
+        if reader_config.columns:
+            msg = "Vendor reader cannot apply one shared schema to multiple sources"
+            raise ValueError(msg)
         # Decode vendor syntax and return named typed sources.
         ...
 ```

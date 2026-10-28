@@ -22,6 +22,9 @@ class XMLFileReader(FileReader):
         if format_name != "xml":
             msg = f"XML reader cannot read format {format_name!r}"
             raise ValueError(msg)
+        if reader_config.columns:
+            msg = "XML reader does not support native table column declarations"
+            raise ValueError(msg)
         if reader_config.options:
             msg = f"XML reader has no options: {sorted(reader_config.options)}"
             raise ValueError(msg)

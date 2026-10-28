@@ -65,6 +65,7 @@ plugins
 versioning
 upgrader
 processors
+table-mapping
 utils
 exceptions
 file-formats

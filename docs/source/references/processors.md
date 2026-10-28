@@ -84,11 +84,25 @@ processing model is validated again. Date expressions include `year` and
 - `lowercase` lowercases column names and string values when enabled.
 - `unpivot` names identifier columns explicitly. `unpivot_columns` names value
   columns and keeps all other columns as identifiers. Both default output names
-  are `variable` and `value`.
+  are `variable` and `value`. Without `value_type_name`, Polars chooses a common
+  value type. This can convert numbers to strings or booleans to integers. The
+  table-mapping `unpivot` instead requires compatible declared types.
+  `unpivot` may also declare `value_type_name` to add a backend-neutral logical
+  type column. In that mode, values are cast to
+  strings and the type column uses `bool`, `int64`, `float64`, `string`, or
+  `datetime`. Null values remain null, and typed empty inputs retain the output
+  schema. Other and non-scalar source dtypes are errors.
 - `split_columns` splits strings using a one-character separator and distinct
   output column names.
-- `replace_values`, `strip_characters`, `cast_columns`, `scale_columns`, and
-  `fill_null` clean or convert values.
+- `cast_columns` converts columns to the configured types. Its `float_to_int`
+  policy defaults to `truncate`, which discards fractional parts toward zero.
+  Core logs a warning for this conversion when `r2x_core` logging is enabled.
+  Library logging is disabled by default. Enable it with
+  `loguru.logger.enable("r2x_core")` in the application.
+  Set it to `reject` to reject float columns when casting to an integer type.
+  Native input-column declarations always reject float-to-integer conversion.
+- `replace_values`, `strip_characters`, `scale_columns`, and `fill_null` clean
+  or convert values.
 - `aggregate` groups optionally and applies aggregation functions to columns.
   Aggregation without `group_by` returns one row. Mapping expressions also
   support the full aggregation vocabulary listed below, with one operand each.
@@ -104,6 +118,49 @@ processing model is validated again. Date expressions include `year` and
   named frames, and `custom` invokes application-registered handlers through
   the mapping-step backend. Cross joins omit `on` and allow only default or
   `m:m` validation.
+
+`match_source_patterns` is a distinct source-backed operation. It selects one
+best right-side record for each matching left value. Static `match_patterns`
+retains its existing group semantics. The source-backed form requires explicit
+range and prefix syntax, priority, tie, and unmatched policies:
+
+```json
+{
+  "op": "match_source_patterns",
+  "column": "asset_id",
+  "source": "asset_patterns",
+  "pattern_column": "pattern",
+  "range_separator": "..",
+  "prefix_separator": ".",
+  "precedence": ["exact", "range", "prefix"],
+  "prefix_policy": "longest",
+  "duplicate_policy": "first",
+  "unmatched": "keep",
+  "case_sensitive": false
+}
+```
+
+The left and pattern columns must be strings. A pattern containing
+`range_separator` is a numeric-suffix range and must contain it exactly once.
+It has the form `prefix{first}separatorprefix{last}`. Both endpoints have a
+non-negative decimal suffix and MUST share the same literal prefix. The
+endpoints define an inclusive numeric range. The Polars backend collects distinct
+pattern values during assembly to reject malformed or reversed ranges, even for
+an empty left input. A pattern without the range separator
+can match as exact text or as a prefix followed by the configured
+`prefix_separator`. `precedence` lists `exact`, `range`, and `prefix` once each,
+in selection order. `prefix_policy` chooses the longest matching prefix or the
+first matching prefix in source order. `duplicate_policy` chooses the first or
+last source record when candidates otherwise tie. `unmatched` either preserves
+the left row with typed null payloads or drops it. In case-insensitive mode,
+this operation uses full Unicode casefold for input values, patterns, and
+separators. Static `match_patterns` uses Unicode lowercase instead.
+
+The source must be declared earlier. Every right-source column except
+`pattern_column` is appended, and payload collisions are errors. Null left
+values and null patterns never match. Left duplicates and row order are
+preserved when `unmatched` is `keep`. Pattern syntax errors are rejected even
+when the left input is empty.
 
 Aggregation functions are `count`, `first`, `last`, `max`, `mean`, `median`,
 `min`, `n_unique`, `std`, `sum`, and `var`. Pivot does not support `n_unique`,
@@ -172,7 +229,8 @@ A custom `FileReader` implements `read_file(format_name, /, *, file_path,
 reader_config)` and returns `DecodedSources`, a mapping from names to typed
 sources. Output keys must be non-empty strings. `file_path` is the resolved physical
 path, regardless of whether configuration used an absolute,
-relative, or glob path. A `ProcessingSource[Payload]` couples a built-in payload
+relative, or glob path. Declared native columns are available through the
+optional `reader_config.columns` field. A `ProcessingSource[Payload]` couples a built-in payload
 wrapper to its processor. An application-defined `DecodedSource` implements
 `fields`, `is_empty`, `iter_rows`, `values`, and `process`. `is_empty` must agree
 with whether `iter_rows` yields a record.

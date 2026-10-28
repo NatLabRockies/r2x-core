@@ -75,6 +75,9 @@ class H5PyFileReader(H5Reader):
         if format_name != "hdf5_array":
             msg = f"HDF5 reader cannot read format {format_name!r}"
             raise ValueError(msg)
+        if reader_config.columns:
+            msg = "HDF5 array reader does not support native table column declarations"
+            raise ValueError(msg)
         data = read_h5_file(file_path=file_path, **reader_config.options)
         return {"data": ArraySource(data, None)}
 

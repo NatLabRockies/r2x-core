@@ -19,8 +19,28 @@ def test_reader_and_processor_contracts_are_public() -> None:
         H5PyFileReader,
         H5Reader,
         InlineTable,
+        InputColumn,
+        SourceAvailability,
         SourceProcessor,
         SourceSelection,
+        TableAddOperation,
+        TableAggregate,
+        TableCastOperation,
+        TableChooseOperation,
+        TableConcatOperation,
+        TableDivideOperation,
+        TableFillNullOperation,
+        TableFilterOperation,
+        TableFirstNonEmptyOperation,
+        TableFirstPresentOperation,
+        TableGroupByOperation,
+        TableMatchSourcePatternsOperation,
+        TableRowsOperation,
+        TableScalarLiteral,
+        TableSortOperation,
+        TableSplitOperation,
+        TableUniqueOperation,
+        TableUnpivotOperation,
         TabularProcessor,
         TabularSource,
     )
@@ -30,7 +50,29 @@ def test_reader_and_processor_contracts_are_public() -> None:
     source = TabularSource(pl.LazyFrame({"value": [1]}), PolarsTabularBackend())
     assert isinstance(source, DecodedSource)
     assert source.values("value") == [1]
-    assert InlineTable and SourceSelection
+    assert InlineTable and InputColumn and SourceSelection and SourceAvailability.PRESENT
+    assert all(
+        (
+            TableAddOperation,
+            TableAggregate,
+            TableCastOperation,
+            TableChooseOperation,
+            TableConcatOperation,
+            TableFirstNonEmptyOperation,
+            TableFirstPresentOperation,
+            TableDivideOperation,
+            TableFilterOperation,
+            TableFillNullOperation,
+            TableGroupByOperation,
+            TableMatchSourcePatternsOperation,
+            TableRowsOperation,
+            TableScalarLiteral,
+            TableSortOperation,
+            TableSplitOperation,
+            TableUnpivotOperation,
+            TableUniqueOperation,
+        )
+    )
     assert callable(JSONProcessingBackend)
     assert callable(SourceProcessor)
     assert callable(TabularProcessor)

@@ -193,6 +193,25 @@ def test_polars_reader_preserves_hdf5_array_and_table_layouts(tmp_path: Path) ->
     assert matrix_frame.columns == ["matrix_col_0", "matrix_col_1", "matrix_col_2"]
 
 
+def test_hdf5_table_applies_declared_columns_after_array_decoding(tmp_path: Path) -> None:
+    """A table schema must not be rejected by the nested native array reader."""
+    path = tmp_path / "input.h5"
+    with h5py.File(path, "w") as handle:
+        handle.create_dataset("values", data=[1, 2])
+    data_file = DataFile.model_validate(
+        {
+            "name": "input",
+            "fpath": str(path),
+            "reader": {"format": "hdf5", "options": {"data_key": "values"}},
+            "columns": [{"name": "values", "dtype": "int64", "rename": "id"}],
+        }
+    )
+
+    result = DataReader().read_data_files([data_file], folder_path=tmp_path)["input"]
+
+    assert list(result.iter_rows()) == [{"id": 1}, {"id": 2}]
+
+
 def test_polars_reader_accepts_custom_hdf5_array_decoder(tmp_path: Path) -> None:
     path = tmp_path / "custom.h5"
     with h5py.File(path, "w") as output:

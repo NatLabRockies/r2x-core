@@ -10,10 +10,12 @@ from pydantic import (
     ConfigDict,
     Field,
     RootModel,
+    SerializerFunctionWrapHandler,
     StrictBool,
     StrictFloat,
     StrictInt,
     StrictStr,
+    model_serializer,
     model_validator,
 )
 
@@ -36,6 +38,21 @@ class StrictConfigModel(StrictModel):
     """Base for immutable mapping configuration models."""
 
     model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True, populate_by_name=True)
+
+
+class OmitUnsetNoneConfigModel(StrictConfigModel):
+    """Serialize unset nullable mapping fields as omitted, not explicit nulls."""
+
+    @model_serializer(mode="wrap")
+    def serialize_omitted_none_fields(self, handler: SerializerFunctionWrapHandler) -> object:
+        """Keep omitted-only fields absent while preserving explicitly supplied nulls."""
+        serialized = handler(self)
+        omitted_fields = {
+            field.serialization_alias or field.alias or name
+            for name, field in type(self).model_fields.items()
+            if name not in self.model_fields_set and getattr(self, name) is None
+        }
+        return {name: value for name, value in serialized.items() if name not in omitted_fields}
 
 
 class ColumnExpression(RootModel[NonEmptyString]):
@@ -236,13 +253,29 @@ class WithColumnsStep(StrictConfigModel):
     columns: dict[NonEmptyString, Expression]
 
 
-class UnpivotStep(StrictConfigModel):
+class UnpivotStep(OmitUnsetNoneConfigModel):
     """Convert selected value columns into rows."""
 
     op: Literal["unpivot"]
     index: list[NonEmptyString]
     value_name: NonEmptyString
     variable_name: NonEmptyString
+    value_type_name: NonEmptyString | None = None
+
+    @model_validator(mode="after")
+    def validate_output_columns(self) -> UnpivotStep:
+        """Keep optional dtype metadata distinct from unpivot outputs and identifiers."""
+        if "value_type_name" in self.model_fields_set and self.value_type_name is None:
+            msg = "unpivot 'value_type_name' must be omitted when unused, not null"
+            raise ValueError(msg)
+        if self.value_type_name is not None and self.value_type_name in {
+            *self.index,
+            self.variable_name,
+            self.value_name,
+        }:
+            msg = "unpivot 'value_type_name' must be distinct from identifiers and output names"
+            raise ValueError(msg)
+        return self
 
 
 class LowercaseStep(StrictConfigModel):
@@ -263,7 +296,7 @@ class RenameColumnsStep(StrictConfigModel):
     """Rename columns by mapping source names to destination names."""
 
     op: Literal["rename_columns"]
-    column_mapping: dict[NonEmptyString, NonEmptyString]
+    column_mapping: dict[str, NonEmptyString]
 
 
 class SplitColumnSpec(StrictConfigModel):
@@ -324,10 +357,24 @@ class StripCharactersStep(StrictConfigModel):
 
 
 class CastColumnsStep(StrictConfigModel):
-    """Cast columns to Polars dtype names."""
+    """Cast columns to Polars dtype names using the declared numeric conversion policy."""
 
     op: Literal["cast_columns"]
-    column_schema: dict[NonEmptyString, NonEmptyString]
+    column_schema: dict[str, NonEmptyString]
+    optional_columns: list[str] = Field(default_factory=list)
+    float_to_int: Literal["truncate", "reject"] = "truncate"
+
+    @model_validator(mode="after")
+    def validate_optional_columns(self) -> CastColumnsStep:
+        """Require optional names to identify unique columns in the declared schema."""
+        if len(set(self.optional_columns)) != len(self.optional_columns):
+            msg = "optional_columns must be unique"
+            raise ValueError(msg)
+        unknown = sorted(set(self.optional_columns) - self.column_schema.keys())
+        if unknown:
+            msg = f"optional_columns must be declared in column_schema: {unknown}"
+            raise ValueError(msg)
+        return self
 
 
 class ScaleColumnsStep(StrictConfigModel):
@@ -439,10 +486,9 @@ class PatternMatchGroup(StrictConfigModel):
         return self
 
 
-class MatchPatternsStep(StrictConfigModel):
-    """Match ordered groups of literal exact values and prefixes."""
+class MatchPatternsOptions(StrictConfigModel):
+    """Match literal exact values and prefixes using ordered groups."""
 
-    op: Literal["match_patterns"]
     column: NonEmptyString
     label_column: NonEmptyString
     groups: Annotated[list[PatternMatchGroup], Field(min_length=1)]
@@ -450,7 +496,7 @@ class MatchPatternsStep(StrictConfigModel):
     case_sensitive: StrictBool = True
 
     @model_validator(mode="after")
-    def validate_attribute_names(self) -> MatchPatternsStep:
+    def validate_attribute_names(self) -> MatchPatternsOptions:
         """Declare every group attribute in defaults and reserve the label column."""
         if self.label_column in self.defaults:
             msg = "label_column cannot also be a default attribute"
@@ -464,7 +510,7 @@ class MatchPatternsStep(StrictConfigModel):
         return self
 
     @model_validator(mode="after")
-    def validate_attribute_types(self) -> MatchPatternsStep:
+    def validate_attribute_types(self) -> MatchPatternsOptions:
         """Keep each default and group attribute on one strict scalar type."""
         attribute_types: dict[str, type] = {}
         for attribute, value in self.defaults.items():
@@ -482,7 +528,7 @@ class MatchPatternsStep(StrictConfigModel):
         return self
 
     @model_validator(mode="after")
-    def validate_attribute_ranges(self) -> MatchPatternsStep:
+    def validate_attribute_ranges(self) -> MatchPatternsOptions:
         """Keep numeric attributes representable by the backend scalar dtypes."""
         values = [
             *self.defaults.values(),
@@ -496,6 +542,47 @@ class MatchPatternsStep(StrictConfigModel):
                 msg = "Float pattern attributes must be finite"
                 raise ValueError(msg)
         return self
+
+
+class MatchPatternsStep(MatchPatternsOptions):
+    """Apply static literal exact/prefix groups to a file-processing frame."""
+
+    op: Literal["match_patterns"]
+
+
+class MatchSourcePatternsOptions(StrictConfigModel):
+    """Define generic exact, numeric-range, and delimited-prefix matching rules."""
+
+    column: NonEmptyString
+    source: NonEmptyString
+    pattern_column: NonEmptyString
+    range_separator: NonEmptyString
+    prefix_separator: NonEmptyString
+    precedence: Annotated[list[Literal["exact", "range", "prefix"]], Field(min_length=3, max_length=3)]
+    prefix_policy: Literal["longest", "first"]
+    duplicate_policy: Literal["first", "last"]
+    unmatched: Literal["keep", "drop"]
+    case_sensitive: StrictBool = True
+
+    @model_validator(mode="after")
+    def validate_selection_rules(self) -> MatchSourcePatternsOptions:
+        """Keep pattern order complete and syntax delimiters distinct."""
+        if set(self.precedence) != {"exact", "range", "prefix"}:
+            msg = "Pattern precedence must contain exact, range, and prefix exactly once"
+            raise ValueError(msg)
+        if self.case_sensitive and self.range_separator == self.prefix_separator:
+            msg = "Range and prefix separators must differ"
+            raise ValueError(msg)
+        if not self.case_sensitive and self.range_separator.casefold() == self.prefix_separator.casefold():
+            msg = "Range and prefix separators must differ after casefold normalization"
+            raise ValueError(msg)
+        return self
+
+
+class MatchSourcePatternsStep(MatchSourcePatternsOptions):
+    """Resolve each input string against a named exact/range/prefix table."""
+
+    op: Literal["match_source_patterns"]
 
 
 class ConcatStep(StrictConfigModel):
@@ -615,6 +702,7 @@ MappingStep: TypeAlias = Annotated[
     | PivotStep
     | GroupByStep
     | MatchPatternsStep
+    | MatchSourcePatternsStep
     | ConcatStep
     | JoinStep
     | DatetimeRangeStep

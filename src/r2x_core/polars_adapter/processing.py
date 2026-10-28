@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping, Sequence
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from math import isnan
@@ -10,6 +11,7 @@ from numbers import Integral, Rational, Real
 from typing import Any, Literal, TypeAlias
 
 import polars as pl
+from loguru import logger
 from polars.datatypes.classes import DataTypeClass
 
 from ..datafile import DataFile
@@ -26,7 +28,9 @@ from ..models import (
     GroupByStep,
     HeadStep,
     LowercaseStep,
+    MatchPatternsOptions,
     MatchPatternsStep,
+    MatchSourcePatternsOptions,
     PatternMatchGroup,
     PivotStep,
     RenameColumnsStep,
@@ -93,7 +97,142 @@ DTYPE_FAMILIES: dict[DataTypeClass, ValueFamily] = {
 }
 
 
-def pattern_attribute_dtypes(step: MatchPatternsStep) -> dict[str, DataTypeClass]:
+def logical_scalar_type_name(dtype: pl.DataType, *, column: str) -> str:
+    """Resolve supported Polars scalars to backend-neutral declared type names."""
+    if dtype == pl.Boolean:
+        return "bool"
+    if dtype == pl.Int64:
+        return "int64"
+    if dtype == pl.Float64:
+        return "float64"
+    if isinstance(dtype, pl.Datetime):
+        return "datetime"
+    if dtype.base_type() in {pl.String, pl.Categorical, pl.Enum}:
+        return "string"
+    msg = (
+        f"unpivot value_type_name does not support column {column!r} with dtype {dtype}; "
+        "supported types are bool, int64, float64, string, and datetime"
+    )
+    raise ValueError(msg)
+
+
+def unpivot_polars_frame(
+    data_frame: pl.LazyFrame,
+    *,
+    index: Sequence[str],
+    columns: Mapping[str, str] | None,
+    variable_name: str,
+    value_name: str,
+    type_policy: Literal["exact", "supertype"],
+    value_type_name: str | None = None,
+    data_file: DataFile | None = None,
+) -> pl.LazyFrame:
+    """Unpivot selected columns using an explicit value-type policy."""
+    schema = data_frame.collect_schema()
+    schema_names = schema.names()
+    require_columns(schema_names, list(index), operation="unpivot index", data_file=data_file)
+    label_columns = (
+        list(columns.items())
+        if columns is not None
+        else [(name, name) for name in schema_names if name not in index]
+    )
+    if not label_columns:
+        msg = "unpivot requires at least one value column"
+        raise ValueError(msg)
+    labels = [label for label, _ in label_columns]
+    value_columns = [column for _, column in label_columns]
+    require_columns(schema_names, value_columns, operation="unpivot", data_file=data_file)
+    if len(set(value_columns)) != len(value_columns):
+        msg = "unpivot value columns must be unique"
+        raise ValueError(msg)
+
+    output_names = [*index, variable_name, value_name]
+    if value_type_name is not None:
+        output_names.append(value_type_name)
+    if len(set(output_names)) != len(output_names):
+        msg = "unpivot output names must be distinct from identifiers and each other"
+        raise ValueError(msg)
+
+    value_types = {schema[column] for column in value_columns}
+    type_names: list[str] | None = None
+    if value_type_name is not None:
+        type_names = [logical_scalar_type_name(schema[column], column=column) for column in value_columns]
+        output_value_type = pl.String
+    elif type_policy == "supertype":
+        output_value_type = None
+    elif len(value_types) == 1:
+        output_value_type = next(iter(value_types))
+    elif value_types == {pl.Int64, pl.Float64}:
+        output_value_type = pl.Float64
+    else:
+        msg = f"unpivot value columns have incompatible types: {value_types}"
+        raise ValueError(msg)
+
+    occupied_names = set(schema_names) | set(output_names)
+
+    def temporary_name(label: str) -> str:
+        name = f"__r2x_unpivot_{label}__"
+        while name in occupied_names:
+            name = f"_{name}"
+        occupied_names.add(name)
+        return name
+
+    source_name = temporary_name("source_name")
+    output_label = temporary_name("output_label")
+    variable = temporary_name("variable")
+    value = temporary_name("value")
+    type_name = temporary_name("type_name") if type_names is not None else None
+    value_aliases = [temporary_name(f"value_column_{index}") for index in range(len(value_columns))]
+
+    value_expressions = []
+    for column, alias in zip(value_columns, value_aliases, strict=True):
+        expression = exact_column_expression(column, column_names=schema_names)
+        if output_value_type is not None and (
+            value_type_name is not None or (output_value_type == pl.Float64 and schema[column] == pl.Int64)
+        ):
+            expression = expression.cast(output_value_type)
+        value_expressions.append(expression.alias(alias))
+    prepared = data_frame.select(
+        [exact_column_expression(column, column_names=schema_names) for column in index] + value_expressions
+    )
+    prepared_names = [*index, *value_aliases]
+    unpivoted = prepared.unpivot(
+        on=[exact_column_selector(column, column_names=prepared_names) for column in value_aliases],
+        index=[exact_column_selector(column, column_names=prepared_names) for column in index],
+        variable_name=variable,
+        value_name=value,
+    )
+
+    lookup_columns: dict[str, list[str]] = {source_name: value_aliases, output_label: labels}
+    lookup_schema: dict[str, pl.DataType | type[pl.DataType]] = {
+        source_name: pl.String,
+        output_label: pl.String,
+    }
+    if type_names is not None and type_name is not None:
+        lookup_columns[type_name] = type_names
+        lookup_schema[type_name] = pl.String
+    lookup = pl.DataFrame(lookup_columns, schema=lookup_schema).lazy()
+    joined = unpivoted.join(
+        lookup,
+        left_on=variable,
+        right_on=source_name,
+        how="left",
+        maintain_order="left",
+    )
+    joined_names = joined.collect_schema().names()
+    result = [exact_column_expression(column, column_names=joined_names) for column in index]
+    result.extend(
+        (
+            exact_column_expression(output_label, column_names=joined_names).alias(variable_name),
+            exact_column_expression(value, column_names=joined_names).alias(value_name),
+        )
+    )
+    if type_name is not None and value_type_name is not None:
+        result.append(exact_column_expression(type_name, column_names=joined_names).alias(value_type_name))
+    return joined.select(result)
+
+
+def pattern_attribute_dtypes(step: MatchPatternsOptions) -> dict[str, DataTypeClass]:
     """Resolve stable Polars output dtypes from declared defaults and group values."""
     scalar_dtypes = {
         bool: pl.Boolean,
@@ -128,7 +267,7 @@ def pattern_group_predicate(column: pl.Expr, group: PatternMatchGroup, *, case_s
 
 
 def match_patterns(
-    data_frame: pl.LazyFrame, *, step: MatchPatternsStep, data_file: DataFile | None = None
+    data_frame: pl.LazyFrame, *, step: MatchPatternsOptions, data_file: DataFile | None = None
 ) -> pl.LazyFrame:
     """Emit one row per source-row and matching ordered pattern group."""
     schema = data_frame.collect_schema()
@@ -166,6 +305,197 @@ def match_patterns(
     matched_names = matched.collect_schema().names()
     return matched.select(
         [exact_column_selector(name, column_names=matched_names) for name in [*schema_names, *output_names]]
+    )
+
+
+def match_source_patterns(
+    data_frame: pl.LazyFrame,
+    pattern_source: pl.LazyFrame,
+    *,
+    step: MatchSourcePatternsOptions,
+    data_file: DataFile | None = None,
+) -> pl.LazyFrame:
+    """Select one configured source pattern for each left row."""
+    operation_name = "match_source_patterns"
+    left_schema = data_frame.collect_schema()
+    right_schema = pattern_source.collect_schema()
+    left_names = left_schema.names()
+    right_names = right_schema.names()
+    require_columns(left_names, [step.column], operation=operation_name, data_file=data_file)
+    require_columns(right_names, [step.pattern_column], operation=operation_name, data_file=data_file)
+    if left_schema[step.column] != pl.String:
+        msg = f"match_source_patterns column {step.column!r} must have a string dtype"
+        raise ValueError(msg)
+    if right_schema[step.pattern_column] != pl.String:
+        msg = f"match_source_patterns pattern column {step.pattern_column!r} must have a string dtype"
+        raise ValueError(msg)
+
+    payload_names = [name for name in right_names if name != step.pattern_column]
+    collisions = sorted(set(left_names) & set(payload_names))
+    if collisions:
+        msg = f"match_source_patterns output column(s) already exist: {collisions}"
+        raise ValueError(msg)
+
+    range_separator = step.range_separator if step.case_sensitive else step.range_separator.casefold()
+    prefix_separator = step.prefix_separator if step.case_sensitive else step.prefix_separator.casefold()
+    range_pattern = re.compile(rf"^(.*?)([0-9]+){re.escape(range_separator)}(.*?)([0-9]+)$")
+    pattern_values = (
+        collect_polars_frame(
+            pattern_source.select(
+                exact_column_expression(step.pattern_column, column_names=right_names)
+            ).unique()
+        )
+        .to_series()
+        .to_list()
+    )
+    for pattern in pattern_values:
+        if pattern is None:
+            continue
+        normalized_pattern = pattern if step.case_sensitive else pattern.casefold()
+        if range_separator not in normalized_pattern:
+            continue
+        match = range_pattern.fullmatch(normalized_pattern)
+        if match is None or normalized_pattern.count(range_separator) != 1:
+            msg = f"Invalid numeric range pattern {pattern!r}"
+            raise ValueError(msg)
+        start = match.group(2).lstrip("0") or "0"
+        end = match.group(4).lstrip("0") or "0"
+        if match.group(1) != match.group(3) or (len(start), start) > (len(end), end):
+            msg = f"Invalid numeric range pattern {pattern!r}"
+            raise ValueError(msg)
+
+    occupied_names = set(left_names) | set(right_names)
+
+    def temporary_name(label: str) -> str:
+        name = f"__r2x_match_patterns_{label}__"
+        while name in occupied_names:
+            name = f"_{name}"
+        occupied_names.add(name)
+        return name
+
+    left_index = temporary_name("left_index")
+    right_index = temporary_name("right_index")
+    left_value = temporary_name("left_value")
+    right_pattern = temporary_name("right_pattern")
+    left_prefix = temporary_name("left_prefix")
+    left_number = temporary_name("left_number")
+    start_prefix = temporary_name("start_prefix")
+    start_number = temporary_name("start_number")
+    end_prefix = temporary_name("end_prefix")
+    end_number = temporary_name("end_number")
+    exact_match = temporary_name("exact_match")
+    range_match = temporary_name("range_match")
+    prefix_match = temporary_name("prefix_match")
+    match_rank = temporary_name("match_rank")
+    prefix_length = temporary_name("prefix_length")
+
+    left_indexed = data_frame.with_row_index(left_index)
+    right_indexed = pattern_source.with_row_index(right_index)
+    left_text = exact_column_expression(step.column, column_names=[left_index, *left_names])
+    right_text = exact_column_expression(step.pattern_column, column_names=[right_index, *right_names])
+    if not step.case_sensitive:
+        left_text = left_text.map_elements(str.casefold, return_dtype=pl.String, skip_nulls=True)
+        right_text = right_text.map_elements(str.casefold, return_dtype=pl.String, skip_nulls=True)
+
+    left_indexed = left_indexed.with_columns(left_text.alias(left_value))
+    left_indexed = left_indexed.with_columns(
+        pl.col(left_value).str.extract(r"^(.*?)([0-9]+)$", 1).alias(left_prefix),
+        pl.col(left_value).str.extract(r"^(.*?)([0-9]+)$", 2).alias(left_number),
+    )
+    right_indexed = right_indexed.with_columns(right_text.alias(right_pattern))
+    if step.pattern_column in left_names:
+        right_indexed = right_indexed.rename({step.pattern_column: temporary_name("source_pattern")})
+    right_indexed = right_indexed.with_columns(
+        pl.col(right_pattern).str.extract(range_pattern.pattern, 1).alias(start_prefix),
+        pl.col(right_pattern).str.extract(range_pattern.pattern, 2).alias(start_number),
+        pl.col(right_pattern).str.extract(range_pattern.pattern, 3).alias(end_prefix),
+        pl.col(right_pattern).str.extract(range_pattern.pattern, 4).alias(end_number),
+    )
+
+    def normalized_decimal(column: str) -> pl.Expr:
+        digits = pl.col(column).str.replace(r"^0+", "")
+        return pl.when(digits == "").then(pl.lit("0")).otherwise(digits)
+
+    normalized_left_number = temporary_name("normalized_left_number")
+    normalized_start_number = temporary_name("normalized_start_number")
+    normalized_end_number = temporary_name("normalized_end_number")
+    left_indexed = left_indexed.with_columns(normalized_decimal(left_number).alias(normalized_left_number))
+    right_indexed = right_indexed.with_columns(
+        normalized_decimal(start_number).alias(normalized_start_number),
+        normalized_decimal(end_number).alias(normalized_end_number),
+    )
+
+    pairs = left_indexed.join(right_indexed, how="cross")
+    left_value_expr = pl.col(left_value)
+    pattern_expr = pl.col(right_pattern)
+    has_range = pattern_expr.str.contains(range_separator, literal=True).fill_null(False)
+    exact = (~has_range) & (left_value_expr == pattern_expr)
+    left_digits = pl.col(normalized_left_number)
+    start_digits = pl.col(normalized_start_number)
+    end_digits = pl.col(normalized_end_number)
+    left_digit_length = left_digits.str.len_chars()
+    start_digit_length = start_digits.str.len_chars()
+    end_digit_length = end_digits.str.len_chars()
+    range = (
+        has_range
+        & (pl.col(left_prefix) == pl.col(start_prefix))
+        & (pl.col(start_prefix) == pl.col(end_prefix))
+        & pl.col(left_number).str.contains(r"^[0-9]+$").fill_null(False)
+        & (
+            (left_digit_length > start_digit_length)
+            | ((left_digit_length == start_digit_length) & (left_digits >= start_digits))
+        )
+        & (
+            (left_digit_length < end_digit_length)
+            | ((left_digit_length == end_digit_length) & (left_digits <= end_digits))
+        )
+    )
+    pattern_length = pattern_expr.str.len_chars()
+    prefix = (
+        (~has_range)
+        & (left_value_expr.str.slice(0, pattern_length) == pattern_expr)
+        & (left_value_expr.str.slice(pattern_length, len(prefix_separator)) == prefix_separator)
+    )
+    matches = pairs.with_columns(
+        exact.alias(exact_match),
+        range.alias(range_match),
+        prefix.alias(prefix_match),
+    ).filter(pl.any_horizontal(pl.col(exact_match), pl.col(range_match), pl.col(prefix_match)))
+
+    precedence = {kind: index for index, kind in enumerate(step.precedence)}
+    matches = matches.with_columns(
+        pl.when(pl.col(exact_match))
+        .then(pl.lit(precedence["exact"]))
+        .when(pl.col(range_match))
+        .then(pl.lit(precedence["range"]))
+        .otherwise(pl.lit(precedence["prefix"]))
+        .alias(match_rank),
+        pl.when(pl.col(prefix_match) & (step.prefix_policy == "longest"))
+        .then(pattern_length)
+        .otherwise(pl.lit(0))
+        .alias(prefix_length),
+    )
+    best_matches = matches.sort(
+        [left_index, match_rank, prefix_length, right_index],
+        descending=[False, False, True, step.duplicate_policy == "last"],
+        maintain_order=True,
+    ).unique(subset=[left_index], keep="first", maintain_order=True)
+    match_names = best_matches.collect_schema().names()
+    selected = best_matches.select(
+        [exact_column_selector(name, column_names=match_names) for name in [left_index, *payload_names]]
+    )
+    indexed_names = [left_index, *left_names]
+    result = left_indexed.select(
+        [exact_column_selector(name, column_names=indexed_names) for name in indexed_names]
+    ).join(
+        selected,
+        on=left_index,
+        how="left" if step.unmatched == "keep" else "inner",
+        maintain_order="left",
+    )
+    result_names = result.collect_schema().names()
+    return result.select(
+        [exact_column_selector(name, column_names=result_names) for name in [*left_names, *payload_names]]
     )
 
 
@@ -268,22 +598,15 @@ def apply_polars_step(
                 keep_nulls=True,
             )
         case UnpivotStep():
-            require_columns(schema_names, step.index, operation="unpivot index", data_file=data_file)
-            value_columns = [name for name in schema_names if name not in step.index]
-            if not value_columns:
-                msg = "unpivot requires at least one value column"
-                raise ValueError(msg)
-            if step.variable_name == step.value_name or {
-                step.variable_name,
-                step.value_name,
-            }.intersection(step.index):
-                msg = "unpivot output names must be distinct from each other and the index"
-                raise ValueError(msg)
-            data_frame = data_frame.unpivot(
-                on=[exact_column_selector(column, column_names=schema_names) for column in value_columns],
-                index=[exact_column_selector(column, column_names=schema_names) for column in step.index],
+            data_frame = unpivot_polars_frame(
+                data_frame,
+                index=step.index,
+                columns=None,
                 variable_name=step.variable_name,
                 value_name=step.value_name,
+                type_policy="supertype",
+                value_type_name=step.value_type_name,
+                data_file=data_file,
             )
         case UnpivotColumnsStep():
             require_columns(schema_names, step.columns, operation="unpivot", data_file=data_file)
@@ -360,17 +683,34 @@ def apply_polars_step(
                 expressions.append(cleaned.alias(column))
             data_frame = data_frame.with_columns(expressions)
         case CastColumnsStep():
-            require_columns(
-                schema_names, list(step.column_schema), operation="column_schema", data_file=data_file
-            )
-            data_frame = data_frame.with_columns(
-                [
-                    exact_column_expression(column, column_names=schema_names).cast(
-                        resolve_polars_dtype(dtype)
+            required_columns = [
+                column for column in step.column_schema if column not in step.optional_columns
+            ]
+            require_columns(schema_names, required_columns, operation="column_schema", data_file=data_file)
+            schema = data_frame.collect_schema()
+            expressions: list[pl.Expr] = []
+            for column, dtype_name in step.column_schema.items():
+                dtype = resolve_polars_dtype(dtype_name)
+                if column in schema and dtype.is_integer() and schema[column].is_float():
+                    if step.float_to_int == "reject":
+                        msg = f"Cast from floating-point to integer is unsupported for column {column!r}"
+                        raise ValueError(msg)
+                    logger.warning(
+                        "Casting floating-point column '{}' to {} truncates fractional values. "
+                        "Set float_to_int='reject' to disallow this conversion.",
+                        column,
+                        dtype,
                     )
-                    for column, dtype in step.column_schema.items()
-                ]
-            )
+                if column not in schema:
+                    expression = pl.lit(None, dtype=dtype)
+                else:
+                    expression = exact_column_expression(column, column_names=schema_names)
+                    if dtype == pl.Datetime and schema[column] == pl.String:
+                        expression = expression.str.to_datetime(strict=True)
+                    else:
+                        expression = expression.cast(dtype)
+                expressions.append(expression.alias(column))
+            data_frame = data_frame.with_columns(expressions)
         case ScaleColumnsStep():
             require_columns(schema_names, list(step.scale), operation="scale", data_file=data_file)
             schema = data_frame.collect_schema()

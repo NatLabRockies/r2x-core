@@ -25,6 +25,7 @@ from r2x_core import (
     FileReader,
     PluginConfig,
     ReaderConfig,
+    SourceAvailability,
     TabularProcessing,
     TabularSource,
     build_system,
@@ -1372,6 +1373,195 @@ def test_builders_reject_unknown_mappings_and_empty_owner_groups(tmp_path: Path)
             source=ArraySource({"load": np.array([])}, None),
             config=config,
         )
+
+
+def test_optional_grouped_polars_time_series_preserves_owner_metadata_and_endpoints() -> None:
+    """Retain the full row order for optional lazy series grouped by owner and metadata."""
+    config = PluginConfig(models=("fixtures.ingestion_models",))
+    system = System(name="optional-grouped-series")
+    north = PSSEBus(name="NORTH", number=101, base_kv=230.0)
+    south = PSSEBus(name="SOUTH", number=102, base_kv=115.0)
+    system.add_component(north)
+    system.add_component(south)
+    source = TabularSource(
+        pl.DataFrame(
+            [
+                {"owner_name": "NORTH", "timestamp": "2024-01-01T00:00:00", "load": 1.0, "solve_year": 2032},
+                {"owner_name": "SOUTH", "timestamp": "2024-01-01T00:00:00", "load": 10.0, "solve_year": 2032},
+                {"owner_name": "NORTH", "timestamp": "2024-01-01T01:00:00", "load": 2.0, "solve_year": 2032},
+                {"owner_name": "NORTH", "timestamp": "2024-01-01T00:00:00", "load": 3.0, "solve_year": 2035},
+                {"owner_name": "SOUTH", "timestamp": "2024-01-01T01:00:00", "load": 20.0, "solve_year": 2032},
+                {"owner_name": "NORTH", "timestamp": "2024-01-01T01:00:00", "load": 4.0, "solve_year": 2035},
+            ],
+            schema={
+                "owner_name": pl.String,
+                "timestamp": pl.String,
+                "load": pl.Float64,
+                "solve_year": pl.Int64,
+            },
+        ).lazy(),
+        PolarsTabularBackend(),
+    )
+    instruction = TimeSeriesInstruction(
+        kind="time_series",
+        source="profiles",
+        name="optional_load",
+        values="load",
+        time_axis=ColumnTimeAxis(kind="column", column="timestamp", resolution_seconds=3600),
+        metadata_columns={"solve_year": "solve_year"},
+        skip_if_empty=True,
+        owners=[ComponentOwner(component_type="PSSEBus", name_field="owner_name")],
+    )
+
+    attach_time_series(system, instruction, source=source, config=config)
+
+    for owner, solve_year, expected in (
+        (north, 2032, [1.0, 2.0]),
+        (north, 2035, [3.0, 4.0]),
+        (south, 2032, [10.0, 20.0]),
+    ):
+        series = system.get_time_series(owner, name="optional_load", solve_year=solve_year)
+        assert series.data_array.tolist() == expected
+        assert series.initial_timestamp == datetime(2024, 1, 1)
+        assert series.resolution == timedelta(hours=1)
+
+
+@pytest.mark.parametrize("skip_if_empty", [True, False], ids=["optional-skips", "required-errors"])
+def test_grouped_time_series_handles_schema_bearing_absent_source(skip_if_empty: bool) -> None:
+    """Handle directly supplied absent tables according to optionality."""
+    config = PluginConfig(models=("fixtures.ingestion_models",))
+    system = System(name="absent-grouped-series")
+    bus = PSSEBus(name="NORTH", number=101, base_kv=230.0)
+    system.add_component(bus)
+    source = TabularSource(
+        pl.DataFrame(schema={"owner_name": pl.String, "timestamp": pl.String, "load": pl.Float64}).lazy(),
+        PolarsTabularBackend(),
+        availability=SourceAvailability.ABSENT,
+        absent_inputs=frozenset({"profiles"}),
+    )
+    instruction = TimeSeriesInstruction(
+        kind="time_series",
+        source="profiles",
+        name="absent_load",
+        values="load",
+        time_axis=ColumnTimeAxis(kind="column", column="timestamp"),
+        skip_if_empty=skip_if_empty,
+        owners=[ComponentOwner(component_type="PSSEBus", name_field="owner_name")],
+    )
+
+    if skip_if_empty:
+        attach_time_series(system, instruction, source=source, config=config)
+        assert system.list_time_series_metadata(bus, name="absent_load") == []
+    else:
+        with pytest.raises(ValueError, match="Time-series source has no samples"):
+            attach_time_series(system, instruction, source=source, config=config)
+
+
+def test_optional_literal_owner_skips_empty_source_before_owner_lookup() -> None:
+    """Preserve empty optional literal-owner behavior without resolving an unused owner."""
+    config = PluginConfig(models=("fixtures.ingestion_models",))
+    system = System(name="literal-owner-empty-series")
+    source = TabularSource(
+        pl.DataFrame(schema={"load": pl.Float64}).lazy(),
+        PolarsTabularBackend(),
+    )
+    instruction = TimeSeriesInstruction(
+        kind="time_series",
+        source="profiles",
+        name="optional_load",
+        values="load",
+        time_axis=RegularTimeAxis(kind="regular", initial_timestamp="2024-01-01", resolution_seconds=3600),
+        skip_if_empty=True,
+        owners=[ComponentOwner(component_type="PSSEBus", name="MISSING")],
+    )
+
+    attach_time_series(system, instruction, source=source, config=config)
+
+    assert list(system.get_components(PSSEBus)) == []
+
+
+def test_optional_grouped_time_series_validates_fields_before_empty_skip() -> None:
+    """Reject missing required columns before treating an optional table as empty."""
+    config = PluginConfig(models=("fixtures.ingestion_models",))
+    system = System(name="missing-grouped-field")
+    source = TabularSource(
+        pl.DataFrame(schema={"owner_name": pl.String, "timestamp": pl.String}).lazy(),
+        PolarsTabularBackend(),
+    )
+    instruction = TimeSeriesInstruction(
+        kind="time_series",
+        source="profiles",
+        name="optional_load",
+        values="load",
+        time_axis=ColumnTimeAxis(kind="column", column="timestamp"),
+        skip_if_empty=True,
+        owners=[ComponentOwner(component_type="PSSEBus", name_field="owner_name")],
+    )
+
+    with pytest.raises(ValueError, match=r"Source has no field\(s\): \['load'\]"):
+        attach_time_series(system, instruction, source=source, config=config)
+
+
+def test_optional_grouped_time_series_resolves_owner_before_row_metadata() -> None:
+    """Keep missing-owner errors ahead of invalid row-metadata errors for present input."""
+    config = PluginConfig(models=("fixtures.ingestion_models",))
+    system = System(name="invalid-grouped-owner")
+    system.add_component(PSSEBus(name="NORTH", number=101, base_kv=230.0))
+    source = TabularSource(
+        pl.DataFrame(
+            [{"owner_name": "MISSING", "timestamp": "2024-01-01T00:00:00", "load": 1.0, "scenario": None}],
+            schema={
+                "owner_name": pl.String,
+                "timestamp": pl.String,
+                "load": pl.Float64,
+                "scenario": pl.Float64,
+            },
+        ).lazy(),
+        PolarsTabularBackend(),
+    )
+    instruction = TimeSeriesInstruction(
+        kind="time_series",
+        source="profiles",
+        name="optional_load",
+        values="load",
+        time_axis=ColumnTimeAxis(kind="column", column="timestamp"),
+        metadata_columns={"scenario": "scenario"},
+        skip_if_empty=True,
+        owners=[ComponentOwner(component_type="PSSEBus", name_field="owner_name")],
+    )
+
+    with pytest.raises(ValueError, match="Missing owner PSSEBus named 'MISSING'"):
+        attach_time_series(system, instruction, source=source, config=config)
+
+
+def test_optional_grouped_time_series_propagates_lazy_cast_error_before_owner_lookup() -> None:
+    """Propagate strict Polars casts before processing row-derived component owners."""
+    config = PluginConfig(models=("fixtures.ingestion_models",))
+    system = System(name="invalid-lazy-time-series")
+    source_frame = (
+        pl.DataFrame(
+            [
+                {"owner_name": "MISSING", "timestamp": "2024-01-01T00:00:00", "load": "1"},
+                {"owner_name": "MISSING", "timestamp": "2024-01-01T01:00:00", "load": "invalid"},
+            ],
+            schema={"owner_name": pl.String, "timestamp": pl.String, "load": pl.String},
+        )
+        .lazy()
+        .with_columns(pl.col("load").cast(pl.Float64, strict=True))
+    )
+    source = TabularSource(source_frame, PolarsTabularBackend())
+    instruction = TimeSeriesInstruction(
+        kind="time_series",
+        source="profiles",
+        name="optional_load",
+        values="load",
+        time_axis=ColumnTimeAxis(kind="column", column="timestamp"),
+        skip_if_empty=True,
+        owners=[ComponentOwner(component_type="PSSEBus", name_field="owner_name")],
+    )
+
+    with pytest.raises(pl.exceptions.InvalidOperationError):
+        attach_time_series(system, instruction, source=source, config=config)
 
 
 def test_time_series_partitions_interleaved_rows_by_owner_and_metadata() -> None:

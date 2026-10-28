@@ -17,7 +17,7 @@ from infrasys.exceptions import ISNotStored, ISOperationNotAllowed
 from pydantic import TypeAdapter
 from rust_ok import is_ok
 
-from .file_reader import DecodedSource, DecodedSources, FileReader
+from .file_reader import DecodedSource, DecodedSources, FileReader, SourceAvailability, TabularSource
 from .models import (
     ColumnTimeAxis,
     ComponentInstruction,
@@ -32,7 +32,8 @@ from .processors import substitute_placeholders
 from .reader import DataReader
 from .store import DataStore
 from .system import System
-from .tabular_backend import StepHandlers
+from .table_mapping import TableMappingRecord, load_table_mapping
+from .tabular_backend import StepHandlers, TableMappingBackend
 from .types import JSONValue
 from .units import ureg
 
@@ -54,10 +55,19 @@ def build_system(
     input_folder: Path | None = None,
     readers: Mapping[str, FileReader] | None = None,
     step_handlers: StepHandlers | None = None,
+    table_mapping_path: Path | None = None,
+    table_mapping_backend: TableMappingBackend | None = None,
     placeholders: Mapping[str, JSONValue] | None = None,
     system_options: Mapping[str, object] | None = None,
 ) -> System:
-    """Read configured inputs and construct one System without application loops."""
+    """Read inputs, optionally assemble named tables, and construct one System.
+
+    ``table_mapping_path`` explicitly opts this ingestion call into named-table
+    assembly. It is separate from exporter configuration loading.
+    """
+    if table_mapping_backend is not None and table_mapping_path is None:
+        msg = "table_mapping_backend requires table_mapping_path"
+        raise ValueError(msg)
     store = DataStore(path=input_folder)
     store.configure_upgrades(plugin_config=config)
     store.load_file_mapping(config.fmap_path)
@@ -70,17 +80,39 @@ def build_system(
     else:
         raise substituted.err()
     reader = DataReader(file_readers=readers, step_handlers=step_handlers)
-    try:
-        sources = reader.read_data_files(
-            store.data_files.values(), folder_path=store.folder, placeholders=placeholders
+    table_mapping_inputs: tuple[list[TableMappingRecord], TableMappingBackend] | None = None
+    if table_mapping_path is not None:
+        table_records = load_table_mapping(table_mapping_path)
+        if table_mapping_backend is None:
+            from .polars_adapter import PolarsTabularBackend
+
+            mapping_backend: TableMappingBackend = PolarsTabularBackend()
+        else:
+            mapping_backend = table_mapping_backend
+        table_mapping_inputs = (table_records, mapping_backend)
+
+    def read_sources() -> DecodedSources:
+        """Read the configured one-phase or cross-boundary source graph."""
+        if table_mapping_inputs is None:
+            return reader.read_data_files(
+                store.data_files.values(), folder_path=store.folder, placeholders=placeholders
+            )
+        table_records, mapping_backend = table_mapping_inputs
+        return reader.read_and_assemble_records(
+            store.data_files.values(),
+            table_records,
+            folder_path=store.folder,
+            backend=mapping_backend,
+            placeholders=placeholders,
         )
+
+    try:
+        sources = read_sources()
     except FileNotFoundError:
         if not store.upgrade_coordinator.can_run:
             raise
         store.upgrade_coordinator.run(store=store, reason="missing input during system construction")
-        sources = reader.read_data_files(
-            store.data_files.values(), folder_path=store.folder, placeholders=placeholders
-        )
+        sources = read_sources()
     return build_system_from_sources(
         sources,
         config=config,
@@ -113,6 +145,9 @@ def build_system_from_sources(
         source = sources.get(instruction.source)
         if source is None:
             msg = f"Output source {instruction.source!r} is not available"
+            raise ValueError(msg)
+        if isinstance(source, TabularSource) and source.availability is SourceAvailability.ABSENT:
+            msg = f"Output source {instruction.source!r} is absent"
             raise ValueError(msg)
         if isinstance(instruction, ComponentInstruction):
             component_type = resolve_model_type(instruction.component_type, config=config, expected=Component)
@@ -244,9 +279,6 @@ def attach_time_series(
         fields.append(instruction.time_axis.column)
     fields.extend(owner.name_field for owner in instruction.owners if owner.name_field)
     require_fields(source, fields)
-    if instruction.skip_if_empty and source.is_empty():
-        return
-
     owner_types: dict[str, type[Component]] = {}
     owner_cache: dict[tuple[type[Component], str], Component] = {}
     if any(owner.name_field for owner in instruction.owners) or instruction.metadata_columns:
@@ -271,6 +303,8 @@ def attach_time_series(
                 groups[key] = owners, [], row_metadata
             groups[key][1].append(row)
         if not groups:
+            if instruction.skip_if_empty:
+                return
             msg = "Time-series source has no samples"
             raise ValueError(msg)
         for owners, rows, row_metadata in groups.values():
@@ -290,6 +324,8 @@ def attach_time_series(
             )
         return
 
+    if instruction.skip_if_empty and source.is_empty():
+        return
     owners = resolve_owners(
         system,
         instruction.owners,

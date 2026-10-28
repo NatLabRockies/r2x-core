@@ -5,6 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
+from enum import StrEnum
 from pathlib import Path
 from typing import Generic, Protocol, TypeAlias, TypeGuard, TypeVar
 from xml.etree import ElementTree
@@ -120,11 +121,20 @@ class ProcessingSource(DecodedSource, Generic[SourceDataT]):
         ).map(lambda data: replace(self, data=data))
 
 
+class SourceAvailability(StrEnum):
+    """Distinguish a present table from a declared but absent optional input."""
+
+    PRESENT = "present"
+    ABSENT = "absent"
+
+
 @dataclass(frozen=True, slots=True)
 class TabularSource(ProcessingSource[SourceDataT], Generic[SourceDataT]):
     """Tabular data coupled to its backend and record-access methods."""
 
     processor: TabularProcessor[SourceDataT]
+    availability: SourceAvailability = SourceAvailability.PRESENT
+    absent_inputs: frozenset[str] = frozenset()
 
     def fields(self) -> list[str]:
         """Return table fields using the paired processor."""
@@ -279,5 +289,5 @@ class FileReader(ABC):
         file_path: Path,
         reader_config: ReaderConfig,
     ) -> DecodedSources:
-        """Decode one file without constructing domain components."""
+        """Decode one file using its configured options and optional native columns."""
         ...

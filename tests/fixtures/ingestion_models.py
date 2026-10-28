@@ -23,3 +23,12 @@ class BusGeo(SupplementalAttribute):
     """Supplemental region label for a bus."""
 
     region: str
+
+
+class NestedValuesComponent(Component):
+    """Component used to verify parser handling of assembled object and list values."""
+
+    max_active_power: dict[str, float]
+    coordinates: list[float | None]
+    members: list[int | None]
+    geographic_info: dict[str, object]

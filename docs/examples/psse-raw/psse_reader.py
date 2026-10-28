@@ -5,7 +5,7 @@ from pathlib import Path
 
 import polars as pl
 
-from r2x_core.datafile import ReaderConfig
+from r2x_core import ReaderConfig
 from r2x_core.file_reader import DecodedSources, FileReader, TabularSource
 from r2x_core.models import StrictConfigModel
 from r2x_core.polars_adapter import PolarsTabularBackend
@@ -35,6 +35,9 @@ class DummyPSSEReader(FileReader):
         """Decode syntax only, retaining all generator records for configured filters."""
         if format_name != "dummy_raw":
             msg = f"Unsupported illustrative format {format_name!r}"
+            raise ValueError(msg)
+        if reader_config.columns:
+            msg = "Dummy PSS/E reader emits multiple sources and cannot apply one shared column schema"
             raise ValueError(msg)
         options = DummyRawOptions.model_validate(reader_config.options)
         buses: list[dict[str, object]] = []

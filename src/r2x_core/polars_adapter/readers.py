@@ -18,6 +18,7 @@ from ..models import StrictConfigModel
 from ..tabular_backend import StepHandlers
 from ..type_vocabulary import NonEmptyString, PositiveInteger
 from .backend import PolarsTabularBackend
+from .expressions import resolve_polars_dtype
 
 
 class CSVReaderOptions(StrictConfigModel):
@@ -137,7 +138,9 @@ def read_polars_h5_file(
 ) -> pl.LazyFrame:
     """Read a configured HDF5 table into a Polars lazy frame."""
     reader = H5PyFileReader() if h5_reader is None else h5_reader
-    source = reader.read_file("hdf5_array", file_path=file_path, reader_config=reader_config)["data"]
+    # The array reader decodes first; table columns are applied after conversion.
+    array_config = reader_config.model_copy(update={"columns": ()})
+    source = reader.read_file("hdf5_array", file_path=file_path, reader_config=array_config)["data"]
     if not isinstance(source, ArraySource) or not isinstance(source.data, dict):
         msg = "HDF5 reader must return one named array mapping"
         raise ValueError(msg)
@@ -165,10 +168,33 @@ class PolarsTabularFileReader(FileReader):
         file_path: Path,
         reader_config: ReaderConfig,
     ) -> DecodedSources:
-        """Read tabular formats into Polars-backed named sources."""
+        """Read tabular formats using declared native CSV types when supplied."""
         frame: pl.LazyFrame
         if format_name in {"csv", "tsv"}:
             reader_kwargs = dict(reader_config.options)
+            columns = reader_config.columns
+            if columns:
+                declared_types = {column.name: resolve_polars_dtype(column.dtype) for column in columns}
+                configured_types = reader_kwargs.get("schema_overrides")
+                if configured_types is not None:
+                    if not isinstance(configured_types, dict) or any(
+                        not isinstance(dtype, str) for dtype in configured_types.values()
+                    ):
+                        msg = "schema_overrides must map column names to supported dtype names"
+                        raise ValueError(msg)
+                    overrides = {
+                        name: resolve_polars_dtype(dtype) for name, dtype in configured_types.items()
+                    }
+                    conflicts = {
+                        name: (overrides[name], dtype)
+                        for name, dtype in declared_types.items()
+                        if name in overrides and overrides[name] != dtype
+                    }
+                    if conflicts:
+                        msg = f"reader schema_overrides conflict with file-mapping columns: {conflicts}"
+                        raise ValueError(msg)
+                    declared_types = {**overrides, **declared_types}
+                reader_kwargs["schema_overrides"] = declared_types
             option_values = {
                 name: reader_kwargs.pop(name)
                 for name in ("header_rows", "header_separator")

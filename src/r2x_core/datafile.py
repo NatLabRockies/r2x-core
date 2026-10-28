@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from math import isfinite
 from pathlib import Path
 from sys import float_info
 from typing import ClassVar, Literal
 
-from pydantic import ConfigDict, Field, field_validator, model_serializer, model_validator
+from pydantic import ConfigDict, Field, StrictBool, field_validator, model_serializer, model_validator
 
-from .models import SourcePredicate
+from .models import SourcePredicate, StrictConfigModel
 from .types import (
     EXTENSION_MAPPING,
     PLACEHOLDER_PATTERN,
@@ -39,17 +40,40 @@ class FileInfo(StrictModel):
     units: str | None = None
 
 
-class ReaderConfig(StrictModel):
-    """Select a registered format and validate options in its reader."""
-
-    format: str | None = Field(default=None, min_length=1)
-    options: dict[str, JSONValue] = Field(default_factory=dict)
-
-
-InlineColumnType = Literal["bool", "int64", "float64", "string"]
+InlineColumnType = Literal["bool", "int64", "float64", "string", "datetime"]
+NativeColumnType = InlineColumnType
 INT64_MIN = -(2**63)
 INT64_MAX = 2**63 - 1
 FLOAT64_MAX = float_info.max
+
+
+class InputColumn(StrictConfigModel):
+    """Declare one physical input column and its normalized output name."""
+
+    name: str
+    dtype: NativeColumnType
+    rename: NonEmptyString | None = None
+    required: StrictBool = True
+
+    @model_validator(mode="after")
+    def validate_rename(self) -> InputColumn:
+        """Require a usable output name for blank native headers."""
+        if not self.name and self.rename is None:
+            msg = "blank native input columns require a non-empty 'rename'"
+            raise ValueError(msg)
+        return self
+
+
+class ReaderConfig(StrictModel):
+    """Select a reader and provide its options and optional native columns.
+
+    ``columns`` is read-time metadata, not a serialized reader setting. Declare
+    native columns on the ``DataFile`` or provide them to a direct reader call.
+    """
+
+    format: str | None = Field(default=None, min_length=1)
+    options: dict[str, JSONValue] = Field(default_factory=dict)
+    columns: tuple[InputColumn, ...] = Field(default=(), exclude=True)
 
 
 class InlineTable(StrictModel):
@@ -82,6 +106,15 @@ class InlineTable(StrictModel):
                     valid = (type(value) is int and -FLOAT64_MAX <= value <= FLOAT64_MAX) or (
                         type(value) is float and isfinite(value)
                     )
+                elif column_type == "datetime":
+                    if isinstance(value, str):
+                        try:
+                            datetime.fromisoformat(value)
+                            valid = True
+                        except ValueError:
+                            valid = False
+                    else:
+                        valid = False
                 else:
                     valid = type(value) is str
                 if not valid:
@@ -93,6 +126,29 @@ class InlineTable(StrictModel):
     def serialize(self) -> dict[str, object]:
         """Keep the external configuration key independent of the Python field name."""
         return {"schema": self.raw_schema, "rows": self.rows}
+
+
+def parse_inline_table_rows(table: InlineTable, /) -> list[dict[str, object]]:
+    """Convert validated ISO datetime cells into Python datetimes for frame builders."""
+    if isinstance(table.rows, str):
+        msg = "Inline table row placeholder was not resolved"
+        raise ValueError(msg)
+    rows: list[dict[str, object]] = []
+    for row in table.rows:
+        parsed = dict(row)
+        for column, dtype in table.raw_schema.items():
+            value = parsed[column]
+            if dtype == "datetime" and value is not None:
+                if not isinstance(value, str):
+                    msg = f"Inline datetime value for {column!r} must be ISO text"
+                    raise ValueError(msg)
+                try:
+                    parsed[column] = datetime.fromisoformat(value)
+                except ValueError as error:
+                    msg = f"Invalid ISO datetime for inline column {column!r}: {value!r}"
+                    raise ValueError(msg) from error
+        rows.append(parsed)
+    return rows
 
 
 class SourceSelection(StrictModel):
@@ -123,6 +179,7 @@ class DataFile(StrictModel):
     source: str | None = None
     source_selection: SourceSelection | None = None
     inline_table: InlineTable | None = None
+    columns: list[InputColumn] | None = Field(default=None, min_length=1)
     required_when: SourcePredicate | None = None
     info: FileInfo = Field(default_factory=FileInfo)
     reader: ReaderConfig = Field(default_factory=ReaderConfig)
@@ -154,12 +211,27 @@ class DataFile(StrictModel):
         if not paths and source_modes != 1:
             msg = "A data file requires exactly one physical path, named source, selection, or inline table"
             raise ValueError(msg)
+        if "columns" in self.reader.model_fields_set:
+            msg = "Declare native columns on the DataFile, not in reader settings"
+            raise ValueError(msg)
         if not paths and (self.reader.format is not None or self.reader.options):
             msg = "Reader settings apply only to physical inputs"
             raise ValueError(msg)
         if self.inline_table is not None and self.proc_spec is not None and self.proc_spec.kind != "tabular":
             msg = "Inline tables require tabular processing"
             raise ValueError(msg)
+        if self.columns is not None:
+            if not paths:
+                msg = "input 'columns' declarations apply only to physical inputs"
+                raise ValueError(msg)
+            native_names = [column.name for column in self.columns]
+            if len(set(native_names)) != len(native_names):
+                msg = "input column names must be unique"
+                raise ValueError(msg)
+            output_names = [column.rename or column.name for column in self.columns]
+            if len(set(output_names)) != len(output_names):
+                msg = "input column renames must produce unique names"
+                raise ValueError(msg)
         if self.required_when is not None and (
             not paths or self.info.requirement is not FileRequirement.OPTIONAL
         ):

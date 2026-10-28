@@ -17,6 +17,22 @@ Use [`DataStore`](/r2x-core/references/api/) to instantiate an empty data store:
 # 'DataStore'
 ```
 
+## Load a Plugin's File Mapping
+
+For new code, construct the store and load its mapping explicitly:
+
+```python
+from r2x_core import DataStore, PluginConfig
+
+config = PluginConfig()
+store = DataStore(path="/path/to/inputs")
+store.configure_upgrades(plugin_config=config)
+store.load_file_mapping(config.fmap_path)
+```
+
+Existing plugins can continue to use `DataStore.from_plugin_config(config, path=...)` during migration.
+The compatibility factory returns an empty store when the mapping is absent and retries after a configured upgrade handler restores missing required inputs.
+
 ## Add Files to a DataStore
 
 Use the [`add_data`](/r2x-core/references/api/) method to register data files:

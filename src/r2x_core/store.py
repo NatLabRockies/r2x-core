@@ -8,15 +8,32 @@ from typing import TYPE_CHECKING, Any
 
 import orjson
 from loguru import logger
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 
 from .datafile import DataFile
 from .plugin_config import PluginConfig
+from .shared_types import PLACEHOLDER_PATTERN, FileRequirement
 from .utils.upgrade import UpgradeCoordinator
 from .utils.validation import filter_kwargs_for
 
 if TYPE_CHECKING:
     from .versioning import UpgradeHandler
+
+
+def _missing_file_validation_error(paths: Sequence[Path]) -> ValidationError:
+    """Build the legacy validation error shape for missing required files."""
+    line_errors = []
+    for path in paths:
+        error = FileNotFoundError(f"Missing required file: {path}")
+        line_errors.append(
+            {
+                "type": "value_error",
+                "loc": ("fpath",),
+                "input": str(error),
+                "ctx": {"error": error, "exc_type": "FileNotFoundError"},
+            }
+        )
+    return ValidationError.from_exception_data("Invalid data file records", line_errors=line_errors)
 
 
 class DataStore:
@@ -84,6 +101,62 @@ class DataStore:
             handler=upgrade_handler,
         )
         self.upgrade_coordinator.resolve()
+
+    @classmethod
+    def from_plugin_config(
+        cls,
+        plugin_config: PluginConfig,
+        *,
+        path: Path | str,
+        upgrade_handler: UpgradeHandler | None = None,
+    ) -> DataStore:
+        """Create a store from plugin configuration for compatibility.
+
+        New code should construct a store, configure its upgrade handler, and
+        load the mapping explicitly. This factory retains the historical empty
+        mapping and missing-file upgrade retry behavior for existing plugins.
+        """
+        mapping_path = plugin_config.fmap_path
+        logger.info("Loading DataStore from plugin config: {}", type(plugin_config).__name__)
+        logger.debug("File mapping path: {}", mapping_path)
+        store = cls(path=path)
+        store.configure_upgrades(plugin_config=plugin_config, upgrade_handler=upgrade_handler)
+        if not mapping_path.exists():
+            logger.warning(
+                "File mapping not found for {} at {}; continuing with empty DataStore.",
+                type(plugin_config).__name__,
+                mapping_path,
+            )
+            return store
+
+        store.load_file_mapping(mapping_path)
+        missing_paths = store._missing_required_file_paths()
+        if missing_paths:
+            if not store.upgrade_coordinator.can_run:
+                raise _missing_file_validation_error(missing_paths)
+            store.remove_data(*store.list_data())
+            store.upgrade_coordinator.run(store=store, reason="file mapping validation failed")
+            store.load_file_mapping(mapping_path)
+            missing_paths = store._missing_required_file_paths()
+            if missing_paths:
+                raise _missing_file_validation_error(missing_paths)
+        return store
+
+    def _missing_required_file_paths(self) -> list[Path]:
+        """Return absent required physical inputs without resolving globs or templates."""
+        paths: list[Path] = []
+        for data_file in self.data_files.values():
+            if data_file.info.requirement is FileRequirement.OPTIONAL:
+                continue
+            raw_path = data_file.fpath or data_file.relative_fpath
+            if raw_path is None or PLACEHOLDER_PATTERN.search(str(raw_path)):
+                continue
+            path = Path(raw_path)
+            if not path.is_absolute():
+                path = self.folder / path
+            if not path.exists():
+                paths.append(path)
+        return paths
 
     def to_json(self, fpath: str | Path, **model_dump_kwargs: Any) -> None:
         """Write configured inputs as formatted JSON."""

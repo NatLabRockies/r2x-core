@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from r2x_core.exceptions import ConfiguredGroupNotFoundError
-from r2x_core.h5_adapter import configurable_h5_reader, read_h5_file
+from r2x_core.h5py_adapter import configurable_h5_reader, read_h5_file
 
 pytestmark = pytest.mark.readers
 
@@ -108,9 +108,9 @@ def test_default_h5_reader_preserves_a_first_group(tmp_path: Path):
                     ["2007-01-01T00:00:00", "2007-01-01T01:00:00", "2007-01-01T02:00:00"],
                     dtype="datetime64[us]",
                 ),
-                "solve_year": np.array([2030, 2030, 2030]),
+                "index_year": np.array([2030, 2030, 2030]),
             },
-            id="with-solve-year",
+            id="with-index-year",
         ),
         pytest.param(
             np.array([b"cf1", b"cf2"]),
@@ -360,23 +360,24 @@ def test_datetime_parsing_error(tmp_path: Path):
         )
 
 
-def test_format_column_name_year(tmp_path: Path):
-    """Test format_column_name for year variations."""
+def test_h5_reader_preserves_dataset_names_unless_mapped(tmp_path: Path) -> None:
     h5_path = tmp_path / "reader.h5"
+    with h5py.File(h5_path, "w") as h5_file:
+        h5_file.create_dataset("data", data=np.array([1.0, 2.0]))
+        h5_file.create_dataset("model_year", data=np.array([2030, 2035]))
 
-    with h5py.File(str(h5_path), "w") as f:
-        data = np.array([1.0, 2.0])
-        f.create_dataset("data", data=data)
-        f.create_dataset("model_year", data=np.array([2030, 2035]))
-
-    with h5py.File(str(h5_path), "r") as f:
-        result = configurable_h5_reader(
-            f,
+    with h5py.File(h5_path, "r") as h5_file:
+        unchanged = configurable_h5_reader(h5_file, data_key="data", additional_keys=["model_year"])
+        mapped = configurable_h5_reader(
+            h5_file,
             data_key="data",
             additional_keys=["model_year"],
+            column_name_mapping={"model_year": "year"},
         )
 
-    assert "year" in result
+    assert "model_year" in unchanged
+    assert "year" not in unchanged
+    assert "year" in mapped
 
 
 @pytest.mark.parametrize(
@@ -404,7 +405,7 @@ def test_format_column_name_year(tmp_path: Path):
                     ["2007-01-01T00:00:00", "2007-01-01T01:00:00", "2007-01-01T02:00:00"],
                     dtype="datetime64[us]",
                 ),
-                "solve_year": np.array([2030, 2030, 2030]),
+                "index_year": np.array([2030, 2030, 2030]),
             },
             id="numeric-index-names",
         ),
@@ -703,7 +704,7 @@ def test_h5_reader_resolves_index_names(index_names_key: str, decode_bytes: bool
             decode_bytes=decode_bytes,
         )
 
-    np.testing.assert_array_equal(result["solve_year"], np.array([2030]))
+    np.testing.assert_array_equal(result["index_year"], np.array([2030]))
 
 
 def test_h5_reader_supports_nested_column_metadata_path(tmp_path):

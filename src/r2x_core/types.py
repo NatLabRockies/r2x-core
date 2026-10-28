@@ -5,7 +5,7 @@ from typing import Annotated, TypeAlias
 from pydantic import Field
 
 from .models import JSONProcessing, MappingStep, TabularProcessing
-from .type_vocabulary import (
+from .shared_types import (
     EXTENSION_MAPPING,
     PLACEHOLDER_PATTERN,
     AggregationFunction,

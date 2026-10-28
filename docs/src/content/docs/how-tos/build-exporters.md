@@ -4,8 +4,8 @@ title: "Export a system"
 
 <span id="exporter-basics"></span>
 
-Use `System.to_json()` for an infrasys-compatible system artifact.
-The output includes serialization metadata; model-specific target formats still need an exporter supplied by their model package.
+Use `System.to_json()` for a system artifact that works with infrasys.
+The output includes serialization metadata. Target formats still need an exporter from their model package.
 Install the library as described in [install](/r2x-core/install/).
 This checked example exports a generic named component and verifies an independent reload:
 
@@ -32,10 +32,10 @@ This checked example exports a generic named component and verifies an independe
 ```
 
 The round trip verifies that the exported system can be loaded.
-The temporary directory is deleted when the example exits; choose a durable path for real outputs.
+The temporary directory is deleted when the example exits. Choose a durable path for real outputs.
 `to_json(fname, overwrite=False, indent=None, data=None)` rejects an existing output unless overwriting is explicitly enabled.
-Keep the JSON entrypoint and any time-series sidecars together when transferring an artifact.
-A class-based exporter can place this operation in `on_export()` and return `Ok(None)` on success.
+Keep the JSON entry point and any time series sidecars together when transferring an artifact.
+A class exporter can place this operation in `on_export()` and return `Ok(None)` on success.
 See [api](/r2x-core/references/api/) for serialization options and [plugins](/r2x-core/references/plugins/) for lifecycle contracts.
 
 <span id="see-also"></span>

@@ -2,10 +2,10 @@
 title: "Read Data Files"
 ---
 
-`DataReader` is the public source-loading and composition seam. It resolves
-physical paths at execution time, selects a reader from an explicit symbolic
+`DataReader` is the public API for reading files and combining named sources.
+It resolves physical paths when it runs and selects a reader from an explicit symbolic
 format or an unambiguous common extension, and returns a mapping of named typed
-sources. `DataStore` manages file-mapping configuration; it does not read or
+sources. `DataStore` manages file mapping configuration. It does not read or
 process files.
 
 ## Configure an input
@@ -29,7 +29,7 @@ supports new extensions without editing core's inference table.
 # 'csv'
 ```
 
-Built-in reader options are validated by the selected reader. Application
+Options for readers included with core are checked by those readers. Application
 readers validate their own options and are registered by symbolic name. JSON
 configuration selects names and options only, it does not import Python code.
 
@@ -37,7 +37,7 @@ configuration selects names and options only, it does not import Python code.
 
 One input can produce several named sources. A table remains paired with its
 tabular processor, while JSON documents and HDF5 arrays retain their own
-representations. The source map is execution-local.
+representations. The source map exists only for that read.
 
 ```python doctest
 >>> import tempfile

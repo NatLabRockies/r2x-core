@@ -32,16 +32,16 @@ tagged `proc_spec` with ordered steps.
 ]
 ```
 
-`file_type` describes content semantics; it does not restrict the physical
+`file_type` describes content semantics. It does not restrict the physical
 format or whether an output instruction can use the decoded source.
 `requirement` is `required` by default. An explicit `reader.format` selects a
-symbolic registration. Built-in and application readers validate their own
-options.
+symbolic registration. Readers included with core and readers supplied by
+applications check their own options.
 
 ### Load a mapping
 
 `DataStore` manages validated mapping configuration. Use `load_file_mapping`
-to read JSON; use `DataReader` for source loading or `build_system` for
+to read JSON. Use `DataReader` for source loading or `build_system` for
 configured construction and attachment.
 
 ```python doctest
@@ -63,7 +63,7 @@ configured construction and attachment.
 
 A record accepts exactly one path source: `fpath`, `relative_fpath`, or `glob`.
 A glob must contain a wildcard and resolve to one file at read time. Placeholder
-substitution and path availability are execution-time behavior.
+substitution and path availability are checked when files are read.
 
 Physical inputs may declare native columns, optional output renames, and a
 strict `required` boolean (default `true`). These records provide the typed
@@ -87,7 +87,7 @@ column becomes a typed null field without changing the file's rows. Present
 columns are cast strictly and renamed before configured processing. Floating-
 point columns declared as `int64` are rejected rather than truncated. Supported
 types are `bool`, `int64`, `float64`, `string`, and `datetime`. Other columns in
-a present table remain available with reader-provided types. If this optional
+a present table remain available with the types returned by the reader. If this optional
 input file is missing, core retains its declared typed schema while marking the
 source absent. Without `columns`, a missing optional file remains omitted.
 Neither absence case creates rows.

@@ -1,12 +1,12 @@
 ---
-title: "How-To Guides"
+title: "How to guides"
 sidebar:
   hidden: true
 ---
 
 <span id="how-to-guides"></span>
 
-Task-focused guides for accomplishing specific goals with r2x-core.
+Guides for common tasks with r2x-core.
 
 ## Data Management
 

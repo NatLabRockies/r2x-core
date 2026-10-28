@@ -4,23 +4,23 @@ title: "Why HDF5 reading needs explicit dataset selectors"
 
 <span id="hdf5-reader-system"></span>
 
-HDF5 stores named datasets and groups without prescribing a power-system table
-layout. The reader needs the dataset location and the meaning of its columns;
-recognizing a `.h5` suffix alone does not supply that information.
+HDF5 stores named datasets and groups but does not define a power system table
+layout. The reader needs the dataset location and the meaning of its columns.
+Recognizing a `.h5` suffix alone is not enough.
 
 ## Select a dataset and its labels
 
 `configurable_h5_reader` accepts an open HDF5 file and explicit options.
-`data_key` selects row-oriented data; `columns_key` selects labels for a 2D matrix.
-The following self-contained example writes a small actual HDF5 file and checks
-the returned column values. The temporary fixture is removed after the read.
+`data_key` selects data arranged in rows. `columns_key` selects labels for a
+2D matrix. The example writes a small HDF5 file and checks the returned column
+values. The temporary file is removed after the read.
 
 ```python doctest
 >>> from pathlib import Path
 >>> from tempfile import TemporaryDirectory
 >>> import h5py
 >>> import numpy as np
->>> from r2x_core.h5_adapter import configurable_h5_reader
+>>> from r2x_core.h5py_adapter import configurable_h5_reader
 >>> with TemporaryDirectory() as directory:
 ...     path = Path(directory) / "measurements.h5"
 ...     with h5py.File(path, "w") as stream:
@@ -42,23 +42,24 @@ the returned column values. The temporary fixture is removed after the read.
 `group_key` limits lookup to an HDF5 group. With `columns_as_datasets=True`,
 columns are separate datasets rather than columns in one matrix.
 `datetime_key`, `index_key` and `additional_keys` include supporting indexes.
-Their lengths and meanings must match the selected data; a reader cannot infer
-a model's calendar or missing-hour policy from arbitrary array names. HDF5
-results contain backend-neutral NumPy arrays rather than Polars frames.
+Their lengths and meanings must match the selected data. Dataset names are
+preserved by default. Use `column_name_mapping` for model-specific names. A reader cannot infer
+a model's calendar or policy for missing hours from array names. HDF5 reading
+returns NumPy arrays, not Polars frames.
 
 ## Datetime values
 
 When `datetime_key` selects an ISO 8601 string dataset, the reader parses it to
 NumPy `datetime64[us]` values. By default, `strip_timezone=True` removes a
 present timezone without adjusting the displayed wall time. Set
-`strip_timezone=False` to convert offset-aware values to UTC before removing
-the timezone.
+`strip_timezone=False` to convert values with a UTC offset to UTC before
+removing the timezone.
 
 For parser configuration through `DataFile` and `ReaderConfig`, use
 [Reading HDF5 Data Files](/r2x-core/how-tos/read-hdf5-files/).
 Dataset names in that configuration guide are examples of settings, not a claim
 that an external model file exists in the project.
-See the [reader implementation](https://github.com/NatLabRockies/r2x-core/blob/main/src/r2x_core/h5_adapter/readers.py)
+See the [reader implementation](https://github.com/NatLabRockies/r2x-core/blob/main/src/r2x_core/h5py_adapter/readers.py)
 for the supported selectors and explicit errors on missing groups/datasets.
 
 <span id="overview"></span>

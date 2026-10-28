@@ -4,7 +4,7 @@ title: "Work with Units"
 
 <span id="work-with-units"></span>
 
-Create components with unit-aware fields using the `HasPerUnit` mixin.
+Create components with fields that use units and the `HasPerUnit` mixin.
 
 ## Create Components with Units
 
@@ -24,10 +24,10 @@ Create components with unit-aware fields using the `HasPerUnit` mixin.
 
 ## Input Values in Natural Units
 
-Pass a mapping with `value` and `unit` to convert natural units to per-unit.
+Pass a mapping with `value` and `unit` to convert a physical value to per unit form.
 Declare the base field before the dependent field. Compatible prefixes are
 normalized before division. Unknown or incompatible units and missing, zero,
-or non-finite bases fail scalar conversion:
+or bases that are not finite fail scalar conversion:
 
 ```python doctest
 >>> from typing import Annotated
@@ -92,8 +92,8 @@ does not divide them by the base again:
 marker when storing or transferring serialized data. The shape
 `{"value": <mapping>, "unit": "pu"}` is reserved for stored internal values.
 A natural structured mapping with scalar `value` and `unit` fields is input data,
-not an envelope. Bare structured mappings are always natural-unit input, not a
-format for saved internal values. Optional structured fields preserve `None`.
+not an envelope. Bare structured mappings are always input in natural units, not
+a format for saved internal values. Optional structured fields preserve `None`.
 
 ## Switch Display Modes
 

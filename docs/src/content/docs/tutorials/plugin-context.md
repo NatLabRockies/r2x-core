@@ -56,7 +56,7 @@ Inside a class plugin, use `self.config` and `self.system`, not `self._ctx`.
 >>> assert result.system is context.system
 ```
 
-A hook that uses a missing system/store receives the public API's `PluginError`;
+A hook that needs a missing system or store receives the public API's `PluginError`.
 supply that dependency or build it in an earlier hook.
 Translation plugins can use separate `source_system` and `target_system` fields.
 See [lifecycle contracts](/r2x-core/references/plugins/) for which successful hooks

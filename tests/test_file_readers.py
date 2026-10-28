@@ -11,7 +11,7 @@ import pytest
 
 from r2x_core.datafile import DataFile, ReaderConfig
 from r2x_core.file_reader import ArraySource, DecodedSources, DocumentSource
-from r2x_core.h5_adapter import H5PyFileReader, H5Reader
+from r2x_core.h5py_adapter import H5PyFileReader, H5Reader
 from r2x_core.json_adapter import JSONFileReader
 from r2x_core.polars_adapter import PolarsTabularFileReader
 from r2x_core.polars_adapter.readers import read_polars_h5_file

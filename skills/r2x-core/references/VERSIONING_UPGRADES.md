@@ -113,9 +113,8 @@ from r2x_core.utils import shall_we_upgrade
 
 
 def upgrade_chain(steps, payload, current_version, strategy, upgrader_context=None):
-    ordered = sorted(steps, key=lambda step: (step.target_version, step.priority))
-
-    for step in ordered:
+    # The caller supplies steps in strategy-aware version order.
+    for step in steps:
         decision = shall_we_upgrade(step, current_version=current_version, strategy=strategy)
         if decision.is_err():
             raise decision.err()
@@ -136,9 +135,10 @@ def upgrade_chain(steps, payload, current_version, strategy, upgrader_context=No
     return payload
 ```
 
-If the strategy is not lexical/semver-compatible with sorting by target string,
-use strategy-aware ordering from the caller or an explicit ordered list. Priority
-alone is not a version gate.
+The caller must supply steps in version-aware order. Lexical sorting by
+`target_version` is not safe for `SemanticVersioningStrategy` when version
+components have multiple digits, and custom strategies may use a different
+ordering entirely. `priority` can break ties but is not a version gate.
 
 ## Coordinating with infrasys
 

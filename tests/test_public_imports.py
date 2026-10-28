@@ -86,7 +86,7 @@ def test_reader_and_processor_contracts_are_public() -> None:
         "JSONFileReader",
         "JSONProcessingBackend",
         "TabularTransformResult",
-        "h5_adapter",
+        "h5py_adapter",
     } & set(r2x_core.__all__)
 
 
@@ -126,13 +126,14 @@ def test_h5_reader_classes_are_lazy_root_exports() -> None:
     code = """
 import sys
 import r2x_core
-assert 'r2x_core.h5_adapter' not in sys.modules
+assert 'r2x_core.h5py_adapter' not in sys.modules
 assert 'h5py' not in sys.modules
 from r2x_core import H5PyFileReader, H5Reader
 assert issubclass(H5PyFileReader, H5Reader)
-assert 'r2x_core.h5_adapter' in sys.modules
+assert 'r2x_core.h5py_adapter' in sys.modules
 assert 'h5py' in sys.modules
-assert 'h5_adapter' not in r2x_core.__all__
+assert 'r2x_core.h5_adapter' not in sys.modules
+assert 'h5py_adapter' not in r2x_core.__all__
 """
     env = os.environ | {"PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")}
     subprocess.run([sys.executable, "-c", code], check=True, timeout=30, env=env)

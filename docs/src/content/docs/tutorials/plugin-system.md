@@ -5,11 +5,11 @@ title: "Build and run a lifecycle plugin"
 <span id="plugin-system"></span>
 
 Build a small plugin that creates a system and then transforms it.
-The example uses only public `config` and `system` properties; the context is
+The example uses only public `config` and `system` properties. The context is
 bound through `from_context()`. No ReEDS inputs or external model package is needed.
 Complete [installation](/r2x-core/install/) first.
 
-The lifecycle visits implemented hooks in this order; missing hooks are skipped.
+The lifecycle visits implemented hooks in this order. Missing hooks are skipped.
 
 ```mermaid
 flowchart TD
@@ -27,7 +27,7 @@ flowchart TD
 
 `on_build()` returns the system placed into the context. `on_transform()` can
 then use that system. A hook returning `Err` stops the lifecycle with `PluginError`.
-The comments explain expected values; the following output and assertions check them.
+The comments explain expected values. The output and assertions check them.
 
 ```python doctest
 >>> from r2x_core import Plugin, PluginConfig, PluginContext, PluginError, System
@@ -73,7 +73,7 @@ filtering, scaling, persistence and an independent reload.
 
 Only implemented hooks run. The full order and updated context fields are in
 [Plugin lifecycle](/r2x-core/references/plugins/).
-Earlier hooks may mutate state or write files before a later hook fails; execution
+Earlier hooks may mutate state or write files before a later hook fails. Execution
 is not transactional. Start a retry from a fresh context unless the plugin
 explicitly supports resuming partially completed work.
 

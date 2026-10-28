@@ -17,6 +17,8 @@ reading the focused reference.
 9. "Check which r2x-core plugins are discoverable in the active environment."
 10. "Review this r2x-core change for public API, Result, typing, and regression
     risks."
+11. "Build a System from DataReader sources and parser_rules.json."
+12. "Assemble named tables from file inputs with a table_mapping.json mapping."
 
 ## Should not trigger
 

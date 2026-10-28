@@ -1,12 +1,12 @@
 ---
 title: Use r2x-core to read CSV data and scale a system
-description: Install r2x-core, filter CSV rows with DataReader, and scale an in-memory System with a plugin.
+description: Install r2x-core, filter CSV rows with DataReader, and scale a System in memory with a plugin.
 ---
 
 <span id="getting-started-with-r2x-core"></span>
 
 Use the installed `r2x-core` package to read CSV data and scale a small system by 10%, verifying a 165 MW result.
-The Python examples are self-contained doctests. You do not need a repository checkout, external dataset, or CLI installation.
+The Python examples run as doctests. You do not need a repository checkout, external dataset, or CLI installation.
 
 ```mermaid
 flowchart TD
@@ -50,7 +50,7 @@ Retired,25,retired
 `Alpha` and `Bravo` contribute 150 MW before scaling.
 The retired row must not appear in the result.
 The `Generator` class below defines the small schema used in this exercise.
-Each Python code block is a self-contained doctest.
+Each Python code block is tested as a doctest.
 
 ```python doctest
 >>> from infrasys import Component
@@ -60,13 +60,12 @@ Each Python code block is a self-contained doctest.
 ...
 >>> generator = Generator(name="Alpha", capacity_mw=100)
 >>> assert generator.capacity_mw >= 0
->>> # Expected: this boundary produces the tutorial's named components or capacity.
 >>> generator.name, generator.capacity_mw
 # ('Alpha', 100.0)
 ```
 
-`Component` supplies identity and the required name; the field adds nonnegative capacity in MW.
-This educational schema is defined by the example, not a built-in electrical generator model.
+`Component` supplies identity and the required name. The field adds nonnegative capacity in MW.
+This example defines a small schema. It is not a generator model provided by r2x-core.
 For native model schemas and parsers, use packages such as [r2x-sienna](https://github.com/NatLabRockies/r2x-sienna) or [r2x-plexos](https://github.com/NatLabRockies/r2x-plexos).
 For ReEDS inputs, start with [r2x-reeds](https://github.com/NatLabRockies/r2x-reeds).
 
@@ -90,12 +89,11 @@ A `DataStore` can hold named file definitions. This doctest writes a small CSV t
 ...     )
 ...     rows = sources["generators"].data.collect().to_dicts()
 ...
->>> # Expected: this boundary produces the tutorial's named components or capacity.
 >>> [row["name"] for row in rows]
 # ['Alpha', 'Bravo']
 ```
 
-`generators` is the logical source name; `relative_fpath` is resolved under the supplied input root. The filter runs during source processing. `DataReader` exposes the typed source-loading seam, while `build_system` also consumes the configured component instruction. Registration alone does not prove that an input is readable.
+`generators` is the logical source name. `relative_fpath` is resolved under the supplied input root. The filter runs while processing the source. `DataReader` reads typed sources, and `build_system` also uses the configured component instruction. Registering a file does not prove it can be read.
 See [file configuration](/r2x-core/how-tos/configure-data-files/) for reader options and [data contracts](/r2x-core/references/data-workflow/) for return types and failure boundaries.
 
 <span id="working-with-systems"></span>
@@ -106,7 +104,7 @@ See [file configuration](/r2x-core/how-tos/configure-data-files/) for reader opt
 
 ## Follow the three implemented hooks
 
-The complete file-based example implements three lifecycle hooks. The doctest below demonstrates `on_transform` with an in-memory system:
+The full example that reads files implements three lifecycle hooks. This doctest demonstrates `on_transform` with a `System` in memory:
 
 | Hook | Work in the complete example | Observable check |
 | --- | --- | --- |
@@ -138,7 +136,6 @@ The transformation is deliberately small:
 >>> system.add_component(Generator(name="Bravo", capacity_mw=50))
 >>> result = Scale.from_context(PluginContext(config=ScaleConfig(), system=system)).run()
 >>> assert result.system is not None
->>> # Expected: this boundary produces the tutorial's named components or capacity.
 >>> round(sum(item.capacity_mw for item in result.system.get_components(Generator)), 1)
 # 165.0
 ```
@@ -148,7 +145,7 @@ Returning `Ok(system)` updates the shared context with the transformed system.
 
 ## Explore the complete example
 
-The repository also contains a file-based version with mapping configuration, parser rules, export, and a separate reload script. Browse the [CSV example source](https://github.com/NatLabRockies/r2x-core/tree/main/examples/csv-system) for those files. They are not included in the published `r2x-core` package, but are not needed to follow or run the doctests on this page.
+The repository also contains a version that reads files, with mapping configuration, parser rules, an export, and a reload script. Browse the [CSV example source](https://github.com/NatLabRockies/r2x-core/tree/main/examples/csv-system) for those files. They are not included in the published `r2x-core` package and are not needed to run the examples on this page.
 
 See [troubleshooting](/r2x-core/troubleshooting/) for file registration, lifecycle failures, and environment diagnosis.
 

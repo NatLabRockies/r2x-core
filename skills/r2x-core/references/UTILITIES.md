@@ -68,7 +68,8 @@ when constructing `Rule(...)` directly, pass callable getters.
 
 When source and target systems preserve time-series associations, use
 `transfer_time_series_metadata(...)` instead of manually copying association
-rows. Report counts/errors from the transfer result in the handoff.
+rows. Report the returned `transferred`, `updated`, and `children_remapped`
+counts. Failures raise exceptions rather than appearing in that result.
 
 ## Source modules to verify on drift
 

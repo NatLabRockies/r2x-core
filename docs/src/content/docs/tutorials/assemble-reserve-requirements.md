@@ -8,11 +8,10 @@ years. You will prepare compatible quantities, match them to product fractions,
 and fill a complete output grid. The result contains six rows, including zeros
 for a missing hour and a year with no observations.
 
-Core supports the operations in the table-mapping reference. The checked-in
-reserve mapping runs through `assemble_tables` or the opt-in
+Core supports the operations in the table mapping reference. The mapping in
+the repository runs through `assemble_tables` or the optional
 `build_system(..., table_mapping_path=...)` path. The seven inputs in this
-walkthrough are prepared tables, so native-file preparation remains a separate
-input-boundary concern.
+guide are prepared tables, so reading native files is a separate step.
 
 The example uses ReEDS reserve policy. The operations are ordinary table
 operations, and the same quantity/factor structure applies to other applications.
@@ -37,7 +36,7 @@ Use these application configuration values:
 | `primary_weather_year` | `2012` |
 | `solve_year_rows` | `[{"solve_year": 2032}, {"solve_year": 2040}]` |
 
-Whole-value placeholders preserve the configured type. Although written as JSON
+Placeholders for whole values preserve their type. Although written as JSON
 strings, `"{primary_weather_year}"` resolves to an integer and
 `"{solve_year_rows}"` resolves to a list of records, not text containing JSON.
 In the `rows` constructor, `"values": "{solve_year_rows}"` therefore supplies
@@ -45,7 +44,7 @@ In the `rows` constructor, `"values": "{solve_year_rows}"` therefore supplies
 
 Names and categories are strings, years are int64, and quantities and fractions
 are float64. Timestamps are datetime values. They are displayed as text below.
-The fractions are finite and non-null, and the product name is unique.
+The fractions are finite and not null, and the product name is unique.
 
 ### Region and observations
 
@@ -112,9 +111,9 @@ and add the literal `kind = "load"`. This map runs after `operations`. Its keys
 name output fields. A string value copies a source column, while
 `{"value": "load"}` supplies literal text.
 
-Inside an operation, `columns` has that operation's meaning, such as the
-right-table fields to include in a join or the keys to group by. It is not the
-final output-column map.
+Inside an operation, `columns` has that operation's meaning. It can list the
+fields from the right table to include in a join, or the keys to group by. It is
+not the map that defines the final output columns.
 
 The resulting table has these five columns:
 
@@ -163,8 +162,9 @@ Expect one 500 MW quantity at 01:00 and no solar row at midnight. The capacity
 factor selects active hours. It does not scale the installed capacity. The
 quantity is therefore 500 MW, not 250 MW or the 100 MW generation value.
 
-This requirement policy is separate from reserve-provider eligibility. Excluding
-solar from provider membership does not remove its contribution to requirements.
+This requirement policy is separate from eligibility to provide reserve.
+Excluding solar from provider membership does not remove its contribution to
+requirements.
 
 ## 5. Make the factor table
 
@@ -276,7 +276,7 @@ Finally, project `datetime`, `name`, `solve_year`, and `requirement`, copying
 | 2012-01-01 01:00 | controlled_SPINNING | 0.0 | 2040 |
 | 2012-01-01 02:00 | controlled_SPINNING | 0.0 | 2040 |
 
-Notice that `datetime` stays on the weather-year calendar. The solve year is a
+Notice that `datetime` stays on the weather year calendar. The solve year is a
 separate field. Missing observations do not remove grid rows.
 
 ## Complete configuration
@@ -619,7 +619,7 @@ configuration for the calculation above:
 
 ## Connect the output to parser rules
 
-Add the following time-series instruction to the list in `parser_rules.json`,
+Add the following time series instruction to the list in `parser_rules.json`,
 not to the nine table records in `table_mapping.json`. The reserve component must
 already exist when this instruction attaches its series:
 
@@ -651,7 +651,7 @@ See [Attach time series](/r2x-core/how-tos/attach-timeseries/) for that contract
 
 ## Continue with your application
 
-To add a product, contributor, or year-specific coefficient, use the
-[table-mapping how-to guides](/r2x-core/how-tos/adapt-table-mappings/).
+To add a product, contributor, or coefficient that changes by year, use the
+guides to [adapt table mappings](/r2x-core/how-tos/adapt-table-mappings/).
 For exact operation fields, defaults, and null behavior, use the
-[table-mapping reference](/r2x-core/references/table-mapping/).
+[table mapping reference](/r2x-core/references/table-mapping/).

@@ -14,17 +14,15 @@ construction, without requiring each application to maintain its own row loops.
 
 ## Availability
 
-Core supports typed row and concat constructors, whole-value bindings, and
-final `columns` projection through
-`r2x_core.assemble_tables` and the opt-in
-`build_system(..., table_mapping_path=...)` path. A schema-bearing optional
-physical input retains its absent state separately from a present-empty table.
-Table-mapping `operation` records are distinct from the supported
-[file-processing steps](/r2x-core/how-tos/process-file-data/).
+Core supports typed row and concat constructors, bindings for whole values, and
+final `columns` projection through `r2x_core.assemble_tables` and the optional
+`build_system(..., table_mapping_path=...)` path. An optional input with a schema
+retains whether it was absent or present with no rows. Table mapping `operation`
+records are separate from the supported [steps for processing files](/r2x-core/how-tos/process-file-data/).
 
 For a guided example, follow [Assemble hourly reserve requirements](/r2x-core/tutorials/assemble-reserve-requirements/).
 To adapt a mapping to your own data, use [Adapt table mappings](/r2x-core/how-tos/adapt-table-mappings/).
-Look up exact fields in the [table-mapping reference](/r2x-core/references/table-mapping/).
+Look up exact fields in the [table mapping reference](/r2x-core/references/table-mapping/).
 
 ## Give each file one responsibility
 
@@ -48,7 +46,7 @@ Application configuration supplies choices such as model years, weather years,
 products, and coefficients. A table mapping consumes those choices through typed
 placeholders. It does not provide a second configuration system.
 
-This separation makes a source-format change different from a model change.
+This separation keeps input format changes apart from model changes.
 Renaming an input column belongs at the file boundary. Combining capacity and
 price tables belongs in assembly. Changing the component class or attachment
 owner belongs in parser rules.
@@ -105,11 +103,11 @@ does not infer units from a column name or convert them automatically.
 
 Keys express the conditions under which two rows belong together. A coefficient
 that depends only on category needs a category key. A price that changes by
-region and year needs those keys too.
+region and year needs both keys.
 
 Adding a year column to a table does not make a join use it. The join must list
 that column in `on`. Omitting it can match a quantity to several years of prices
-and multiply the result. Duplicate right-side keys similarly produce multiple
+and multiply the result. Duplicate keys on the right also produce multiple
 matches, not an arbitrary first match.
 
 Grouping keys are the output identity of an aggregate. Keep product, year,
@@ -127,24 +125,23 @@ missing reserve contribution can mean zero after the complete grid is built. A
 missing market price generally does not mean free energy. Keeping that null
 visible is different from deliberately supplying a default.
 
-An absent optional source, a present-empty table, a null value, and a malformed
-source are also different states. Optional availability does not turn invalid
-input into an empty table. These distinctions prevent a convenient fill policy
-from hiding a reading or configuration error.
+An absent optional source, a table with no rows, a null value, and a malformed
+source are different states. Optional availability does not turn invalid input
+into an empty table. These distinctions keep a fill policy from hiding a read
+or configuration error.
 
 ## Keep validation at the appropriate boundary
 
 A transformation still needs valid column names and compatible types. Rejecting
-an unknown join column is not business-content validation. It is necessary to
-perform the requested join. A `rows` constructor likewise needs a declared schema
+an unknown join column is not a business rule. It prevents the requested join. A `rows` constructor likewise needs a declared schema
 to construct typed values, including an empty table.
 
-Table assembly does not generate per-row Pydantic models or decide which values
-are acceptable for an application's components. Configuration validates its own
+Table assembly does not create a Pydantic model for each row or decide which
+values an application's components accept. Configuration validates its own
 parameters. Parser rules construct and validate application models and enforce
 attachment contracts.
 
-The parser-facing table is therefore a useful agreement between maintainers.
+The table sent to the parser is an agreement between its maintainers.
 Preparation can change while its field names, types, keys, units, and ordering
 remain stable. The parser does not need to know whether a requirement came from
 three source tables or four.

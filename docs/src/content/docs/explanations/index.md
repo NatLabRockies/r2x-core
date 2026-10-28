@@ -6,9 +6,9 @@ sidebar:
 
 <span id="explanations"></span>
 
-Explanations provide background and context about the r2x-core design and architecture. These documents help you understand **why** things are the way they are.
+Read these pages to understand how r2x-core works and why it is designed this way.
 
-## Architecture & Design
+## Design
 
 - [architecture](/r2x-core/explanations/architecture/)
 - [plugin system](/r2x-core/explanations/plugin-system/)
@@ -20,20 +20,6 @@ Explanations provide background and context about the r2x-core design and archit
 - [tabular processing roadmap](/r2x-core/explanations/tabular-processing-roadmap/)
 
 
-## When to Read Explanations
+Use a [tutorial](/r2x-core/tutorials/) to learn by following an example. Use a [how to guide](/r2x-core/how-tos/) to complete a specific task. The [reference](/r2x-core/references/) describes APIs and their behavior.
 
-Read explanation documents when you want to:
-
-- Understand the reasoning behind design decisions
-- Learn about the architecture and how components interact
-- Gain deeper knowledge about how r2x-core works internally
-- Make informed decisions about extending or customizing r2x-core
-
-## Relationship to Other Documentation
-
-- **Tutorials**: Step-by-step learning paths for getting started
-- **How-to Guides**: Task-oriented instructions for specific goals
-- **Reference**: Technical descriptions of APIs and interfaces
-- **Explanations** (you are here): Understanding-oriented discussions of concepts and design
-
-- [Workflow boundaries](/r2x-core/explanations/workflow-boundaries/): separate file loading, typed models, lifecycle state, and durable artifacts.
+[Workflow boundaries](/r2x-core/explanations/workflow-boundaries/) explains how file loading, models, plugin state, and saved systems fit together.

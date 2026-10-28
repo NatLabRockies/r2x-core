@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Literal, Protocol, T
 from pydantic import ConfigDict, Field, TypeAdapter, field_validator, model_validator
 from rust_ok import Result
 
-from .type_vocabulary import FilterOperator, StrictModel
+from .shared_types import FilterOperator, StrictModel
 
 if TYPE_CHECKING:
     from .plugin_context import PluginContext

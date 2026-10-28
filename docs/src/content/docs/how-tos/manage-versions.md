@@ -4,7 +4,7 @@ title: "Managing Versions"
 
 <span id="managing-versions"></span>
 
-r2x-core provides flexible version management through [`VersionStrategy`](/r2x-core/references/api/) implementations. Choose a strategy based on your versioning scheme and how you track changes to data files and system models.
+r2x-core provides [`VersionStrategy`](/r2x-core/references/api/) implementations for semantic versions and Git history. Choose one based on how you label releases or track changes to data files and systems.
 
 ## Create a Semantic Versioning Strategy
 
@@ -17,7 +17,7 @@ Use semantic versioning (MAJOR.MINOR.PATCH) to manage versions based on the natu
 # 'SemanticVersioningStrategy'
 ```
 
-## Create a Git-Based Versioning Strategy
+## Track versions with Git
 
 Track versions using Git tags and commit hashes:
 
@@ -52,4 +52,4 @@ Both strategies implement the [`VersionStrategy`](/r2x-core/references/api/) int
 - [upgrade systems](/r2x-core/how-tos/upgrade-systems/) - Upgrade system models between versions
 - [`VersionStrategy`](/r2x-core/references/api/) - Version strategy interface
 - [`SemanticVersioningStrategy`](/r2x-core/references/api/) - Semantic version strategy
-- [`GitVersioningStrategy`](/r2x-core/references/api/) - Git-based version strategy
+- [`GitVersioningStrategy`](/r2x-core/references/api/) - Version strategy for Git history

@@ -36,13 +36,10 @@ from ..tabular_backend import (
 from ..types import FileProcessing
 from .expressions import exact_column_expression
 from .frames import collect_polars_frame
-from .processing import (
-    apply_polars_step,
-    match_patterns,
-    match_source_patterns,
-    require_columns,
-    unpivot_polars_frame,
-)
+from .matching import match_patterns, match_source_patterns
+from .processing import apply_polars_step
+from .reshape import unpivot_polars_frame
+from .validation import require_columns
 
 JoinHow: TypeAlias = Literal["inner", "left", "right", "full", "semi", "anti", "cross"]
 JoinValidation: TypeAlias = Literal["m:m", "m:1", "1:m", "1:1"]

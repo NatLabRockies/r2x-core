@@ -5,8 +5,8 @@ title: "Build a Parser"
 Applications should not implement loops that read rows, construct components,
 resolve references, or attach output. Define the application models and input
 reader registrations, then describe construction and attachment in
-`parser_rules.json`. `build_system` executes the configured component,
-time-series, and supplemental-attribute instructions in declaration order.
+`parser_rules.json`. `build_system` runs the configured component, time series,
+and supplemental attribute instructions in declaration order.
 
 If an application has already decoded and processed its sources, call
 `build_system_from_sources(sources, config=..., instructions=..., name=...)`
@@ -29,9 +29,9 @@ attached before a later failure are not rolled back.
 
 ## Parser basics
 
-This example creates a temporary application model module so the model resolver
-uses the same importable-module contract as an installed application. The
-application supplies the model and two JSON configuration files. Core resolves
+This example creates a temporary model module so the resolver can import it as
+it would a model in an installed application. The application supplies the model
+and two JSON configuration files. Core resolves
 the CSV input, validates component instances, and adds them to the `System`.
 
 ### Build validated components from configuration
@@ -79,22 +79,22 @@ the CSV input, validates component instances, and adds them to the `System`.
 When target field names match source column names, explicit mappings can be
 omitted. Use `fields` to map differing names and `references` to resolve a
 previously constructed component by type and name. A missing or ambiguous
-reference fails explicitly. Component names are unique within a component type;
-the same name may be used by a different type.
+reference fails explicitly. Component names are unique within a component type.
+The same name may be used by a different type.
 
 For an uncommon physical format, register an application `FileReader` and its
 symbolic `reader.format` in `file_mapping.json`. The reader returns named typed
-sources; core still handles all configured output and attachment work. See
+sources. Core still handles configured output and attachment. See
 [Custom readers and typed sources](/r2x-core/how-tos/custom-readers-and-backends/)
 and the [illustrative RAW example](https://github.com/NatLabRockies/r2x-core/tree/main/examples/psse-raw).
-That example uses an invented CSV-like grammar, not actual PSS/E RAW syntax.
+That example uses an invented grammar that looks like CSV, not actual PSS/E RAW syntax.
 
 ## Working with systems
 
-`System.from_json` and serialized-system loading remain serialization APIs, not
-input reader modes. System-to-System translation also remains separate from
-file-ingestion instructions and retains rule dependency ordering and
-TimeSeries transfer/replacement behavior.
+`System.from_json` and loading saved systems are serialization operations, not
+file readers. Translating one system to another is also separate from reading
+input files. Translation keeps rule dependency ordering and time series transfer
+and replacement behavior.
 
 ### See also
 

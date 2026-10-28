@@ -12,7 +12,7 @@ uv init --bare
 
 Continue with [Installation](/r2x-core/install/) to add the published package.
 Run library commands through `uv run` so they use this project's environment.
-A pre-existing pip virtual environment is also supported by the installation guide.
+An existing pip virtual environment is also supported by the installation guide.
 
 `r2x-core` is a library. It does not install the `r2x` executable.
 [r2x-cli](https://github.com/NatLabRockies/r2x-cli/blob/main/docs/getting-started.md#install) manages a separate Python environment for translator plugins.

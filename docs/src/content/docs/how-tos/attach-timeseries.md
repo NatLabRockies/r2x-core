@@ -2,22 +2,21 @@
 title: "Attach Time Series"
 ---
 
-Time-series output is selected by a `time_series` instruction in
+Time series output is selected by a `time_series` instruction in
 `parser_rules.json`, not by a file extension. A CSV, JSON document, HDF5 array,
-or application-defined source can supply samples if its decoded source exposes
-the configured fields. The standard `build_system` operation constructs
+or source defined by the application can supply samples if it exposes the
+configured fields. The standard `build_system` operation constructs
 `SingleTimeSeries` values and attaches them through the public infrasys API.
 
 ## Attaching time series
 
-A `TimeSeriesInstruction` names its source, sample-value field, time axis,
+A `TimeSeriesInstruction` names its source, sample value field, time axis,
 metadata, units, and component owners. Owners use component type and name.
-`name_field` groups long-form rows so each owner receives only its own samples;
-literal `names` intentionally shares one sample vector across those owners.
+`name_field` groups rows in long form so each owner receives only its own
+samples. Literal `names` intentionally shares one sample vector across owners.
 `metadata_columns` maps row fields to infrasys feature names and partitions samples
-by both resolved owners and the mapped values. Each mapped value must be an exact
-built-in string, boolean, integer, or finite float. Missing fields, nulls,
-non-finite numbers, and non-scalar values fail. Boolean and integer values are
+by both resolved owners and the mapped values. Each mapped value must be a plain string, boolean, integer, or finite float.
+Missing fields, nulls, infinite or NaN numbers, and values that are not scalars fail. Boolean and integer values are
 distinct. Literal and mapped feature names cannot overlap. `context`, `self`, and
 `time_series` are reserved infrasys arguments.
 
@@ -57,10 +56,9 @@ stored as infrasys features, including `False` and `0` values.
 
 ## Keep system translation separate
 
-`build_system` executes the three configured ingestion outputs: components,
-time series, and supplemental attributes. System-to-System translation remains
-a separate workflow and retains its dependency ordering, time-series transfer,
-and replacement behavior.
+`build_system` executes the three configured outputs: components, time series,
+and supplemental attributes. Translating systems is separate. It retains its
+dependency ordering and time series transfer and replacement behavior.
 
 ```python doctest
 >>> from r2x_core import replace_single_time_series, transfer_time_series_metadata
@@ -72,4 +70,4 @@ and replacement behavior.
 
 See [Build a parser](/r2x-core/how-tos/build-parsers/),
 [Read data files](/r2x-core/how-tos/read-data-files/), and the
-[time-series transfer API](/r2x-core/references/api/).
+[time series transfer API](/r2x-core/references/api/).

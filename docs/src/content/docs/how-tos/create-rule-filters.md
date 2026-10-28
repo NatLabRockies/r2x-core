@@ -18,8 +18,7 @@ model instead of instantiating the `RuleFilter` type alias.
 ```
 
 The supported operators are `eq`, `neq`, `in`, `not_in`, `geq`, `startswith`,
-`not_startswith`, and `endswith`. String values are case-insensitive by
-default. `geq` takes exactly one value. Prefix and suffix operators take string
+`not_startswith`, and `endswith`. String comparisons ignore case by default. `geq` takes exactly one value. Prefix and suffix operators take string
 values in the regular `values` field.
 
 When the filter is stored as JSON, include the `kind` discriminator:
@@ -36,7 +35,7 @@ When the filter is stored as JSON, include the `kind` discriminator:
 ## Compare getter results
 
 Use a getter when the value must be derived from translator context or another
-lookup. Getter-backed filters require the active `PluginContext` when evaluated.
+lookup. Filters that use getters need the active `PluginContext` when evaluated.
 
 ```python doctest
 >>> from rust_ok import Ok
@@ -97,6 +96,6 @@ Use the composed filter directly on a rule:
 # 'any_of'
 ```
 
-A leaf filter's `on_missing` setting controls missing-field behavior. Its
-default is `"exclude"`; set it to `"include"` only when missing values should
+A leaf filter's `on_missing` setting controls what happens when a field is missing. Its
+default is `"exclude"`. Set it to `"include"` only when missing values should
 pass the filter.

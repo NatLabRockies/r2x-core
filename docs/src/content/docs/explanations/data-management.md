@@ -11,7 +11,7 @@ data and registration is not proof that every file can be read.
 ## Separate configuration from I/O
 
 A file root must exist when constructing a store. Reader errors occur when the
-input is read; processing and component validation are later boundaries.
+input is read. Processing and component validation happen later.
 The separation lets a parser request only the inputs it needs.
 
 ```python doctest
@@ -34,12 +34,12 @@ The separation lets a parser request only the inputs it needs.
 
 ## Processing is a separate contract
 
-The CSV source is paired with its Polars processor; `collect()` materializes
+The CSV source is paired with its Polars processor. `collect()` materializes
 its rows. `TabularProcessing` describes operations such as filtering and
-reshaping, while `ReaderConfig.options` holds reader-specific options. Keeping
-these apart avoids mixing format selection with transformations.
+reshaping, while `ReaderConfig.options` holds settings for the selected reader.
+Keeping these apart avoids mixing format selection with transformations.
 The [processor reference](/r2x-core/references/processors/) specifies operation
-order and constraints; [process file data](/r2x-core/how-tos/process-file-data/)
+order and constraints. [Process file data](/r2x-core/how-tos/process-file-data/)
 shows how to configure them.
 
 ## Validation does not imply availability
@@ -48,7 +48,7 @@ A valid configuration can still refer to unavailable or malformed input.
 Diagnose the root path, registered logical name, physical input and processed
 schema in that order. The [troubleshooting guide](/r2x-core/troubleshooting/)
 provides checks for each boundary.
-For a complete data-to-artifact journey, use the [CSV capacity scenario](/r2x-core/tutorials/getting-started/).
+To follow the path from CSV input to a saved system, use the [CSV capacity scenario](/r2x-core/tutorials/getting-started/).
 
 <span id="overview"></span>
 

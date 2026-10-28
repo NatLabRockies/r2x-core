@@ -108,7 +108,7 @@ When loading JSON records, use the same shape. Getter names are resolved through
 }
 ```
 
-Construction errors include the rule, source component, and supplemental output type. No primary component is attached when validation of one of its supplemental outputs fails. Multi-target rules cannot declare supplemental outputs, because a shared supplemental UUID cannot be attached atomically to multiple primary components.
+Construction errors include the rule, source component, and supplemental output type. No primary component is attached when validation of one of its supplemental outputs fails. Rules that produce multiple component types cannot declare supplemental outputs because the same supplemental UUID cannot be attached to each primary component at once.
 
 ## Filter Components Before Translation
 

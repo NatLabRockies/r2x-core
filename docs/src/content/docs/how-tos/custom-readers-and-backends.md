@@ -13,8 +13,8 @@ physical input may return several names. `DataReader` resolves input paths,
 validates options through the selected reader, passes declared native columns as
 `reader_config.columns`, reuses decodes only within one read execution, and
 resolves named processing dependencies. `reader_config.columns` is empty when
-no columns are declared. It is read-time metadata and is not serialized in
-reader settings. Declare columns on the `DataFile`. For direct reader calls,
+no columns are declared. This value is checked when the reader runs and is not
+saved in reader settings. Declare columns on the `DataFile`. For direct reader calls,
 pass them to `ReaderConfig(columns=...)`. Core rejects a shared column schema
 when a reader returns multiple sources. Use
 `DataReader.read_data_files` when an application needs decoded sources without
@@ -25,20 +25,20 @@ reader registration, and the three output instructions in `parser_rules.json`.
 `build_system` performs processing, model validation, component construction,
 reference resolution, and attachment. The runnable
 [illustrative RAW example](https://github.com/NatLabRockies/r2x-core/tree/main/examples/psse-raw) demonstrates
-the full route. Its invented CSV-like grammar is not actual PSS/E RAW syntax.
+the full route. Its invented grammar that looks like CSV is not actual PSS/E RAW syntax.
 
 ## Pair a payload with its processor
 
 `SourceProcessor[Payload]` processes a particular payload type. A
 `ProcessingSource[Payload]` keeps that implementation paired with the payload.
-For table-like data, implement `TabularProcessor[Payload]` to provide field,
-row, and value access as well as processing. The built-in Polars reader pairs
-`LazyFrame` with `PolarsTabularBackend`. JSON and HDF5 array readers retain their
+For tabular data, implement `TabularProcessor[Payload]` to provide field, row,
+and value access as well as processing. The Polars reader included with core
+pairs `LazyFrame` with `PolarsTabularBackend`. JSON and HDF5 array readers retain their
 native representations and use their corresponding processors where configured.
 
-An application-defined representation can implement `DecodedSource` directly.
-Its `process` method is the processing seam. The reader orchestrator calls that
-contract without probing for a built-in wrapper type. Implementations must
+An application can implement `DecodedSource` directly. Its `process` method
+handles processing. The reader calls that method without checking for a
+specific wrapper type. Implementations must
 return an explicit error for a requested operation they do not support. With
 no requested operations, the source passes through unchanged.
 
@@ -94,6 +94,6 @@ system = build_system(
 ```
 
 The corresponding `file_mapping.json` selects the symbolic registration with
-`{"reader": {"format": "dummy_raw", "options": {}}}`. Reader-specific
-options are validated by the application reader. Core does not accept a Python
+`{"reader": {"format": "dummy_raw", "options": {}}}`. The application reader
+checks its own options. Core does not accept a Python
 module path in JSON.

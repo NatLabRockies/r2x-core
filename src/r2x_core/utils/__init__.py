@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from .datetime import parse_datetime_array
     from .export import components_to_records, export_components_to_csv
     from .files import (
         audit_file,
@@ -56,6 +57,7 @@ LAZY_IMPORTS: dict[str, str] = {
     "get_r2x_cache_path": ".files",
     "iter_components": ".iteration",
     "merge_with_overrides": ".overrides",
+    "parse_datetime_array": ".datetime",
     "resolve_component_type": ".rules",
     "resolve_glob_pattern": ".files",
     "resolve_path": ".files",
@@ -106,6 +108,7 @@ __all__ = [
     "get_r2x_cache_path",
     "iter_components",
     "merge_with_overrides",
+    "parse_datetime_array",
     "resolve_component_type",
     "resolve_glob_pattern",
     "resolve_path",

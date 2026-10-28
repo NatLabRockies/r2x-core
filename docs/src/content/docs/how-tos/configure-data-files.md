@@ -3,8 +3,8 @@ title: "Configure Data Files"
 ---
 
 `DataFile` describes one physical input, named source, ordered source selection,
-or configuration-owned inline table. It contains availability settings, an
-optional symbolic reader with options, and an ordered processing spec. Path
+or an inline table defined in configuration. It contains availability settings,
+an optional reader with options, and an ordered processing spec. Path
 existence and glob matching are resolved at execution time.
 
 ## Working with datafiles
@@ -34,7 +34,7 @@ an error or is skipped.
 ```
 
 An optional physical file can become required when a previously declared table
-contains a row matching an expression. The original file or HDF5-group error
+contains a row matching an expression. The original file or HDF5 group error
 is preserved when the condition is true. Missing inputs remain optional when it
 is false, while malformed present files still fail.
 
@@ -59,8 +59,8 @@ tabular. It is required when any row matches.
 ## Select a reader
 
 Common extensions are inferred when unambiguous. Configure `reader.format` to
-select a registered reader for an uncommon extension. Reader-specific settings
-belong in `reader.options`; the selected Python reader validates those options.
+select a registered reader for an uncommon extension. Put its options in
+`reader.options`. The selected Python reader checks them.
 JSON configuration cannot import arbitrary code.
 
 ```python doctest
@@ -134,11 +134,11 @@ validated before processing. `rows=[]` is a present, typed empty source.
 ```
 
 `first_present` selects the first available named source even if it has no
-rows. `first_nonempty` skips absent and present-empty sources. An explicit
-`empty_fallback` inline table can provide a typed terminal result. Optional
-physical inputs that are absent are omitted. Present-empty inputs remain
-available, and malformed present inputs still fail. Declare candidate sources
-before the selector in the ordered data-file list.
+rows. `first_nonempty` skips sources that are absent or have no rows. An
+explicit `empty_fallback` inline table can provide a typed terminal result.
+Absent optional inputs are omitted. Inputs that exist but have no rows remain
+available. Malformed inputs still fail. Declare candidate sources before the
+selector in the ordered list of files.
 
 JSON processing has a separate step vocabulary:
 

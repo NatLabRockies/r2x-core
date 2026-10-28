@@ -43,7 +43,7 @@ if TYPE_CHECKING:
         TabularSource,
     )
     from .getters import getter, resolve_getter
-    from .h5_adapter import H5PyFileReader, H5Reader
+    from .h5py_adapter import H5PyFileReader, H5Reader
     from .ingestion import build_system, build_system_from_sources
     from .models import (
         ColumnTimeAxis,
@@ -188,8 +188,8 @@ LAZY_IMPORTS: dict[str, str] = {
     "PluginError": ".exceptions",
     "UpgradeError": ".exceptions",
     "ValidationError": ".exceptions",
-    "H5PyFileReader": ".h5_adapter",
-    "H5Reader": ".h5_adapter",
+    "H5PyFileReader": ".h5py_adapter",
+    "H5Reader": ".h5py_adapter",
     "FileReader": ".file_reader",
     "getter": ".getters",
     "resolve_getter": ".getters",

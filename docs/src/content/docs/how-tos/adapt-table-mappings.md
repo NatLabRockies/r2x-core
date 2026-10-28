@@ -1,22 +1,22 @@
 ---
 title: Adapt table mappings to your application's data
-description: Select model years, reshape scenarios, match year-specific prices, complete missing-hour grids, and add products or contributors.
+description: Select model years, reshape scenarios, match prices by year, complete grids for missing hours, and add products or contributors.
 ---
 
 Use these recipes when your application needs a different input shape, matching
 rule, or output grid. Each starts from named prepared tables and shows the JSON
 record to add or replace in `table_mapping.json`.
 
-Core supports typed row and concat constructors, whole-value bindings, and the
-final `columns` projection used in these
-recipes. The [table-mapping reference](/r2x-core/references/table-mapping/)
-defines their fields, ordering, types, and null behavior.
+Core supports typed row and concat constructors, bindings for whole values, and
+the final `columns` projection used in these recipes. The [reference for table
+mappings](/r2x-core/references/table-mapping/) defines their fields, order,
+types, and null behavior.
 
 Declare dependencies before their consumers. The JSON objects below are table
-records to place inside the top-level list, not separate configuration formats.
-For exact field definitions, see the [table-mapping reference](/r2x-core/references/table-mapping/).
+records to place inside the top level list, not separate configuration formats.
+For exact field definitions, see the [reference for table mappings](/r2x-core/references/table-mapping/).
 If you are learning the format, start with the
-[reserve-requirement tutorial](/r2x-core/tutorials/assemble-reserve-requirements/).
+[reserve requirement tutorial](/r2x-core/tutorials/assemble-reserve-requirements/).
 
 ## Reuse a small shared intermediate
 
@@ -40,7 +40,7 @@ Point each dependent table at `supported_technologies`. The filtered projection
 is evaluated once at that boundary and kept in memory for those downstream
 plans. Materialization moves lazy errors in the final projected plan to assembly
 time and holds the complete result in memory. Keep the default lazy behavior for
-large or single-use tables.
+large tables or tables used only once.
 
 ## Select one model year and rename fields for the parser
 
@@ -85,10 +85,10 @@ The result contains one row:
 `variable` literal text rather than a column reference. Other input columns are
 not included in the result.
 
-For a multi-year build, remove the year-filter operation and keep `solve_year` in
-the output. Do not bind a list to this equality comparison and expect membership
-filtering. For a different component schema, change the final column map without
-changing the source-file description.
+For a build that covers several years, remove the filter by year and keep
+`solve_year` in the output. Do not bind a list to this equality comparison and
+expect it to match any item in the list. For a different component schema,
+change the final column map without changing the source file description.
 
 ## Turn scenario columns into scenario rows
 
@@ -134,10 +134,10 @@ The note is excluded. The scenario labels are strings supplied by the mapping,
 not parsed fragments of the input column names.
 
 To add a `low` scenario, prepare a numeric `low_mw` column and add
-`"low": "low_mw"` to the unpivot map. To retain scenario-independent metadata,
+`"low": "low_mw"` to the unpivot map. To keep metadata shared across scenarios,
 include its column in `index`.
 
-## Calculate costs with region-specific and year-specific prices
+## Calculate costs with prices that change by region and year
 
 Join on every dimension that determines the price. Do not match on category
 alone when the same category has different prices across regions or years.
@@ -281,7 +281,7 @@ Expect eight rows:
 
 To preserve unknown samples, omit `fill_null` and let the consumer's null policy
 apply. To use a different time range or resolution, change the prepared calendar
-and the parser's time-axis settings together. Do not infer a calendar from sparse
+and the parser's time axis settings together. Do not infer a calendar from sparse
 observations.
 
 Keep grid keys unique when one row per key is required. Cross joins preserve
@@ -391,7 +391,7 @@ records. Do not append second definitions with the same names:
 ]
 ```
 
-Leave `reserve_contributions` and the output-grid definition unchanged. At 01:00,
+Leave `reserve_contributions` and the output grid definition unchanged. At 01:00,
 the new quantity contributes 2.5 MW, so the requirement becomes 105.5 MW. Midnight
 remains 5 MW because no hydro quantity was supplied for that hour.
 
@@ -409,13 +409,13 @@ Inspect the named intermediate table immediately before the unexpected change.
 
 | Symptom | Check |
 | --- | --- |
-| A category disappears | Exact category and factor labels, plus every inner-join key. |
-| Totals are unexpectedly multiplied | Duplicate right-side matches or a missing year, region, or product key. |
+| A category disappears | Exact category and factor labels, plus every inner join key. |
+| Totals are unexpectedly multiplied | Duplicate matches on the right or a missing year, region, or product key. |
 | A new source cannot concatenate | Matching output names and compatible column types in its final projection. |
 | Product metadata becomes measurement rows | Explicit `unpivot.columns` and `index`, not an assumption about every remaining column. |
 | Missing requested periods | The grid inputs, rather than just the observation timestamps. |
 | Unknown prices appear as zero costs | Missing price matches, nulls before aggregation, and any `fill_null` policy. |
-| Values are correct but attachment fails | Owner names, metadata partitions, and the parser's time-axis requirements. |
+| Values are correct but attachment fails | Owner names, metadata partitions, and the parser's time axis requirements. |
 
 For null, availability, and duplicate behavior, use the
-[format reference](/r2x-core/references/table-mapping/).
+[table mapping reference](/r2x-core/references/table-mapping/).

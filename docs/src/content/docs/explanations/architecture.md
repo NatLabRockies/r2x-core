@@ -3,12 +3,12 @@ title: "Architecture"
 description: "Typed source loading, configured construction, translation, and plugin boundaries."
 ---
 
-r2x-core separates input configuration, typed source decoding, system
-construction, System-to-System translation, and serialization. Common readers
-and processors are built in. Applications register only readers for uncommon
-formats and provide their models and configuration.
+r2x-core separates input configuration, source decoding, system construction,
+translation from one `System` to another, and serialization. Core includes
+common readers and processors. Applications provide their models and
+configuration, and register readers for uncommon formats.
 
-## Typed source and processing seam
+## Read and process sources
 
 ```mermaid
 flowchart TB
@@ -36,19 +36,17 @@ flowchart TB
     file_reader --> xml
 ```
 
-`FileReader` selects and decodes a physical format into one or more named
-sources. `DecodedSource` provides field, row, and value access plus its
-processing method. `ProcessingSource[Payload]` couples a payload to a
-`SourceProcessor[Payload]`; `TabularProcessor` adds native table access.
-Representation-specific processing lives in the paired implementation, not in
-a format-level dispatcher in `DataReader`.
+`FileReader` decodes a file into one or more named sources. `DecodedSource`
+provides field, row, and value access, along with a processing method.
+`ProcessingSource[Payload]` pairs a payload with a `SourceProcessor[Payload]`.
+`TabularProcessor` adds native table access. Each paired implementation handles
+its own payload. `DataReader` does not select processing by file format.
 
-CSV, TSV, Parquet, HDF5 tables, JSON, and XML are selected by symbolic names
-inferred from common extensions or set with `ReaderConfig.format`. Reader
-options are validated by the selected reader. JSON does not import code from
-configuration. A custom source may implement `DecodedSource` directly, while
-vendor-specific payloads remain explicit types rather than arbitrary objects
-inside a built-in wrapper.
+CSV, TSV, Parquet, HDF5 tables, JSON, and XML use symbolic names inferred from
+common extensions or set with `ReaderConfig.format`. The selected reader checks
+its own options. JSON configuration does not import code. A custom source can
+implement `DecodedSource` directly. A vendor payload can use its own type rather
+than an arbitrary object inside a wrapper.
 
 ## Reading and constructing a System
 
@@ -78,11 +76,11 @@ sequenceDiagram
     Build-->>App: System
 ```
 
-`DataReader.read_data_files` is the public source-loading and composition seam.
-Its decode cache is local to one call and keyed by resolved path, symbolic
-format, and options. Named dependencies, including joins across separately
-decoded compatible sources, are resolved in core. No requested operations mean
-pass-through. Requested unsupported operations fail explicitly.
+`DataReader.read_data_files` reads files and combines named sources. Its decode
+cache lasts for one call and uses the resolved path, format, and options as its
+key. Core resolves named dependencies, including joins across compatible
+sources. With no requested operations, sources pass through unchanged.
+Unsupported operations fail explicitly.
 
 `build_system` is the standard configured construction operation. Exactly three
 tagged instruction kinds construct components, attach time series, and attach
@@ -91,17 +89,17 @@ supplemental attributes. References and owners use public component lookup by
 in declaration order and fail fast. Earlier attachments are not rolled back if
 a later instruction fails.
 
-`DataStore` manages mapping configuration and upgrade handlers; it does not
-read files. A configured handler runs on the configured build/read path when a
-required input is missing, followed by one retry. `System.from_json` and
-serialized-system loading remain separate from file ingestion.
+`DataStore` manages mapping configuration and upgrade handlers. It does not
+read files. If a required input is missing, the configured handler runs and the
+reader retries once. Loading a saved system with `System.from_json` is separate
+from reading input files.
 
 ## System translation remains separate
 
-File ingestion does not replace or wrap the rule-based System translation
-workflow. Translation retains dependency ordering, rule filters, component and
-supplemental outputs, source preservation, and time-series transfer and
-replacement.
+Reading files is separate from translating one system to another with rules.
+Translation still uses dependency ordering and rule filters. It can create
+components and supplemental outputs, preserve source data, and transfer or
+replace time series.
 
 ```mermaid
 sequenceDiagram
@@ -118,40 +116,40 @@ sequenceDiagram
         Rules->>Source: select matching components
         Rules->>Target: validate and attach translated outputs
     end
-    Rules->>Series: transfer or replace time-series associations
+    Rules->>Series: transfer or replace time series associations
     Rules-->>Plugin: TranslationResult
 ```
 
-## Plugin and unit boundaries
+## Plugins and units
 
 `PluginContext` holds configuration, optional store, working System, and
 translation state. `Plugin.run` invokes implemented hooks in order. A returned
 `Err` stops the run, but earlier state changes and file writes are not
 transactional or automatically rolled back.
 
-Unit annotations are resolved through Pydantic model schemas and the owning
-model's fields. Structured unit values distinguish natural-unit input from
-already normalized internal values. See the [unit reference](/r2x-core/references/units/)
-for conversion behavior.
+Pydantic checks unit annotations against the model's fields. A structured unit
+value tells r2x-core which physical unit the input uses. A number for a relative
+field is already normalized. See the [unit reference](/r2x-core/references/units/)
+for conversion details.
 
 ## Module inventory
 
 | Module | Responsibility |
 | --- | --- |
-| `datafile`, `models`, `types` | Strict input, processing, time-axis, and output-instruction models |
-| `file_reader` | Typed decoded-source and paired processor contracts |
+| `datafile`, `models`, `types` | Input, processing, time axis, and output instruction models |
+| `file_reader` | Decoded source and processor contracts |
 | `reader` | Symbolic reader selection, runtime path resolution, source reuse and composition |
 | `polars_adapter` | Polars table reader, processor, expressions, and ordered operations |
 | `json_adapter` | JSON document reader and processor |
-| `h5_adapter`, `xml_adapter` | Native HDF5 array/table and XML document readers |
+| `h5py_adapter`, `xml_adapter` | Native HDF5 array/table and XML document readers |
 | `ingestion` | `build_system` and the three output handlers |
-| `store` | File-mapping configuration and upgrade coordination |
-| `tabular_backend` | Ordered mapping-step protocol and runner |
+| `store` | File mapping configuration and upgrade coordination |
+| `tabular_backend` | Ordered mapping protocol and runner |
 | `rules`, `rules_executor` | Separate System translation workflow |
-| `time_series` | Time-series metadata transfer and association replacement |
+| `time_series` | Time series metadata transfer and association replacement |
 | `plugin_base`, `plugin_context` | Plugin hooks and shared execution context |
 | `system`, `units`, `provenance` | Infrasys System extensions, units, and provenance |
 
-The root API uses lazy imports so importing configuration models does not load
-infrasys or Polars. The source-loading and construction APIs load their required
-implementations when used.
+The root API uses lazy imports, so importing configuration models does not load
+infrasys or Polars. APIs for reading sources and building systems load their
+required implementations when used.

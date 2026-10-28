@@ -42,17 +42,14 @@ r2x --version
 r2x --help
 ```
 
-The published binary requires Python shared libraries at runtime. If the
-binary reports a missing `libpython`, install a supported shared Python with
-`uv`:
+The CLI manages a Python runtime for plugin operations. Install a runtime with
+`r2x python install` or select a specific supported version with
+`r2x python install 3.12` when needed. The default version is selected by the
+CLI release.
 
-```bash
-uv python install 3.12
-```
-
-Use the published installers or release binaries only. Do not build `r2x` from
-source as part of the r2x-core plugin workflow. If the published binary is
-unavailable for the platform, stop and report that limitation rather than
+Use the published installers or release binaries for the standard plugin
+workflow. Do not build `r2x` from source as part of r2x-core plugin work. If a
+release is unavailable for the platform, report that limitation rather than
 silently switching to a source build.
 
 ## Install a plugin package
@@ -73,9 +70,10 @@ r2x install -e /path/to/my-translator
 r2x sync
 ```
 
-Use `r2x install ... --branch`, `--tag`, or `--commit` when a non-default
-revision is required. Run `r2x sync --upgrade` only when upgrading compatible
-installed plugin packages is intended.
+Use `r2x install --branch <branch> gh:NatLabRockies/r2x-reeds`,
+`--tag <tag>`, or `--commit <hash>` for a non-default Git revision. These
+options apply to Git sources, not plain PyPI package names. Run
+`r2x sync --upgrade` only when upgrading installed plugin packages is intended.
 
 ## Plugin package contract
 
@@ -128,7 +126,7 @@ r2x run plugin
 For a specific plugin, ask the CLI to render the resolved argument contract:
 
 ```bash
-r2x run plugin r2x-reeds.reeds-parser --show-help
+r2x run r2x-reeds.reeds-parser --help
 ```
 
 If the CLI cannot see a plugin that Python can import, compare these layers:
@@ -152,10 +150,11 @@ r2x run r2x-reeds.reeds-parser \
   --weather-year 2012
 ```
 
-The legacy explicit form remains useful when disambiguating command modes:
+Use the explicit `plugin` subcommand only when a pipeline name conflicts with
+a plugin reference:
 
 ```bash
-r2x run plugin r2x-reeds.reeds-parser --show-help
+r2x run plugin r2x-reeds.reeds-parser --help
 ```
 
 Use idiomatic flags for automation. Existing `key=value` arguments are also
@@ -264,8 +263,8 @@ r2x log set no-stdout true
 r2x log path
 ```
 
-- `-q` suppresses informational status.
-- `-qq` suppresses logs and plugin stdout capture.
+- `-q` suppresses CLI logs.
+- `-qq` also suppresses plugin stdout.
 - `-v` enables debug logging.
 - `-vv` enables trace logging.
 - `--log-python` shows Python/plugin logs on the console.
@@ -284,7 +283,7 @@ Before handing off an r2x-core plugin intended for `r2x`:
 2. Run `uv run python skills/r2x-core/tools/check_api_symbols.py --repo src/r2x_core`.
 3. Install the plugin into the r2x-managed environment with `r2x install -e .`.
 4. Run `r2x sync` and confirm the package appears in `r2x list`.
-5. Run `r2x run plugin <plugin-ref> --show-help`.
+5. Run `r2x run <plugin-ref> --help`.
 6. Preview every pipeline with `--list`, `--print`, and `--dry-run`.
 7. Run one bounded real translation with `-o` and verify the output JSON and
    time-series sidecars.

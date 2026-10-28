@@ -1,7 +1,5 @@
 """Flexible, configuration-driven HDF5 reader."""
 
-from collections.abc import Sequence
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -15,13 +13,12 @@ from ..datafile import ReaderConfig
 from ..exceptions import ConfiguredGroupNotFoundError
 from ..file_reader import ArraySource, DecodedSources, FileReader
 from ..models import StrictConfigModel
+from ..utils.datetime import parse_datetime_array
 from .type_alias import H5Label, H5Result
 
 DEFAULT_DATETIME_COLUMN_NAME = "datetime"
 DEFAULT_INDEX_NAMES_KEY = "index_names"
 INDEX_COLUMN_PREFIX = "index_"
-SOLVE_YEAR_COLUMN_NAME = "solve_year"
-YEAR_COLUMN_NAME = "year"
 
 
 class H5Reader(FileReader):
@@ -29,9 +26,9 @@ class H5Reader(FileReader):
 
 
 def read_h5_file(*, file_path: Path, **reader_kwargs: object) -> H5Result:
-    """Read an HDF5 file into column data using the configured reader options."""
+    """Read materialized column data from an HDF5 file, then close the file."""
     try:
-        options = H5ReaderOptions.model_validate(reader_kwargs)
+        options = H5PyReaderOptions.model_validate(reader_kwargs)
     except ValueError as error:
         msg = f"Invalid HDF5 reader options: {error}"
         raise ValueError(msg) from error
@@ -41,7 +38,7 @@ def read_h5_file(*, file_path: Path, **reader_kwargs: object) -> H5Result:
         return read_h5_scope(h5_file, options=options)
 
 
-class H5ReaderOptions(StrictConfigModel):
+class H5PyReaderOptions(StrictConfigModel):
     """Validate options supported by the h5py reader without coercion."""
 
     model_config = ConfigDict(strict=True)
@@ -90,11 +87,11 @@ def configurable_h5_reader(h5_file: h5py.File, **reader_kwargs: object) -> H5Res
     column is a dataset named in ``columns_key``. ``datetime_key``,
     ``index_key``, and ``additional_keys`` add supporting columns.
     """
-    options = H5ReaderOptions.model_validate(reader_kwargs)
+    options = H5PyReaderOptions.model_validate(reader_kwargs)
     return read_h5_scope(h5_file, options=options)
 
 
-def read_h5_scope(h5_file: h5py.Group, *, options: H5ReaderOptions) -> H5Result:
+def read_h5_scope(h5_file: h5py.Group, *, options: H5PyReaderOptions) -> H5Result:
     """Read one HDF5 scope using typed, validated options."""
     scope = h5_file
     if options.group_key is not None:
@@ -143,8 +140,7 @@ def read_h5_scope(h5_file: h5py.Group, *, options: H5ReaderOptions) -> H5Result:
         )
 
     column_mapping = options.column_name_mapping or {}
-    user_column_mapping = bool(column_mapping)
-    if not user_column_mapping and index_names is not None:
+    if not column_mapping and index_names is not None:
         column_mapping = {f"{INDEX_COLUMN_PREFIX}{i}": name for i, name in enumerate(index_names)}
 
     datetime_dataset = (
@@ -154,8 +150,7 @@ def read_h5_scope(h5_file: h5py.Group, *, options: H5ReaderOptions) -> H5Result:
         dt_data = np.atleast_1d(read_h5_values(datetime_dataset, decode_bytes=options.decode_bytes))
         if dt_data.size > 0 and isinstance(dt_data[0], str):
             result[options.datetime_column_name] = parse_datetime_array(
-                [str(value) for value in dt_data],
-                options.strip_timezone,
+                [str(value) for value in dt_data], strip_timezone=options.strip_timezone
             )
         else:
             result[options.datetime_column_name] = dt_data
@@ -174,11 +169,7 @@ def read_h5_scope(h5_file: h5py.Group, *, options: H5ReaderOptions) -> H5Result:
         additional_dataset = get_h5_dataset(scope, file_data, key)
         if additional_dataset is None:
             continue
-        column_name = column_mapping.get(key)
-        if column_name is None:
-            column_name = format_column_name(key)
-        elif not user_column_mapping:
-            column_name = format_column_name(column_name)
+        column_name = column_mapping.get(key, key)
         result[h5_key_to_string(column_name)] = read_h5_values(
             additional_dataset, decode_bytes=options.decode_bytes
         )
@@ -315,37 +306,3 @@ def read_first_dataset(scope: h5py.Group, *, decode_bytes: bool) -> H5Result:
     if data.ndim == 1:
         return {key: data}
     return {f"{key}_col_{i}": data[:, i] for i in range(data.shape[1])}
-
-
-def parse_datetime_array(dt_strings: Sequence[str], strip_timezone: bool) -> np.ndarray:
-    """Parse ISO datetime strings into timezone-naive datetime64 values."""
-    parsed: list[datetime] = []
-    for i, dt_str in enumerate(dt_strings):
-        try:
-            dt_obj = datetime.fromisoformat(dt_str)
-            if dt_obj.tzinfo is not None:
-                if strip_timezone:
-                    dt_obj = dt_obj.replace(tzinfo=None)
-                else:
-                    dt_obj = dt_obj.astimezone(UTC).replace(tzinfo=None)
-            parsed.append(dt_obj)
-        except (ValueError, AttributeError) as exc:
-            msg = (
-                f"Failed to parse datetime string at index {i}: '{dt_str}'. "
-                f"Expected ISO 8601 format. Error: {exc}"
-            )
-            raise ValueError(msg) from exc
-
-    return np.array(parsed, dtype="datetime64[us]")
-
-
-def format_column_name(key: H5Label) -> str:
-    """Format HDF5 dataset key into a clean column name."""
-    if isinstance(key, bytes):
-        key = key.decode()
-    key_lower = key.lower()
-    if "index_year" in key_lower or key_lower == SOLVE_YEAR_COLUMN_NAME:
-        return SOLVE_YEAR_COLUMN_NAME
-    if "year" in key_lower:
-        return YEAR_COLUMN_NAME
-    return key.replace(INDEX_COLUMN_PREFIX, "")

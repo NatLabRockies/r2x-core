@@ -1,10 +1,10 @@
 ---
-title: "Create Function-Based Transform Plugins"
+title: "Create Function Transform Plugins"
 ---
 
 <span id="create-function-based-transform-plugins"></span>
 
-Function-based plugins are simple, zero-overhead transforms that modify a `System` using a `PluginConfig`. They are marked with the `@expose_plugin` decorator for CLI discovery.
+A function plugin transforms a `System` using a `PluginConfig`. The `@expose_plugin` decorator marks the function. Register it as an entry point for the CLI to find it.
 
 ## Basic Transform Function
 
@@ -220,7 +220,7 @@ Use a bounded type variable for generic plugin functions across all supported Py
 
 **Generic Configuration Benefits**:
 
-The bound on `C` lets type checkers require a `BaseTransformConfig` subclass while inferring the specific config type from each argument. Pydantic validates values when constructing the configuration model; the type bound does not add runtime validation.
+The bound on `C` lets type checkers require a `BaseTransformConfig` subclass while inferring the specific config type from each argument. Pydantic validates values when it creates the configuration model. The type bound does not add runtime validation.
 
 **When to Use**:
 
@@ -238,7 +238,7 @@ advanced_filter = "my_package.transforms:advanced_filter"
 ```
 
 The Rust CLI will:
-1. **Discover** exposed functions via AST-grep scanning for `@expose_plugin` decorator
+1. **Discover** exposed functions by scanning their syntax trees for the `@expose_plugin` decorator
 2. **Introspect** the `PluginConfig` class to generate CLI arguments
 3. **Invoke** the function with parsed arguments and system data
 
@@ -256,14 +256,14 @@ The Rust CLI will:
 ### ❌ Don't
 
 - Don't accept arbitrary keyword arguments in the signature
-- Don't modify the system in-place without returning it in a Result
+- If you change the system, return it in a `Result`
 - Don't use global state or external dependencies without injecting them
 - Don't raise exceptions - use `Err()` instead
 - Don't use overly complex config structures - break into nested models if needed
 
 ## Full Example: Break Generators Plugin
 
-Here's a complete example of a real-world transform plugin:
+Here is a complete transform plugin example:
 
 ```python doctest
 >>> from r2x_core import expose_plugin, PluginConfig, System

@@ -76,7 +76,7 @@ A [`System`](/r2x-core/references/api/) represents a power system model containi
 
 ## Validate a component manually
 
-For a small in-memory edit, validate the model before adding it. For file
+For a small edit in memory, validate the model before adding it. For file
 ingestion, prefer `build_system` and configured component instructions so the
 application does not own a construction loop.
 

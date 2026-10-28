@@ -1,6 +1,6 @@
 # Documentation development
 
-The public documentation is an Astro/Starlight site with Pagefind search and basepath `/r2x-core/`.
+The public docs use Astro, Starlight, and Pagefind. Their base path is `/r2x-core/`.
 Use Node.js 22.22 or newer and the locked Python documentation environment:
 
 ```bash
@@ -15,47 +15,38 @@ No hosting or repository settings are changed by these commands.
 
 ## Authoring
 
-Edit task-focused pages under `src/content/docs/` using standard Markdown and Starlight frontmatter.
-Links are rooted at `/r2x-core/`.
-Historical `.html` page paths redirect to current pages, retaining query strings and member anchors.
-Use `python doctest` fences with `>>>` prompts and checked output or assertions for self-contained runnable examples. Each block runs in a fresh namespace. Label context-dependent sketches as illustrative instead of treating imports or commented calls as verified behavior.
-The version guide links to actual Git tags without claiming separately hosted snapshots.
+Edit pages under `src/content/docs/` in standard Markdown with Starlight frontmatter.
+Links start at `/r2x-core/`. Old `.html` links redirect to current pages and keep query strings and member anchors.
+Use `python doctest` fences with `>>>` prompts and checked output or assertions for runnable examples. Each block runs in a fresh namespace. Mark examples that depend on outside context as illustrative. Do not treat their imports or commented calls as tested behavior.
+The version guide links to Git tags. It does not claim that separate snapshots are hosted.
 
 ## API contracts
 
-Sphinx is an internal API extraction step only.
-Existing directives under `source/references/` remain the source of truth for API coverage.
+Sphinx extracts the API for the site. The directives under `source/references/` define which APIs appear in the reference.
 Autodoc, Napoleon, and autodoc-pydantic preserve Python signatures, field types and defaults, returns, errors, inherited contracts, and examples.
-Replacing these with hand-maintained contracts would duplicate source and lose coverage.
+Handwritten contracts would repeat the source and miss details.
 
-`../scripts/generate_api.py` builds JSON in `build/api-json/`, then wraps each reference body in generated Starlight content under `src/content/docs/references/`.
-Its PEP 723 dependencies and adjacent lockfile isolate Sphinx tooling, while installing the checkout editable for accurate API extraction.
-It resolves relative links into Astro routes and retains API anchor IDs.
-The Sphinx contents tree also generates `src/generated/api-toc.json`; Starlight route middleware uses it for the native desktop sidebar and mobile contents dropdown. Do not hand-maintain a second member list.
-Implementation links are pinned to the build checkout's Git commit.
-Generated content is ignored by Git and must not be edited.
-Root `CHANGELOG.md` similarly generates the release-notes page without a maintained duplicate.
-The public build uses Astro; no Sphinx theme or standalone Sphinx site is published.
+`../scripts/generate_api.py` builds JSON in `build/api-json/` and creates Starlight pages under `src/content/docs/references/`.
+Its PEP 723 dependencies and lockfile keep Sphinx tools separate from the docs environment. It installs this checkout in editable mode so the API reflects the code being built.
+The script converts relative links to Astro routes and keeps API anchor IDs. Sphinx also builds `src/generated/api-toc.json`. Starlight uses that file for the desktop sidebar and mobile contents menu, so do not maintain a second list.
+Implementation links point to the Git commit used for the build. Generated files are ignored by Git. Do not edit them by hand.
+The site builds release notes from the root `CHANGELOG.md`, so there is no second copy to maintain. Astro builds the public site. We do not publish a Sphinx site.
 
 ## Validation and publishing
 
-Run `mise run docs`, then use `npm run preview` from this directory to inspect the production output.
-Verify guide and API links, signatures, configuration tables, source links, and Pagefind search.
-Run the repository hooks on changed source files.
-The existing GitHub documentation workflow builds this Astro output and publishes `docs/dist/` through the unchanged gh-pages provider.
-Its deployment condition, branch, token, and permissions are preserved; running a local build does not deploy anything.
+Run `mise run docs`, then run `npm run preview` from this directory to inspect the built site.
+Check guide and API links, signatures, configuration tables, source links, and Pagefind search. Run the repository hooks on changed files.
+GitHub Actions publishes `docs/dist/` to GitHub Pages. A local build does not deploy the site.
 
 ## Executable examples and branding
 
-The repository-root `examples/csv-system/` directory contains the small input-to-artifact workflow used by the getting-started tutorial.
-Run its build and inspection scripts from that directory with the root project environment.
-The negative-input case is expected to fail validation before export.
-The source SVGs under `src/assets/` are the shared R2X light/dark and square marks; the header keeps the package title visible and uses R2X's sizing and theme colors.
+The root `examples/csv-system/` directory contains the CSV to artifact example used by the getting started tutorial.
+Run its build and inspection scripts from that directory with the root project environment. The invalid input example should fail validation before export.
+The SVGs in `src/assets/` are the shared R2X marks for light and dark themes and square layouts. The header keeps the package title visible and uses R2X colors and sizing.
 
-## Interpreter-specific examples
+## Examples for newer Python versions
 
-An example that needs newer Python syntax declares it in the fence, for example `python doctest requires-python=3.12`.
-Both documentation runners execute that exact block using the declared interpreter when the host is older.
-They use `uv run --isolated` with the existing locked documentation dependencies, leaving the host environment intact.
-No block is skipped and expected outputs remain checked; interpreter download or execution failure fails the check.
-The first run on Python 3.11 may need network access to provision Python 3.12 and its isolated dependencies.
+An example that needs newer Python syntax declares the version in its fence, for example `python doctest requires-python=3.12`.
+When the host uses an older version, the docs runners use the version declared in the fence. They run it with `uv run --isolated` and the locked docs dependencies, without changing the host environment.
+The runner checks every block and its expected output. If it cannot download or run the required Python version, the check fails.
+The first run on Python 3.11 may need network access to download Python 3.12 and its isolated dependencies.

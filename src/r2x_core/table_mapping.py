@@ -28,6 +28,7 @@ from .models import (
     OmitUnsetNoneConfigModel,
     StrictConfigModel,
 )
+from .shared_types import PLACEHOLDER_PATTERN, JSONValue, NonEmptyString, ProcessingPlaceholder
 from .tabular_backend import (
     TableColumnType,
     TableDateTimePart,
@@ -36,7 +37,6 @@ from .tabular_backend import (
     TableProjectionSelection,
     TableValueSelection,
 )
-from .type_vocabulary import PLACEHOLDER_PATTERN, JSONValue, NonEmptyString, ProcessingPlaceholder
 
 TableScalar: TypeAlias = StrictBool | StrictInt | StrictFloat | StrictStr | None
 

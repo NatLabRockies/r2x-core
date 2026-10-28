@@ -51,10 +51,10 @@ Register plugins in `pyproject.toml` for automatic discovery:
 my-parser = "my_package.plugins:MyPlugin"
 ```
 
-The group declares the runtime role; the entry name is the CLI reference.
+The group declares the runtime role. The entry name is the CLI reference.
 For function transforms use `r2x.transforms` and an `@expose_plugin` function accepting `System` and typed configuration.
 For package installation and pipeline execution, use the [r2x-cli Getting Started guide](https://github.com/NatLabRockies/r2x-cli/blob/main/docs/getting-started.md).
-[Plugin Management](https://github.com/NatLabRockies/r2x-cli/blob/main/docs/plugin-management.md) covers entry-point discovery and plugin operations.
+[Plugin Management](https://github.com/NatLabRockies/r2x-cli/blob/main/docs/plugin-management.md) covers finding plugins through entry points and managing them.
 
 ## See Also
 

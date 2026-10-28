@@ -64,6 +64,7 @@ def test_hdf5_mapping_loads_configured_columns_and_metadata(tmp_path: Path) -> N
                         "columns_key": "columns",
                         "datetime_key": "index_datetime",
                         "additional_keys": ["index_year"],
+                        "column_name_mapping": {"index_year": "solve_year"},
                     },
                 },
             }

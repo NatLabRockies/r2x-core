@@ -5,8 +5,8 @@ title: "Inspect plugin contracts and discovery"
 <span id="plugin-discovery"></span>
 
 A plugin must be installed and registered before the CLI can discover it.
-Core defines configuration and lifecycle contracts; the Rust `r2x` executable
-owns installed-package discovery and generated command help.
+Core defines configuration and lifecycle contracts. The Rust `r2x` executable
+finds installed packages and generates command help.
 This tutorial first inspects a complete class without requiring external model data.
 
 ## Inspect a complete plugin
@@ -33,7 +33,7 @@ This tutorial first inspects a complete class without requiring external model d
 ```
 
 The hook list and schema above come from the actual class and configuration,
-not a hand-written catalog claiming ReEDS or PLEXOS behavior.
+not a catalog written by hand to claim ReEDS or PLEXOS behavior.
 A real parser that reads files is demonstrated in [Build a parser](/r2x-core/how-tos/build-parsers/).
 
 <span id="4-generic-configuration-types"></span>
@@ -42,9 +42,9 @@ A real parser that reads files is demonstrated in [Build a parser](/r2x-core/how
 
 This example uses PEP 695 type parameters and requires Python 3.12 or newer.
 The `... def` line is valid here: it continues the statement started by
-`>>> @expose_plugin`. An undecorated top-level definition would start with `>>> def`.
-The type parameter bound supports static checking; it is not a replacement for
-runtime validation of plugin configuration.
+`>>> @expose_plugin`. A function defined outside a class would start with `>>> def`.
+The type parameter bound helps type checkers. Runtime validation of plugin
+configuration is still required.
 
 ```python doctest requires-python=3.12
 >>> from r2x_core import expose_plugin, PluginConfig, System
@@ -79,7 +79,7 @@ runtime validation of plugin configuration.
 
 For a class parser, the package declares its module and class in `r2x.parsers`.
 For an exposed function transform, use `r2x.transforms`.
-Names in these entry points are the CLI references; Python class names are not
+The CLI uses entry point names as references. Python class names are not
 automatically executable commands.
 For CLI installation and package discovery, see the [r2x-cli Getting Started guide](https://github.com/NatLabRockies/r2x-cli/blob/main/docs/getting-started.md)
 and [Plugin Management](https://github.com/NatLabRockies/r2x-cli/blob/main/docs/plugin-management.md).
@@ -96,10 +96,10 @@ r2x list <package-name>
 r2x run <plugin-ref> --help
 ```
 
-There is no `plugins list` subcommand or Python-module CLI invocation.
+There is no `plugins list` subcommand or CLI command that invokes a Python module.
 For package discovery, see the [CLI Plugin Management guide](https://github.com/NatLabRockies/r2x-cli/blob/main/docs/plugin-management.md).
-For launcher or managed-runtime problems, use [CLI troubleshooting](https://github.com/NatLabRockies/r2x-cli/blob/main/docs/development.md#troubleshooting).
-The [function-plugin guide](/r2x-core/how-tos/create-function-plugins/) explains
+For problems starting the CLI's managed Python environment, use [CLI troubleshooting](https://github.com/NatLabRockies/r2x-cli/blob/main/docs/development.md#troubleshooting).
+The [guide to function plugins](/r2x-core/how-tos/create-function-plugins/) explains
 configuration and callable contracts with checked examples.
 
 <span id="discovery-information"></span>

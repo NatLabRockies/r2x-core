@@ -9,5 +9,5 @@ import polars as pl
 
 def collect_polars_frame(frame: pl.LazyFrame, /) -> pl.DataFrame:
     """Collect synchronously and narrow Polars' public return union."""
-    # Polars types background collection as a union, but False guarantees a synchronous frame.
+    # Polars annotates collect() with a union even when background=False.
     return cast(pl.DataFrame, frame.collect(background=False))

@@ -23,12 +23,12 @@ that operation.
 ```
 
 `filter_columns` matches exact values in every listed column. Use the
-expression-based `filter` operation when a predicate needs a comparison or
+`filter` operation when a predicate needs a comparison or
 combination that exact matching cannot express.
 
 ## Order reshape and column operations explicitly
 
-A wide-to-long step selects value columns. All other columns remain as
+The unpivot step selects value columns. All other columns remain as
 identifiers. The following steps can then rename and cast the generated fields
 before filtering:
 
@@ -49,7 +49,7 @@ Use `unpivot` when the identifier columns should be specified explicitly. Use
 as an identifier.
 
 For combined labels, `split_columns` splits a named string column using a
-single-character separator:
+separator made of one character:
 
 ```python doctest
 >>> from r2x_core import SplitColumnSpec
@@ -61,8 +61,8 @@ single-character separator:
 ## Normalize formatted numeric values
 
 Use ordered steps to replace tokens, remove literal characters, cast, and
-scale. The example shows the configuration; the processor reference documents
-value-family validation and supported aggregation functions.
+scale. The example shows the configuration. The processor reference documents
+supported value types and aggregation functions.
 
 ```python doctest
 >>> from r2x_core import TabularProcessing
@@ -91,7 +91,7 @@ if later steps use lowercase column names:
 
 ## Use placeholders
 
-Whole-value placeholders preserve their type. For example, placeholders can
+Placeholders for whole values preserve their type. For example, they can
 supply a boolean to `lowercase`, a number to `scale_columns`, or a filter value.
 They are validated again after substitution. Unknown names return a processing
 error.

@@ -54,7 +54,7 @@ This example checks the returned result and changed system name:
 >>> result.unwrap().name
 # 'upgraded'
 ```
-Selection, version comparison and rollback are separate concerns; see the [upgrade error contract](/r2x-core/references/upgrader/).
+Selection, version comparison, and rollback are separate concerns. See the [upgrade error contract](/r2x-core/references/upgrader/).
 
 ## See Also
 

@@ -19,7 +19,7 @@ from pydantic import (
     model_validator,
 )
 
-from .type_vocabulary import (
+from .shared_types import (
     AggregationFunction,
     ColumnNames,
     ExpressionOperator,

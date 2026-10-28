@@ -13,10 +13,10 @@ from pydantic import ValidationError as PydanticValidationError
 
 from ..datafile import ReaderConfig
 from ..file_reader import ArraySource, DecodedSources, FileReader, TabularSource
-from ..h5_adapter import H5PyFileReader, H5Reader
+from ..h5py_adapter import H5PyFileReader, H5Reader
 from ..models import StrictConfigModel
+from ..shared_types import NonEmptyString, PositiveInteger
 from ..tabular_backend import StepHandlers
-from ..type_vocabulary import NonEmptyString, PositiveInteger
 from .backend import PolarsTabularBackend
 from .expressions import resolve_polars_dtype
 
@@ -54,7 +54,7 @@ class ParquetReaderOptions(StrictConfigModel):
     extra_columns: Literal["ignore", "raise"] = "raise"
 
 
-HEADER_READ_OPTIONS = frozenset(
+CSV_HEADER_READ_OPTIONS = frozenset(
     {
         "separator",
         "comment_prefix",
@@ -100,7 +100,7 @@ def read_polars_table_file(
         msg = "skip_rows_after_header cannot be combined with multiple header rows"
         raise ValueError(msg)
 
-    header_options = {key: value for key, value in scan_kwargs.items() if key in HEADER_READ_OPTIONS}
+    header_options = {key: value for key, value in scan_kwargs.items() if key in CSV_HEADER_READ_OPTIONS}
     header = pl.read_csv(
         file_path,
         has_header=False,

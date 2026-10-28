@@ -90,7 +90,7 @@ include = ["src"]
 [tool.pytest.ini_options]
 pythonpath = ["src", "."]
 testpaths = ["tests"]
-addopts = ["--strict-markers", "--cov=r2x_core", "--cov-report=term-missing"]
+addopts = ["--strict-markers", "--benchmark-skip", "--cov=r2x_core", "--cov-report=term-missing"]
 markers = [
   "core: Shared error, validation, and smoke-test behavior",
   "plugin: Plugin classes, configuration, exposed transforms, and contexts",
@@ -107,6 +107,7 @@ markers = [
   "docs: Documentation examples, coverage, and link checks",
   "polars: tests exercising Polars-backed table decoding or processing",
   "doc_coverage: Public API documentation coverage checks",
+  "bench: Opt-in workflow benchmarks, run with `mise run bench`",
 ]
 
 [tool.ruff]

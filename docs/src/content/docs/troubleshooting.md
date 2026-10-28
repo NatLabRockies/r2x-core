@@ -16,15 +16,15 @@ uv run python -c "import sys, r2x_core; print(sys.executable); print(r2x_core.__
 
 A failed import means that interpreter cannot load the package. A surprising file path can reveal a different checkout or a local `r2x_core.py` shadowing the installed library.
 Compare the version with the [installed release's source tags](https://github.com/NatLabRockies/r2x-core/tags), rather than assuming these `main` docs describe an older release.
-Install the dependency in the intended project using [Installation](/r2x-core/install/); rename a shadowing local module if that is the cause.
-Repeat the command and [first-use check](/r2x-core/getting-started/verify/) before retrying the application.
+Install the dependency in the intended project using [Installation](/r2x-core/install/). Rename a local module if it shadows the dependency.
+Repeat the command and [check the import](/r2x-core/getting-started/verify/) before retrying the application.
 
 For `ModuleNotFoundError: tutorial_model` during reload, run the example from `examples/csv-system`, where that module lives.
-For another model, install its component-defining package in the loading environment. Installing core alone cannot supply those classes.
+For another model, install the package that defines its components in the environment used to load it. Core alone does not include those classes.
 
 ## “Path does not exist” or a data name is absent from the store
 
-`DataStore` requires an existing root; registering a `DataFile` does not prove its input exists.
+`DataStore` requires an existing root. Registering a `DataFile` does not prove its input exists.
 Run this from the CSV fixture directory:
 
 ```bash
@@ -33,7 +33,7 @@ uv run --no-dev python -c "from pathlib import Path; print(Path.cwd()); p=Path('
 
 The final line must be `True`. If false, correct the working directory or provide the actual input root. Do not create an empty replacement input just to satisfy lookup.
 For your actual store, compare `store.folder` and `store.list_data()` with the expected root and logical names.
-This self-contained check shows an existing but empty root:
+This example creates a root that exists but has no registered inputs:
 
 ```python doctest
 >>> from pathlib import Path
@@ -49,7 +49,7 @@ This self-contained check shows an existing but empty root:
 # (True, [])
 ```
 
-A name missing from `list_data()` is absent from the mapping configuration; register its actual `DataFile` before reading it.
+A name missing from `list_data()` is absent from the mapping configuration. Register its `DataFile` before reading it.
 If the name is present but the physical file is absent, correct its `relative_fpath` under the execution folder or use an explicit `fpath`.
 Use `DataReader.read_data_files()` to inspect decoded named sources, or run `build_system()` to execute configured construction. `DataStore` does not read inputs.
 See [file configuration](/r2x-core/how-tos/configure-data-files/) and [DataStore contracts](/r2x-core/references/api/#data-management).
@@ -63,14 +63,14 @@ uv run --no-dev python -c "import polars as pl; f=pl.read_csv('inputs/generators
 ```
 
 For the shipped input, expect `name`, `capacity_mw`, and `status`, including Alpha 100, Bravo 50 and Retired 25.
-A different header, delimiter, skipped row, or string-valued numeric column needs a matching reader configuration or a corrected source export.
-Reader options go in `ReaderConfig(options=...)`; transformation rules belong in `proc_spec`.
+A different header, delimiter, skipped row, or numeric column stored as text needs a matching reader configuration or a corrected source export.
+Reader options go in `ReaderConfig(options=...)`. Transformation rules belong in `proc_spec`.
 Compare the raw columns with the requested mappings and filters before adding more processing.
 
-The built-in CSV reader returns a typed Polars table source. Inspect its `data` lazy frame with `collect()`; `build_system()` consumes decoded fields and constructs configured components without an application-owned row loop.
+The CSV reader returns a typed Polars table source. Inspect its `data` lazy frame with `collect()`. `build_system()` reads the decoded fields and creates configured components without a custom row loop.
 After fixing the reader/specification, rerun the [CSV tutorial](/r2x-core/tutorials/getting-started/): two active generators and 165 MW after scaling prove that filtering and transformation both ran.
 See [processing specifications](/r2x-core/references/processors/).
-Some reshaping requests remain tracked in [issue #132](https://github.com/NatLabRockies/r2x-core/issues/132); check the current source and issue status before assuming a requested processing feature is implemented.
+Some reshaping requests remain tracked in [issue #132](https://github.com/NatLabRockies/r2x-core/issues/132). Check the source and issue status before assuming a requested feature is implemented.
 
 ## A component rejects capacity or unit input
 
@@ -82,34 +82,34 @@ uv run --no-dev python build_system.py
 uv run --no-dev python inspect_system.py
 ```
 
-Both must exit successfully; the reloaded total must be 165 MW. Construction failure produces no new export, but an older artifact can remain.
+Both must exit successfully. The reloaded total must be 165 MW. A construction failure creates no new export, but an older artifact can remain.
 Do not disable model validation to make bad data load.
 
-For unit-aware fields, inspect the declared `Unit(...)` annotation and the supplied value together.
+For fields with units, inspect the declared `Unit(...)` annotation and the supplied value together.
 A structured unit value must contain both keys:
 
 ```json
 {"value": 80.0, "unit": "MW"}
 ```
 
-A plain float for a per-unit field is already per-unit; `80.0` does not mean 80 MW.
-An explicit natural-unit value needs the field's declared base, such as `base_power`, and compatible unit annotations.
-“Base field … is required for unit conversion” means that base was absent or `None`; supply the physical base required by the model, not an arbitrary constant.
-Verify the normalized value: the [tested generator example](/r2x-core/how-tos/convert-units/) converts 80 MW on a 100 MVA base to 0.8 per-unit.
+A float supplied to a per unit field is already normalized. `80.0` does not mean 80 MW.
+An explicit value with a physical unit needs the field's declared base, such as `base_power`, and compatible unit annotations.
+“Base field … is required for unit conversion” means the base was missing or `None`. Supply the physical base required by the model, not an arbitrary constant.
+Verify the normalized value: the [generator example](/r2x-core/how-tos/convert-units/) converts 80 MW on a 100 MVA base to 0.8 per unit.
 For incompatible dimensions, correct the input unit or model annotation and repeat construction before running the pipeline.
 See [unit contracts](/r2x-core/references/units/).
 
 ## PluginError identifies a failed lifecycle hook
 
-Inspect the hook name and wrapped error in the traceback. Compare the resolved context configuration and input names with the hook's requirements; inspect `ctx.config` and `ctx.system` at that boundary when debugging your own plugin.
-A returned `Err(...)` becomes `PluginError`; unrelated exceptions can propagate directly.
+Inspect the hook name and wrapped error in the traceback. Compare the resolved context configuration and input names with the hook's requirements. When debugging your plugin, inspect `ctx.config` and `ctx.system` at that boundary.
+A returned `Err(...)` becomes `PluginError`. Unrelated exceptions can propagate directly.
 Fix the specific input or configuration, then rerun from a fresh context and verify its returned system or exported artifact.
 
 Earlier hooks may already have mutated state or written files. There is no automatic rollback, and cleanup is not guaranteed after failure.
 Do not rerun against partially transformed state unless the plugin explicitly supports that.
 See [lifecycle ordering and public API](/r2x-core/references/plugins/) and the [working example](/r2x-core/tutorials/getting-started/).
-For CLI package-discovery errors, see the [Plugin Management guide](https://github.com/NatLabRockies/r2x-cli/blob/main/docs/plugin-management.md).
-For launcher or managed-runtime errors, use [CLI troubleshooting](https://github.com/NatLabRockies/r2x-cli/blob/main/docs/development.md#troubleshooting).
+For CLI plugin discovery errors, see the [Plugin Management guide](https://github.com/NatLabRockies/r2x-cli/blob/main/docs/plugin-management.md).
+For errors starting the CLI's managed Python environment, use [CLI troubleshooting](https://github.com/NatLabRockies/r2x-cli/blob/main/docs/development.md#troubleshooting).
 Core does not manage the CLI's environment.
 
 ## JSON reload fails, storage is missing, or output already exists
@@ -120,14 +120,14 @@ Check the artifact and companion directory from the fixture directory:
 uv run --no-dev python -c "from pathlib import Path; print(Path('output/system.json').is_file()); print(Path('output/system_time_series').is_dir())"
 ```
 
-Both should be `True` for the tutorial's file export. A missing sidecar requires restoring or regenerating the complete export; copying JSON alone is insufficient.
+Both should be `True` for the tutorial's file export. Restore or regenerate the complete export if a sidecar is missing. Copying JSON alone is not enough.
 Keep the model package importable, then run `inspect_system.py` in a fresh process to verify names and capacities.
-Native PLEXOS or Sienna files need their model parser; `System.from_json` expects an infrasys-compatible system artifact.
+Native PLEXOS or Sienna files need their model parser. `System.from_json` expects an infrasys system artifact.
 
-The bytes-loading path can raise “Data is missing time series information” or “Data is missing time series directory” when given an arbitrary JSON object.
-Use a supported `System.to_json(...)` export instead of hand-editing serialization metadata.
+Loading from bytes can raise “Data is missing time series information” or “Data is missing time series directory” when given an arbitrary JSON object.
+Use a supported `System.to_json(...)` export instead of changing serialization metadata by hand.
 Check actual method signatures and source in [serialization contracts](/r2x-core/references/data-workflow/#system-serialization).
-For an existing-output rejection, choose a new destination; use `overwrite=True` only when deliberately replacing that artifact.
+If the destination already exists, choose a new one. Use `overwrite=True` only when you intend to replace the artifact.
 Verify the new destination by loading it independently, rather than trusting an old file's timestamp or mere existence.
 
 The diagnostic boundaries are implemented in [DataStore](https://github.com/NatLabRockies/r2x-core/blob/7eb201999706103b4ea965aeb4b6e42d4801703f/src/r2x_core/store.py), [unit conversion](https://github.com/NatLabRockies/r2x-core/blob/7eb201999706103b4ea965aeb4b6e42d4801703f/src/r2x_core/units/_utils.py), and [lifecycle execution](https://github.com/NatLabRockies/r2x-core/blob/7eb201999706103b4ea965aeb4b6e42d4801703f/src/r2x_core/plugin_base.py#L294-L379).
@@ -136,7 +136,7 @@ The diagnostic boundaries are implemented in [DataStore](https://github.com/NatL
 
 Include the interpreter/version/path check above, operating system, exact command and working directory, full traceback, and the smallest input/configuration that reproduces the failure.
 State the expected result, observed result, and whether failure occurs before or after export.
-For units, include annotations, units and bases; for processing, raw headers and `ReaderConfig`/`proc_spec`; for reload, component package versions and whether companion storage is present.
+For units, include annotations, units, and bases. For processing, include raw headers and `ReaderConfig` or `proc_spec`. For reloads, include component package versions and whether companion storage is present.
 Remove credentials and proprietary data while retaining the failing shape and types.
 If reproduction needs unavailable licensed/model data, say so and provide a synthetic reduced case when possible.
 [Open a core issue](https://github.com/NatLabRockies/r2x-core/issues) with the diagnostic results and the first failing boundary.

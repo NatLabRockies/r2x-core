@@ -1132,7 +1132,7 @@ def test_empty_tabular_processing_preserves_frame_and_schema():
 )
 def test_pl_build_filter_expr_datetime_years(years: int | list[int], expected: list[datetime]):
     """Filter datetime values by a single year or several years."""
-    from r2x_core.polars_adapter.processing import pl_build_filter_expr
+    from r2x_core.polars_adapter.value_operations import pl_build_filter_expr
 
     frame = pl.DataFrame({"datetime": [datetime(2020, 1, 1), datetime(2021, 6, 15), datetime(2022, 12, 31)]})
 

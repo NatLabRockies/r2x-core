@@ -301,7 +301,7 @@ class DataReader:
         if format_name == "xml":
             return self.xml_file_reader
         if format_name == "hdf5_array":
-            from .h5_adapter import H5PyFileReader
+            from .h5py_adapter import H5PyFileReader
 
             return H5PyFileReader()
         msg = f"No reader registered for format {format_name!r}"

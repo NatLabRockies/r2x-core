@@ -19,7 +19,7 @@ from ..models import (
     ReplaceJSONValuesStep,
     SelectJSONKeysStep,
 )
-from ..type_vocabulary import json_values_equal
+from ..shared_types import json_values_equal
 from ..types import FileProcessing, JSONValue
 
 

@@ -8,7 +8,7 @@ import pytest
 
 from r2x_core import DataFile, DataReader
 from r2x_core.datafile import ReaderConfig
-from r2x_core.h5_adapter.readers import configurable_h5_reader, read_h5_file
+from r2x_core.h5py_adapter.readers import configurable_h5_reader, read_h5_file
 
 pytestmark = pytest.mark.readers
 
@@ -121,7 +121,7 @@ def test_hdf5_mapping_reads_columns_datetime_and_additional_keys(tmp_path: Path)
     source = DataReader().read_data_files([item], folder_path=tmp_path)["load"]
     frame = source.data.collect()
 
-    assert frame.columns == ["north", "south", "datetime", "solve_year"]
+    assert frame.columns == ["north", "south", "datetime", "index_year"]
     assert frame.rows() == [
         (100.0, 150.0, np.datetime64("2024-01-01T00:00:00.000000"), 2024),
         (120.0, 160.0, np.datetime64("2024-01-01T01:00:00.000000"), 2025),

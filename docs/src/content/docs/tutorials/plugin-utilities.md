@@ -7,7 +7,7 @@ title: "Export component records and filter keyword arguments"
 <span id="export_components_to_csv"></span>
 
 The helpers in `r2x_core.utils` work with ordinary systems, paths and callables.
-This tutorial creates its own components and temporary output; it needs no model
+This tutorial creates its own components and temporary output. It needs no model
 dataset. Use the exact public module imports below on current main.
 
 ## Select and rename record fields
@@ -58,7 +58,7 @@ is removed after the check, so no persistent user files are modified.
 
 ## Filter arguments for a known callable
 
-`filter_kwargs_for` filters keys by a callable's accepted parameters; it does not
+`filter_kwargs_for` filters keys by a callable's accepted parameters. It does not
 validate values or implement a model transformation.
 
 ```python doctest

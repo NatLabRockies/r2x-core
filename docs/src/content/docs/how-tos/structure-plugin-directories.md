@@ -35,8 +35,8 @@ Define a configuration class that extends `PluginConfig`:
 ## Load mapping configuration
 
 `DataStore` manages mapping configuration only. To build a system from those
-inputs, use `build_system` instead of adding file-reading or component-building
-loops to the plugin.
+inputs, use `build_system` instead of adding loops that read files or build
+components to the plugin.
 
 ```python doctest
 >>> import tempfile

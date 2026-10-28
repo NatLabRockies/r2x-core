@@ -8,13 +8,13 @@ from collections import Counter
 from pathlib import Path
 
 KNOWN_EXTENSIONS = {
-    ".csv": "TableFormat",
-    ".tsv": "TableFormat",
-    ".h5": "H5Format",
-    ".hdf5": "H5Format",
-    ".parquet": "ParquetFormat",
-    ".json": "JSONFormat",
-    ".xml": "XMLFormat",
+    ".csv": "csv",
+    ".tsv": "tsv",
+    ".h5": "hdf5",
+    ".hdf5": "hdf5",
+    ".parquet": "parquet",
+    ".json": "json",
+    ".xml": "xml",
 }
 
 

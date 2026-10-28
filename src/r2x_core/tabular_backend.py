@@ -12,7 +12,7 @@ from rust_ok import Ok, Result, is_ok
 from .datafile import DataFile
 from .file_reader import TabularSource
 from .models import MappingStep, MatchPatternsOptions, MatchSourcePatternsOptions
-from .type_vocabulary import FrameT
+from .shared_types import FrameT
 
 HandlerOptionsT = TypeVar("HandlerOptionsT", bound=BaseModel)
 HandlerInputT = TypeVar("HandlerInputT")

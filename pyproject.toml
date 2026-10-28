@@ -12,7 +12,6 @@ authors = [
 ]
 maintainers = [
   { name = "pesap", email = "pesap@users.noreply.github.com" },
-  { name = "Kinshuk Panda", email = "7632244+k1nshuk@users.noreply.github.com" },
   { name = "mcllerena", email = "mcllerena@users.noreply.github.com" },
   { name = "jarry7", email = "27745389+jarry7@users.noreply.github.com" },
   { name = "kodiobika", email = "kodiobika@users.noreply.github.com" },

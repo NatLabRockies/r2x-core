@@ -108,7 +108,9 @@ Fix the specific input or configuration, then rerun from a fresh context and ver
 Earlier hooks may already have mutated state or written files. There is no automatic rollback, and cleanup is not guaranteed after failure.
 Do not rerun against partially transformed state unless the plugin explicitly supports that.
 See [lifecycle ordering and public API](/r2x-core/references/plugins/) and the [working example](/r2x-core/tutorials/getting-started/).
-For CLI discovery errors, use [CLI troubleshooting](https://natlabrockies.github.io/r2x-cli/troubleshooting/); core does not manage the CLI's environment.
+For CLI package-discovery errors, see the [Plugin Management guide](https://github.com/NatLabRockies/r2x-cli/blob/main/docs/plugin-management.md).
+For launcher or managed-runtime errors, use [CLI troubleshooting](https://github.com/NatLabRockies/r2x-cli/blob/main/docs/development.md#troubleshooting).
+Core does not manage the CLI's environment.
 
 ## JSON reload fails, storage is missing, or output already exists
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+import pytest
 from fixtures.source_system import BusComponent, BusGeographicInfo
 from fixtures.target_system import CircuitComponent, NodeComponent
 
@@ -16,6 +17,9 @@ from r2x_core.system import System
 def build_test_config() -> PluginConfig:
     """Create a PluginConfig pointing at fixture modules for component resolution."""
     return PluginConfig(models=("fixtures.source_system", "fixtures.target_system"))
+
+
+pytestmark = pytest.mark.rules
 
 
 def test_rule_creates_supplemental_attribute():

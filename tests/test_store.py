@@ -7,6 +7,8 @@ from pydantic import ValidationError
 
 from r2x_core import DataFile, DataStore
 
+pytestmark = pytest.mark.system
+
 
 def test_store_requires_directory_and_resolves_it(tmp_path: Path) -> None:
     """Keep execution paths separate from the mapping configuration object."""

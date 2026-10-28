@@ -9,6 +9,8 @@ import pytest
 from r2x_core.exceptions import ConfiguredGroupNotFoundError
 from r2x_core.h5_adapter import configurable_h5_reader, read_h5_file
 
+pytestmark = pytest.mark.readers
+
 
 def test_read_h5_file_opens_file_and_reads_configured_columns(tmp_path: Path) -> None:
     h5_path = tmp_path / "data.h5"

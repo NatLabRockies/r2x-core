@@ -81,24 +81,24 @@ For a class parser, the package declares its module and class in `r2x.parsers`.
 For an exposed function transform, use `r2x.transforms`.
 Names in these entry points are the CLI references; Python class names are not
 automatically executable commands.
-The [complete CLI fixture package](https://natlabrockies.github.io/r2x-cli/getting-started/)
-contains actual package metadata and can be installed without licensed model data.
+For CLI installation and package discovery, see the [r2x-cli Getting Started guide](https://github.com/NatLabRockies/r2x-cli/blob/main/docs/getting-started.md)
+and [Plugin Management](https://github.com/NatLabRockies/r2x-cli/blob/main/docs/plugin-management.md).
 
 <span id="integration-with-cli"></span>
 
 ## Inspect installed references with the Rust CLI
 
-After installing that fixture with the CLI tutorial, these commands inspect its
-real `create` and `scale` references:
+After installing a package that declares these entry points, inspect its
+registered references and their options:
 
 ```bash
-r2x list r2x-tutorial
-r2x run create --help
-r2x run scale --help
+r2x list <package-name>
+r2x run <plugin-ref> --help
 ```
 
 There is no `plugins list` subcommand or Python-module CLI invocation.
-If discovery differs, use [CLI troubleshooting](https://natlabrockies.github.io/r2x-cli/troubleshooting/).
+For package discovery, see the [CLI Plugin Management guide](https://github.com/NatLabRockies/r2x-cli/blob/main/docs/plugin-management.md).
+For launcher or managed-runtime problems, use [CLI troubleshooting](https://github.com/NatLabRockies/r2x-cli/blob/main/docs/development.md#troubleshooting).
 The [function-plugin guide](/r2x-core/how-tos/create-function-plugins/) explains
 configuration and callable contracts with checked examples.
 

@@ -21,6 +21,9 @@ import pytest
 
 from scripts.doctest_runner import minimum_python, run_block
 
+pytestmark = pytest.mark.docs
+
+
 DOCS_ROOT = Path(__file__).resolve().parents[1] / "docs"
 FENCE_RE = re.compile(r"^(```|~~~)\s*([^\n`]*)?$")
 DOCTEST_PROMPT_RE = re.compile(r"^\s*>>> ?")

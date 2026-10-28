@@ -1,3 +1,15 @@
+# /// script
+# requires-python = ">=3.11,<3.15"
+# dependencies = [
+#     "autodoc-pydantic>=2.0.0,<3.0.0",
+#     "myst-parser>=3.0.0,<5.0.0",
+#     "r2x-core",
+#     "sphinx>=7.2.0,<8.0.0",
+# ]
+#
+# [tool.uv.sources]
+# r2x-core = { path = "../", editable = true }
+# ///
 """Extract existing Sphinx API contracts into pages rendered by Starlight."""
 
 from __future__ import annotations

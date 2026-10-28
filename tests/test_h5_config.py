@@ -10,6 +10,8 @@ from r2x_core import DataFile, DataReader
 from r2x_core.datafile import ReaderConfig
 from r2x_core.h5_adapter.readers import configurable_h5_reader, read_h5_file
 
+pytestmark = pytest.mark.readers
+
 
 def test_hdf5_reader_configuration_roundtrip(tmp_path: Path) -> None:
     """Serialize the selected reader and validated HDF5 layout options."""

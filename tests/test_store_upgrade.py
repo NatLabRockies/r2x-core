@@ -12,6 +12,9 @@ class UpgradeConfig(PluginConfig):
     """Configuration model used by the upgrade integration test."""
 
 
+pytestmark = [pytest.mark.versioning, pytest.mark.ingestion]
+
+
 @pytest.mark.polars
 def test_missing_table_mapping_does_not_run_input_upgrade_handler(tmp_path: Path) -> None:
     """A missing assembly configuration is not treated as a missing input file."""

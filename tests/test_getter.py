@@ -8,6 +8,8 @@ This module validates that the getter decorator works correctly with all usage p
 
 import pytest
 
+pytestmark = pytest.mark.rules
+
 
 def test_getter_without_parentheses_registers_function():
     """@getter without parentheses registers function with its name."""

@@ -30,6 +30,8 @@ from r2x_core.logger import (
     structured_sink,
 )
 
+pytestmark = pytest.mark.logging
+
 
 class LogMessage(Protocol):
     """The public Loguru sink message fields used by formatters."""

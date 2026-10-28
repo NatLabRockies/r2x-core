@@ -55,11 +55,15 @@ jobs:
           enable-cache: true
           version: ${{ env.UV_VERSION }}
 
+      - uses: jdx/mise-action@146a28175021df8ca24f8ee1828cc2a60f980bd5 # v3.5.1
+        with:
+          install: true
+
       - name: Install dependencies
         run: uv sync --group dev --locked
 
       - name: Run prek
-        run: uv run --locked prek run --all-files --stage pre-commit --show-diff-on-failure
+        run: mise run hooks
 
   matrix:
     name: Set Python test matrix

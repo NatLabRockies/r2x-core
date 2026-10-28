@@ -27,6 +27,9 @@ class PerUnitComponentFixture(units.HasPerUnit, Component):
     name: str
 
 
+pytestmark = pytest.mark.system
+
+
 @pytest.fixture
 def example_system():
     return System(100.0, name="TestSystem", description="A test system")
@@ -209,6 +212,7 @@ def test_to_json_no_overwrite_raises(tmp_path):
         system.to_json(filename=output_file, overwrite=False)
 
 
+@pytest.mark.time_series
 def test_to_json_bytes_with_time_series(caplog):
     """Test serializing system with time series to stdout."""
     from datetime import datetime, timedelta
@@ -237,6 +241,7 @@ def test_to_json_bytes_with_time_series(caplog):
     assert deserialized_system.has_time_series(component_deserialized)
 
 
+@pytest.mark.time_series
 def test_from_json_bytes_missing_time_series_raises():
     """Missing time series data in bytes should raise KeyError."""
     with pytest.raises(KeyError, match="time series information"):

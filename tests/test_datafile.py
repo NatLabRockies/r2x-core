@@ -19,6 +19,8 @@ from r2x_core.models import (
 )
 from r2x_core.types import FileRequirement, FileType
 
+pytestmark = pytest.mark.readers
+
 
 def test_inline_table_serialization_uses_configuration_schema_key() -> None:
     table = InlineTable.model_validate({"schema": {"year": "int64"}, "rows": [{"year": 2030}]})

@@ -6,7 +6,11 @@ import unittest
 from functools import partial
 from pathlib import Path
 
+import pytest
+
 from scripts.generate_api import SphinxContents, link_code_names, rewrite_link
+
+pytestmark = pytest.mark.docs
 
 SPHINX_CONFIG = runpy.run_path(str(Path(__file__).resolve().parents[1] / "scripts/sphinx/conf.py"))
 

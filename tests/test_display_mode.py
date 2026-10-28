@@ -6,6 +6,8 @@ from pydantic import BaseModel
 
 from r2x_core.units import HasPerUnit, HasUnits, Unit, UnitSystem, unit_system
 
+pytestmark = pytest.mark.units
+
 
 class Demo(HasPerUnit, Component):
     name: str

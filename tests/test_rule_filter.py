@@ -55,6 +55,9 @@ def run_rule_with_filter(filter_spec: RuleFilterType, source_system: System) -> 
     return result.total_converted, target_system
 
 
+pytestmark = pytest.mark.rules
+
+
 def test_field_filter_casefold_and_missing_values() -> None:
     filt = FieldFilter(field="kind", op="eq", values=["gas"])
 

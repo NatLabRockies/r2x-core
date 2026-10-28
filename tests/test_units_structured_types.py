@@ -35,6 +35,9 @@ class OptionalFields(BaseModel):
     optional: float | None = None
 
 
+pytestmark = pytest.mark.units
+
+
 def test_annotation_before_validator_runs_before_unit_conversion() -> None:
     def parse_power(value: object) -> object:
         return {"value": float(value), "unit": "MW"} if isinstance(value, str) else value

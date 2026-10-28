@@ -27,6 +27,9 @@ class ConnectedBusComponent(Component):
     bus: BusComponent
 
 
+pytestmark = pytest.mark.time_series
+
+
 @pytest.mark.parametrize("component_count", [0, 1, 33_000])
 @pytest.mark.parametrize("with_time_series", [False, True])
 def test_rules_translate_components_beyond_sql_variable_limit(

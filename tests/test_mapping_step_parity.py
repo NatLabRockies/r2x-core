@@ -2,6 +2,8 @@
 
 from typing import get_args
 
+import pytest
+
 from r2x_core.models import MappingStep, SortStep
 from r2x_core.types import AggregationFunction, MappingExpressionOperator
 
@@ -14,6 +16,9 @@ def mapping_step_operations() -> set[str]:
         for step in get_args(step_union)
         for operation in get_args(step.model_fields["op"].annotation)
     }
+
+
+pytestmark = [pytest.mark.processing, pytest.mark.table_mapping]
 
 
 def test_mapping_steps_cover_processing_operations() -> None:

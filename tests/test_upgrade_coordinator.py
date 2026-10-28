@@ -12,6 +12,8 @@ from r2x_core import DataStore, PluginConfig, PluginContext
 from r2x_core.exceptions import UpgradeError
 from r2x_core.utils.upgrade import UpgradeCoordinator
 
+pytestmark = pytest.mark.versioning
+
 
 def test_upgrade_coordinator_resolves_handler_from_plugin_config() -> None:
     def handler(*, store: DataStore, ctx: PluginContext[Any]) -> None:

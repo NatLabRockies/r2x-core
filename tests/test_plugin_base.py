@@ -173,6 +173,9 @@ class MultiHookPlugin(Plugin[SimpleConfig]):
 # Tests for __init__ and from_context
 
 
+pytestmark = pytest.mark.plugin
+
+
 def test_plugin_init():
     """Test plugin initialization."""
     plugin = BuildPlugin()

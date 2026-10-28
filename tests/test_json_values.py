@@ -22,6 +22,9 @@ def read_json(path: Path) -> JSONValue:
     )
 
 
+pytestmark = pytest.mark.processing
+
+
 def test_json_processor_returns_transformed_json(tmp_path: Path) -> None:
     path = tmp_path / "input.json"
     path.touch()

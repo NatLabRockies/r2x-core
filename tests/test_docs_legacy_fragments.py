@@ -3,18 +3,26 @@
 import unittest
 from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import unquote, urljoin, urlsplit
+
+import pytest
+
+pytestmark = pytest.mark.docs
 
 
 class Page(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
         self.ids: set[str] = set()
+        self.hrefs: list[str] = []
         self.redirect: str | None = None
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         values = dict(attrs)
         if anchor := values.get("id"):
             self.ids.add(anchor)
+        if tag == "a" and (href := values.get("href")):
+            self.hrefs.append(href)
         if tag == "meta" and values.get("http-equiv") == "refresh":
             self.redirect = (values.get("content") or "").split("url=", 1)[-1]
 
@@ -158,6 +166,45 @@ class LegacyFragmentsTest(unittest.TestCase):
                 destination.feed((root / route / "index.html").read_text(encoding="utf-8"))
                 for fragment in fragments:
                     self.assertIn(fragment, destination.ids)
+
+    def test_internal_links_resolve(self) -> None:
+        root = Path(__file__).resolve().parents[1] / "docs/dist"
+        if not (root / "index.html").is_file():
+            self.skipTest("Build the documentation site before checking internal links")
+
+        pages: dict[Path, Page] = {}
+        for source in root.rglob("*.html"):
+            if source.is_file():
+                page = Page()
+                page.feed(source.read_text(encoding="utf-8", errors="replace"))
+                pages[source] = page
+
+        for source, page in pages.items():
+            source_url = "/r2x-core/" + source.relative_to(root).as_posix()
+            if source_url.endswith("/index.html"):
+                source_url = source_url.removesuffix("index.html")
+            for href in page.hrefs:
+                parsed = urlsplit(href)
+                if parsed.scheme or parsed.netloc:
+                    continue
+                target = urlsplit(urljoin("https://docs.invalid" + source_url, href))
+                path = unquote(target.path)
+                if path == "/r2x-core":
+                    relative = ""
+                elif path.startswith("/r2x-core/"):
+                    relative = path.removeprefix("/r2x-core/")
+                else:
+                    continue
+                candidates = (
+                    root / relative,
+                    root / relative / "index.html",
+                    root / (relative.rstrip("/") + ".html"),
+                )
+                destination = next((candidate for candidate in candidates if candidate.is_file()), None)
+                with self.subTest(source=source.relative_to(root), href=href):
+                    self.assertIsNotNone(destination, "internal link target does not exist")
+                    if destination is not None and target.fragment:
+                        self.assertIn(unquote(target.fragment), pages[destination].ids)
 
 
 if __name__ == "__main__":

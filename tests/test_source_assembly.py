@@ -112,6 +112,9 @@ def assemble_sources(
     )
 
 
+pytestmark = pytest.mark.ingestion
+
+
 def test_table_gate_schedules_required_input_at_its_configured_custom_path(tmp_path: Path) -> None:
     """A table output gates the real file read without duplicating its policy."""
     custom_path = tmp_path / "custom" / "fuel.csv"
@@ -470,7 +473,7 @@ def test_table_gate_still_requires_missing_conditional_input(tmp_path: Path) -> 
     """A required_when match preserves the configured missing-file error."""
     mapping_path = write_table_mapping(tmp_path)
 
-    with pytest.raises(FileNotFoundError, match=r"custom/fuel\.csv"):
+    with pytest.raises(FileNotFoundError, match=r"custom[/\\]fuel\.csv"):
         assemble_sources(make_data_files(needs_fuel=True), folder_path=tmp_path, mapping_path=mapping_path)
 
 

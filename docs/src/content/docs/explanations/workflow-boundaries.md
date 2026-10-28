@@ -54,7 +54,7 @@ A successful read proves input syntax; it does not prove the component schema, t
 `System.to_json(path)` persists component metadata and companion storage.
 A component records its Python module and class, so the receiving environment needs compatible model packages.
 Moving JSON without storage, or loading it in an environment without those classes, can fail despite valid JSON syntax.
-See [serialization contracts](/r2x-core/references/data-workflow/#system-serialization) and [CLI artifact inspection](https://github.com/NatLabRockies/r2x-cli/blob/main/docs/inspect-artifacts.md).
+See [serialization contracts](/r2x-core/references/data-workflow/#system-serialization) and [CLI system inspection](https://github.com/NatLabRockies/r2x-cli/blob/main/docs/cli-reference.md#read).
 
 A native model export has a different consumer and schema.
 For example, a Sienna exporter writes native Sienna/PowerSystems data; `System.from_json()` loads an infrasys-compatible system artifact.
@@ -65,4 +65,4 @@ Choose the parser or loader that matches the artifact you actually saved.
 Direct Python execution is useful while developing and testing a parser or transformation in one project environment.
 [r2x-cli](https://github.com/NatLabRockies/r2x-cli) adds installed-plugin discovery, managed Python, named pipelines, diagnostics, and durable handoff between commands.
 It does not replace model validation or supply missing input datasets.
-Start with [the CLI's first-pipeline tutorial](https://github.com/NatLabRockies/r2x-cli/blob/main/docs/getting-started.md) once the plugin's Python contract works.
+Once the plugin's Python contract works, follow the CLI's [Getting Started guide](https://github.com/NatLabRockies/r2x-cli/blob/main/docs/getting-started.md#validate-and-run-a-pipeline) to run it in a named pipeline.

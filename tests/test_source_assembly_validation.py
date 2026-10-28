@@ -40,6 +40,9 @@ def seed_table() -> TabularSource:
     return TabularSource(pl.DataFrame({"id": [1]}).lazy(), backend)
 
 
+pytestmark = pytest.mark.ingestion
+
+
 @pytest.mark.parametrize(
     ("files", "records", "expected"),
     [

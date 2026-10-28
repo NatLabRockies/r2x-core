@@ -51,7 +51,7 @@ from r2x_core.processors import substitute_placeholders
 from r2x_core.reader import DataReader
 from r2x_core.types import FileProcessing, JSONValue
 
-pytestmark = pytest.mark.polars
+pytestmark = [pytest.mark.processing, pytest.mark.polars]
 
 
 def apply_polars_processing(

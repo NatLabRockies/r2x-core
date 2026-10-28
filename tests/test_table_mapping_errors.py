@@ -15,6 +15,8 @@ from pydantic import ValidationError
 from r2x_core import DocumentSource, TableMappingRecord, TabularSource, assemble_tables
 from r2x_core.polars_adapter import PolarsTabularBackend
 
+pytestmark = pytest.mark.table_mapping
+
 
 @pytest.mark.parametrize(
     ("operation", "message"),

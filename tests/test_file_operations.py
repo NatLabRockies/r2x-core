@@ -2,7 +2,11 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from r2x_core.utils.files import backup_folder, get_r2x_cache_path, resolve_glob_pattern, resolve_path
+
+pytestmark = pytest.mark.core
 
 
 def test_backup_folder(tmp_path, caplog):

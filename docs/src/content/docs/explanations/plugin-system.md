@@ -55,7 +55,7 @@ This complete example shows that the function changes a supplied system:
 The Rust CLI discovers registered entry points and manages its own Python environment.
 Adding core to a separate project does not install a translator there.
 See [plugin discovery](/r2x-core/tutorials/plugin-discovery/) and the
-[CLI package-management guide](https://natlabrockies.github.io/r2x-cli/plugin-management/).
+[CLI package-management guide](https://github.com/NatLabRockies/r2x-cli/blob/main/docs/plugin-management.md).
 Installing a plugin executes Python code with the host process's permissions;
 this architecture is not a sandbox.
 

@@ -22,6 +22,8 @@ from r2x_core.utils import (
     resolve_component_type,
 )
 
+pytestmark = pytest.mark.rules
+
 
 def test_utils_reports_unknown_lazy_exports():
     import r2x_core.utils as utilities

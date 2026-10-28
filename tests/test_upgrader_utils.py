@@ -28,6 +28,9 @@ def dummy_step(
     )
 
 
+pytestmark = pytest.mark.versioning
+
+
 def test_shall_we_upgrade_below_minimum_returns_false():
     step = dummy_step(target_version="3.0", min_version="2.0")
     strategy = SemanticVersioningStrategy()

@@ -84,6 +84,9 @@ def scan_docs_for_symbols() -> set[str]:
     return documented
 
 
+pytestmark = pytest.mark.docs
+
+
 @pytest.mark.doc_coverage
 def test_public_symbols_documented() -> None:
     """Verify every public API symbol appears in a doctest.

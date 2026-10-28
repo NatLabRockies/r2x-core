@@ -11,6 +11,8 @@ from r2x_core.reader import DataReader
 from r2x_core.types import FileRequirement, FileType
 from r2x_core.utils.validation import validate_glob_pattern
 
+pytestmark = pytest.mark.readers
+
 
 @pytest.fixture
 def data_reader() -> DataReader:

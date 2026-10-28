@@ -162,7 +162,9 @@ The [`from_records`](/r2x-core/references/api/) class method creates rules from 
 # 'Bus'
 ```
 
-The method validates each record and raises :exc:`~pydantic.ValidationError` if required fields are missing or have invalid types.
+The method validates each record and raises
+[Pydantic's `ValidationError`](https://pydantic.dev/docs/validation/latest/api/pydantic-core/pydantic_core/#pydantic_core.ValidationError)
+if required fields are missing or have invalid types.
 
 ## Rules Are Immutable
 

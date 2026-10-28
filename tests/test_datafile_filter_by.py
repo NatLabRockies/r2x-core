@@ -12,7 +12,7 @@ from r2x_core.file_reader import TabularSource
 from r2x_core.reader import DataReader
 from r2x_core.types import JSONValue
 
-pytestmark = pytest.mark.polars
+pytestmark = [pytest.mark.readers, pytest.mark.polars]
 
 
 def read_table(

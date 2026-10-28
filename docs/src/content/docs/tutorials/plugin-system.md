@@ -79,7 +79,7 @@ explicitly supports resuming partially completed work.
 
 Use [function plugins](/r2x-core/how-tos/create-function-plugins/) for a transform
 that does not need a class lifecycle. For installed execution and discovery,
-use the separate [r2x-cli tutorial](https://natlabrockies.github.io/r2x-cli/getting-started/).
+use the separate [r2x-cli Getting Started guide](https://github.com/NatLabRockies/r2x-cli/blob/main/docs/getting-started.md#validate-and-run-a-pipeline).
 
 <span id="creating-a-simple-plugin"></span>
 

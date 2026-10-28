@@ -20,7 +20,7 @@ For method contracts and source links, use the [API reference](/r2x-core/referen
 ## Choose the plugin contract you need
 
 `r2x-core` provides infrastructure and registers no runnable CLI plugins of its own.
-Model packages provide native input parsers, modifiers and exporters; [r2x-cli](https://natlabrockies.github.io/r2x-cli/) installs and discovers those packages.
+Model packages provide native input parsers, modifiers and exporters; [r2x-cli](https://github.com/NatLabRockies/r2x-cli/blob/main/docs/plugin-management.md) installs and discovers those packages.
 The contracts you implement depend on the work:
 
 | Work | Public contract | Next step |

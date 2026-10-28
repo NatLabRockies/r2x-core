@@ -13,7 +13,7 @@ from r2x_core.file_reader import TabularSource
 from r2x_core.reader import DataReader
 from r2x_core.store import DataStore
 
-pytestmark = pytest.mark.polars
+pytestmark = [pytest.mark.readers, pytest.mark.polars]
 
 
 def read_mapping(folder: Path, records: list[dict[str, object]]) -> dict[str, object]:

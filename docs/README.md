@@ -29,6 +29,7 @@ Autodoc, Napoleon, and autodoc-pydantic preserve Python signatures, field types 
 Replacing these with hand-maintained contracts would duplicate source and lose coverage.
 
 `../scripts/generate_api.py` builds JSON in `build/api-json/`, then wraps each reference body in generated Starlight content under `src/content/docs/references/`.
+Its PEP 723 dependencies and adjacent lockfile isolate Sphinx tooling, while installing the checkout editable for accurate API extraction.
 It resolves relative links into Astro routes and retains API anchor IDs.
 The Sphinx contents tree also generates `src/generated/api-toc.json`; Starlight route middleware uses it for the native desktop sidebar and mobile contents dropdown. Do not hand-maintain a second member list.
 Implementation links are pinned to the build checkout's Git commit.

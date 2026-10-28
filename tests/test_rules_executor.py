@@ -150,6 +150,9 @@ class ComposedRuleTarget(ComposedComponent):
     )
 
 
+pytestmark = pytest.mark.rules
+
+
 def test_apply_rules_rejects_duplicate_rule_names(source_system, target_system):
     """Duplicate rule names trigger sorting errors before execution."""
     rule_a = Rule(

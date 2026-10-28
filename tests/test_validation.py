@@ -10,6 +10,8 @@ from r2x_core.utils.validation import (
     validate_glob_pattern,
 )
 
+pytestmark = pytest.mark.core
+
 
 class TestFilterKwargsFor:
     """Tests for filter_kwargs_for function."""

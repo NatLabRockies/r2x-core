@@ -13,7 +13,11 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 
+import pytest
+
 from scripts.doctest_runner import minimum_python, run_block
+
+pytestmark = pytest.mark.docs
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCS_CONTENT = ROOT / "docs/src/content/docs"

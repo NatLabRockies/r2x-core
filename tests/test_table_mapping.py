@@ -17,7 +17,7 @@ from r2x_core import DataFile, DataReader, PluginConfig, SourceAvailability, Tab
 from r2x_core.polars_adapter import PolarsTabularBackend
 from r2x_core.tabular_backend import TableDateTimePart
 
-pytestmark = pytest.mark.polars
+pytestmark = [pytest.mark.processing, pytest.mark.table_mapping, pytest.mark.polars]
 
 
 def write_pipeline_files(tmp_path: Path) -> tuple[Path, Path]:

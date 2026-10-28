@@ -11,6 +11,8 @@ from pydantic import BaseModel, ValidationError
 from r2x_core.units import HasUnits, Unit
 from r2x_core.units.specs import UnitSpec
 
+pytestmark = pytest.mark.units
+
 
 def test_unitspec_dict_input_no_base():
     """Test UnitSpec validation with dict input when base is None."""

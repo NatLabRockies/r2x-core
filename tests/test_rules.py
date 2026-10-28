@@ -1,5 +1,7 @@
 import pytest
 
+pytestmark = pytest.mark.rules
+
 
 def test_simple_rule_creation(rules_simple):
     """Create and verify simple rule with single-field mapping."""

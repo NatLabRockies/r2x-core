@@ -53,7 +53,8 @@ my-parser = "my_package.plugins:MyPlugin"
 
 The group declares the runtime role; the entry name is the CLI reference.
 For function transforms use `r2x.transforms` and an `@expose_plugin` function accepting `System` and typed configuration.
-The [CLI worked example](https://github.com/NatLabRockies/r2x-cli/tree/main/docs/examples/first-pipeline) installs and executes both forms.
+For package installation and pipeline execution, use the [r2x-cli Getting Started guide](https://github.com/NatLabRockies/r2x-cli/blob/main/docs/getting-started.md).
+[Plugin Management](https://github.com/NatLabRockies/r2x-cli/blob/main/docs/plugin-management.md) covers entry-point discovery and plugin operations.
 
 ## See Also
 

@@ -16,6 +16,9 @@ class PowerModel(HasUnits, BaseModel):
     power: Annotated[float, Unit("pu", base="base_power")]
 
 
+pytestmark = pytest.mark.units
+
+
 def test_scalar_unit_validation_schema_includes_natural_and_enveloped_values() -> None:
     validation_schema = PowerModel.model_json_schema(mode="validation")
     power_schema = validation_schema["properties"]["power"]

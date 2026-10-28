@@ -17,11 +17,11 @@ Set up a development environment for contributing to r2x-core:
 git clone https://github.com/NatLabRockies/r2x-core.git
 cd r2x-core
 
-# Install with development dependencies
-uv sync --dev
+# Set up tooling and development dependencies
+mise run setup
 
 # Install prek hooks
-uv run prek install
+mise run hooks-install
 ```
 
 ### How to run tests
@@ -45,7 +45,7 @@ Ensure code quality and consistency:
 
 ```console
 # Run prek checks on all files
-uv run prek run --all-files
+mise run hooks
 
 # Run type checking
 uv run --locked ty check
@@ -97,7 +97,7 @@ Follow these steps to contribute:
 4. **Run tests and checks**:
    ```console
    uv run pytest
-   uv run prek run --all-files
+   mise run hooks
    ```
 5. **Commit your changes** using conventional commit format:
    ```console
@@ -254,7 +254,7 @@ uv run ruff format
 Install prek hooks to automatically run checks:
 
 ```bash
-uv run prek install
+mise run hooks-install
 ```
 
 This will run linting and formatting before each commit.
@@ -287,7 +287,7 @@ We follow the [Diataxis](https://diataxis.fr/) framework:
 ### Useful Python References
 
 - [Python Enhancement Proposals (PEPs)](https://peps.python.org/)
-- [Python Typing Reference](https://typing.python.org/en/latest/reference/typing.html)
+- [Python Typing Reference](https://typing.python.org/en/latest/reference/)
 - [Testing Best Practices](https://docs.python-guide.org/writing/tests/)
 
 ## Code Standards

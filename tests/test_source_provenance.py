@@ -35,6 +35,9 @@ class RoundTripUnmappedType(Component):
     payload: str = Field(default="")
 
 
+pytestmark = [pytest.mark.ingestion, pytest.mark.system]
+
+
 @pytest.fixture
 def context_preserve_source(
     rules_simple: list[Rule],

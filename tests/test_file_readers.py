@@ -18,7 +18,7 @@ from r2x_core.polars_adapter.readers import read_polars_h5_file
 from r2x_core.reader import DataReader
 from r2x_core.xml_adapter import XMLFileReader
 
-pytestmark = pytest.mark.polars
+pytestmark = [pytest.mark.readers, pytest.mark.polars]
 
 
 def read_polars_file(

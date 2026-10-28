@@ -27,6 +27,9 @@ class Generator(HasPerUnit, Component):
     voltage: Annotated[float, Unit("pu", base="rated_voltage")]
 
 
+pytestmark = pytest.mark.units
+
+
 def test_has_units_with_absolute_values():
     """Test HasUnits with only absolute unit fields."""
     sensor = Sensor(name="TempSensor1", temperature=25.0, pressure=101325.0)

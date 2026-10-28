@@ -1,6 +1,10 @@
 """Tests for System.__init__ flexible signatures."""
 
+import pytest
+
 from r2x_core.system import System
+
+pytestmark = pytest.mark.system
 
 
 def test_system_default():

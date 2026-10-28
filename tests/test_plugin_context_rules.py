@@ -12,6 +12,9 @@ class SimpleConfig(PluginConfig):
     """Test config."""
 
 
+pytestmark = [pytest.mark.plugin, pytest.mark.rules]
+
+
 @pytest.fixture
 def sample_rules():
     """Create sample rules for testing."""

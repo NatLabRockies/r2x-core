@@ -60,7 +60,7 @@ from r2x_core.reader import DataReader
 from r2x_core.system import System
 from r2x_core.types import FileProcessing, JSONValue
 
-pytestmark = pytest.mark.polars
+pytestmark = [pytest.mark.ingestion, pytest.mark.polars]
 
 
 class DummyRawOptions(StrictConfigModel):
@@ -259,6 +259,7 @@ class CustomTableReader(FileReader):
         return {"data": TabularSource(pl.scan_csv(file_path), self.backend)}
 
 
+@pytest.mark.time_series
 def test_build_system_reads_and_attaches_components_attributes_and_time_series(tmp_path: Path) -> None:
     from pydantic import BaseModel
 
@@ -540,6 +541,7 @@ def test_reader_rejects_missing_processor_and_unsupported_processing() -> None:
     )
 
 
+@pytest.mark.time_series
 def test_document_time_series_rejects_missing_cells_without_dropping_alignment(tmp_path: Path) -> None:
     """Fail on absent document cells, while keeping explicitly present null values."""
     config = PluginConfig(models=("fixtures.ingestion_models",), config_path_override=tmp_path)
@@ -769,6 +771,7 @@ def test_parser_rules_are_resolved_before_reading_inputs(tmp_path: Path) -> None
     assert reader.reads == 0
 
 
+@pytest.mark.time_series
 def test_csv_column_axis_creates_owner_specific_and_explicitly_shared_series(tmp_path: Path) -> None:
     """Read column axes once and group long-form samples by dynamic owner names."""
     config_dir = tmp_path / "config"
@@ -839,6 +842,7 @@ def test_csv_column_axis_creates_owner_specific_and_explicitly_shared_series(tmp
         np.testing.assert_array_equal(system.get_time_series(bus, name="shared_load").data, [100, 200])
 
 
+@pytest.mark.time_series
 @pytest.mark.parametrize("unit", ["ns", "us", "ms"], ids=["nanoseconds", "microseconds", "milliseconds"])
 def test_build_system_preserves_array_time_axes_for_each_owner_mode(tmp_path: Path, unit: str) -> None:
     config_dir = tmp_path / "config"
@@ -1197,6 +1201,7 @@ def test_supplemental_builder_validates_attributes_and_shares_to_selected_owners
         ([1], 1, 3600, "Unsupported time-axis"),
     ],
 )
+@pytest.mark.time_series
 def test_column_time_axis_rejects_invalid_samples(
     timestamps: list[object] | None,
     sample_count: int,
@@ -1209,6 +1214,7 @@ def test_column_time_axis_rejects_invalid_samples(
         resolve_time_axis(axis, timestamps, sample_count)
 
 
+@pytest.mark.time_series
 def test_time_axis_accepts_datetime_values_and_regular_configuration() -> None:
     """Interpret supported datetime values and fixed regular axes explicitly."""
     start = datetime(2024, 1, 1)
@@ -1375,6 +1381,7 @@ def test_builders_reject_unknown_mappings_and_empty_owner_groups(tmp_path: Path)
         )
 
 
+@pytest.mark.time_series
 def test_optional_grouped_polars_time_series_preserves_owner_metadata_and_endpoints() -> None:
     """Retain the full row order for optional lazy series grouped by owner and metadata."""
     config = PluginConfig(models=("fixtures.ingestion_models",))
@@ -1427,6 +1434,7 @@ def test_optional_grouped_polars_time_series_preserves_owner_metadata_and_endpoi
 
 
 @pytest.mark.parametrize("skip_if_empty", [True, False], ids=["optional-skips", "required-errors"])
+@pytest.mark.time_series
 def test_grouped_time_series_handles_schema_bearing_absent_source(skip_if_empty: bool) -> None:
     """Handle directly supplied absent tables according to optionality."""
     config = PluginConfig(models=("fixtures.ingestion_models",))
@@ -1480,6 +1488,7 @@ def test_optional_literal_owner_skips_empty_source_before_owner_lookup() -> None
     assert list(system.get_components(PSSEBus)) == []
 
 
+@pytest.mark.time_series
 def test_optional_grouped_time_series_validates_fields_before_empty_skip() -> None:
     """Reject missing required columns before treating an optional table as empty."""
     config = PluginConfig(models=("fixtures.ingestion_models",))
@@ -1502,6 +1511,7 @@ def test_optional_grouped_time_series_validates_fields_before_empty_skip() -> No
         attach_time_series(system, instruction, source=source, config=config)
 
 
+@pytest.mark.time_series
 def test_optional_grouped_time_series_resolves_owner_before_row_metadata() -> None:
     """Keep missing-owner errors ahead of invalid row-metadata errors for present input."""
     config = PluginConfig(models=("fixtures.ingestion_models",))
@@ -1534,6 +1544,7 @@ def test_optional_grouped_time_series_resolves_owner_before_row_metadata() -> No
         attach_time_series(system, instruction, source=source, config=config)
 
 
+@pytest.mark.time_series
 def test_optional_grouped_time_series_propagates_lazy_cast_error_before_owner_lookup() -> None:
     """Propagate strict Polars casts before processing row-derived component owners."""
     config = PluginConfig(models=("fixtures.ingestion_models",))
@@ -1564,6 +1575,7 @@ def test_optional_grouped_time_series_propagates_lazy_cast_error_before_owner_lo
         attach_time_series(system, instruction, source=source, config=config)
 
 
+@pytest.mark.time_series
 def test_time_series_partitions_interleaved_rows_by_owner_and_metadata() -> None:
     """Build independent series by owner and row metadata without conflating bool and int."""
     from r2x_core import build_system_from_sources
@@ -1744,6 +1756,7 @@ def test_time_series_partitions_interleaved_rows_by_owner_and_metadata() -> None
         )
 
 
+@pytest.mark.time_series
 def test_time_series_large_owner_partitions_preserve_values() -> None:
     """Resolve owner identities once while keeping 20 long profiles independent."""
     from r2x_core import build_system_from_sources
@@ -1818,6 +1831,7 @@ def test_time_series_large_owner_partitions_preserve_values() -> None:
     ],
     ids=["null", "nan", "infinity", "negative-infinity", "array", "object"],
 )
+@pytest.mark.time_series
 def test_time_series_rejects_unsupported_row_metadata(values: list[object], message: str) -> None:
     """Reject values that cannot safely identify a JSON feature partition."""
     from r2x_core import build_system_from_sources
@@ -1857,6 +1871,7 @@ def test_time_series_rejects_unsupported_row_metadata(values: list[object], mess
         )
 
 
+@pytest.mark.time_series
 def test_prepared_builder_does_not_sort_partitioned_time_axis() -> None:
     """Reject non-increasing timestamps within each owner/metadata partition."""
     from r2x_core import build_system_from_sources
@@ -1898,6 +1913,7 @@ def test_prepared_builder_does_not_sort_partitioned_time_axis() -> None:
         )
 
 
+@pytest.mark.time_series
 def test_time_series_partition_rejects_string_enum_metadata() -> None:
     """Reject string subclasses before they can form duplicate JSON feature groups."""
     from enum import StrEnum

@@ -8,7 +8,7 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-pytestmark = pytest.mark.polars
+pytestmark = [pytest.mark.readers, pytest.mark.processing, pytest.mark.polars]
 
 
 def test_reader_and_processor_contracts_are_public() -> None:

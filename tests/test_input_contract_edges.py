@@ -24,6 +24,8 @@ from r2x_core.exceptions import ReaderError
 from r2x_core.polars_adapter import PolarsTabularBackend
 from r2x_core.types import JSONValue
 
+pytestmark = pytest.mark.ingestion
+
 
 @pytest.mark.parametrize(
     ("record", "message"),

@@ -30,6 +30,9 @@ def make_rule(
     )
 
 
+pytestmark = pytest.mark.rules
+
+
 @getter(name="get_current_component")
 def get_current_component(ctx, component):
     """Return the current component being processed."""

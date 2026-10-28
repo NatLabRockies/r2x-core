@@ -29,6 +29,9 @@ def write_assets(tmp_path: Path, payloads: dict[str, object]) -> None:
         (tmp_path / asset).write_text(json.dumps(payload))
 
 
+pytestmark = pytest.mark.plugin
+
+
 def test_models_defaults_to_empty_tuple():
     config = SampleConfig(param1="test")
     assert config.models == ()

@@ -31,7 +31,7 @@ from r2x_core.reader import DataReader
 from r2x_core.tabular_backend import apply_mapping_steps
 from r2x_core.types import AggregationFunction, MappingExpressionOperator
 
-pytestmark = pytest.mark.polars
+pytestmark = [pytest.mark.processing, pytest.mark.table_mapping, pytest.mark.polars]
 
 
 @pytest.mark.parametrize("json_input", [False, True])

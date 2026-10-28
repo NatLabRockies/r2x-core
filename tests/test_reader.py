@@ -29,7 +29,7 @@ from r2x_core.models import TabularProcessing
 from r2x_core.polars_adapter import PolarsTabularBackend
 from r2x_core.types import FileRequirement
 
-pytestmark = pytest.mark.polars
+pytestmark = [pytest.mark.readers, pytest.mark.processing, pytest.mark.polars]
 
 
 def read_one(

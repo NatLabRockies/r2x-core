@@ -33,6 +33,9 @@ class CapturingLogger:
         self.debugs.append(message.format(*args))
 
 
+pytestmark = pytest.mark.versioning
+
+
 def test_get_package_version_returns_string_for_installed_package(monkeypatch: pytest.MonkeyPatch) -> None:
     """For an installed distribution, the helper returns its real version.
 

@@ -24,8 +24,6 @@ if TYPE_CHECKING:
     import loguru
     from rich.console import Console
 
-__all__ = ["setup_logging"]
-
 LEVEL_NAMES = {
     "TRACE": "TRACE",
     "DEBUG": "DEBUG",

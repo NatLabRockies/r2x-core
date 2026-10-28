@@ -19,4 +19,4 @@ An existing pip virtual environment is also supported by the installation guide.
 Installing a library in a uv project does not register it with that CLI.
 
 Git is needed only when obtaining repository examples or developing the package.
-For source installation and contributor tools, use [Development setup](/r2x-core/contributing/#development-setup).
+For source installation and contributor tools, use [Development setup](/r2x-core/contributing/#set-up).

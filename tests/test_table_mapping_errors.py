@@ -11,11 +11,20 @@ from typing import Literal
 import polars as pl
 import pytest
 from pydantic import ValidationError
+from rust_ok import is_err
 
 from r2x_core import DocumentSource, TableMappingRecord, TabularSource, assemble_tables
 from r2x_core.polars_adapter import PolarsTabularBackend
+from r2x_core.table_mapping import load_table_mapping
 
 pytestmark = pytest.mark.table_mapping
+
+
+def test_internal_mapping_loader_returns_file_errors_as_results(tmp_path: Path) -> None:
+    result = load_table_mapping(tmp_path / "missing.json")
+
+    assert is_err(result)
+    assert isinstance(result.err(), FileNotFoundError)
 
 
 @pytest.mark.parametrize(

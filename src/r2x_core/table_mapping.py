@@ -19,6 +19,7 @@ from pydantic import (
     TypeAdapter,
     model_validator,
 )
+from rust_ok import Err, Ok, Result, is_ok
 
 from .datafile import InlineTable, parse_inline_table_rows
 from .file_reader import DecodedSource, DecodedSources, SourceAvailability, TabularSource
@@ -624,18 +625,22 @@ def reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict[str, obj
     return result
 
 
-def load_table_mapping(mapping_path: Path, /) -> list[TableMappingRecord]:
+def load_table_mapping(mapping_path: Path, /) -> Result[list[TableMappingRecord], OSError | ValueError]:
     """Load one JSON array of strict named-table records."""
-    raw_mapping = json.loads(
-        mapping_path.read_text(encoding="utf-8"),
-        object_pairs_hook=reject_duplicate_json_keys,
-        parse_constant=reject_nonstandard_json_number,
-    )
-    return TypeAdapter(list[TableMappingRecord]).validate_python(
-        raw_mapping,
-        by_alias=True,
-        by_name=False,
-    )
+    try:
+        raw_mapping = json.loads(
+            mapping_path.read_text(encoding="utf-8"),
+            object_pairs_hook=reject_duplicate_json_keys,
+            parse_constant=reject_nonstandard_json_number,
+        )
+        records = TypeAdapter(list[TableMappingRecord]).validate_python(
+            raw_mapping,
+            by_alias=True,
+            by_name=False,
+        )
+    except (OSError, ValueError) as error:
+        return Err(error)
+    return Ok(records)
 
 
 def table_record_sources(record: TableMappingRecord, /) -> tuple[str, ...]:
@@ -965,7 +970,11 @@ def assemble_tables(
     :doc:`table-mapping` : Table mapping configuration and assembly.
     :doc:`data-workflow` : Source and table dependency ordering.
     """
-    records = load_table_mapping(mapping_path)
+    result = load_table_mapping(mapping_path)
+    if is_ok(result):
+        records = result.value
+    else:
+        raise result.err()
     return assemble_table_records(
         sources,
         records,

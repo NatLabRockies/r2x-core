@@ -5,8 +5,9 @@ from __future__ import annotations
 import csv
 import json
 from collections.abc import Mapping
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import TypeVar
 
 import h5py
 import numpy as np
@@ -15,7 +16,7 @@ import pytest
 from fixtures.ingestion_models import PSSEBus, PSSEGenerator
 from infrasys import Component, SupplementalAttribute
 from pydantic import ValidationError
-from rust_ok import Err, Ok, Result
+from rust_ok import Err, Ok, Result, is_err, is_ok
 
 from r2x_core import (
     ArraySource,
@@ -61,6 +62,14 @@ from r2x_core.system import System
 from r2x_core.types import FileProcessing, JSONValue
 
 pytestmark = [pytest.mark.ingestion, pytest.mark.polars]
+
+ValueT = TypeVar("ValueT")
+ErrorT = TypeVar("ErrorT")
+
+
+def expect_ok(result: Result[ValueT, ErrorT]) -> ValueT:
+    assert is_ok(result), result
+    return result.value
 
 
 class DummyRawOptions(StrictConfigModel):
@@ -565,8 +574,10 @@ def test_document_time_series_rejects_missing_cells_without_dropping_alignment(t
         None,
     )
 
-    with pytest.raises(ValueError, match="missing field 'load'"):
-        attach_time_series(system, instruction, source=complementary, config=config)
+    result = attach_time_series(system, instruction, source=complementary, config=config)
+    assert is_err(result)
+    assert isinstance(result.err(), ValueError)
+    assert "missing field 'load'" in str(result.err())
 
     explicit_null = DocumentSource(
         [
@@ -576,7 +587,7 @@ def test_document_time_series_rejects_missing_cells_without_dropping_alignment(t
         None,
     )
     assert explicit_null.values("load") == [None, 1.0]
-    attach_time_series(system, instruction, source=explicit_null, config=config)
+    expect_ok(attach_time_series(system, instruction, source=explicit_null, config=config))
     series = system.get_time_series(owner, name="load")
     assert len(series.data_array) == len(explicit_null.values("timestamp")) == 2
     assert np.isnan(series.data_array[0])
@@ -918,18 +929,20 @@ def test_component_name_matching_override_and_cross_type_identity(tmp_path: Path
     identities: set[tuple[type[Component], str]] = set()
     backend = PolarsTabularBackend()
     buses = TabularSource(pl.DataFrame([{"name": "SHARED", "number": 1, "base_kv": 100.0}]).lazy(), backend)
-    build_components(
-        system,
-        ComponentInstruction(
-            kind="component",
-            source="buses",
-            component_type="PSSEBus",
-            fields={"number": "number", "base_kv": "base_kv"},
-        ),
-        source=buses,
-        component_type=PSSEBus,
-        identities=identities,
-        config=config,
+    expect_ok(
+        build_components(
+            system,
+            ComponentInstruction(
+                kind="component",
+                source="buses",
+                component_type="PSSEBus",
+                fields={"number": "number", "base_kv": "base_kv"},
+            ),
+            source=buses,
+            component_type=PSSEBus,
+            identities=identities,
+            config=config,
+        )
     )
     generator_type = PSSEGenerator
     generators = TabularSource(
@@ -945,19 +958,21 @@ def test_component_name_matching_override_and_cross_type_identity(tmp_path: Path
         ).lazy(),
         backend,
     )
-    build_components(
-        system,
-        ComponentInstruction(
-            kind="component",
-            source="generators",
-            component_type="PSSEGenerator",
-            fields={"name": "alias", "active_power_mw": "power"},
-            references={"bus": ComponentReference(component_type="PSSEBus", name_field="bus_name")},
-        ),
-        source=generators,
-        component_type=generator_type,
-        identities=identities,
-        config=config,
+    expect_ok(
+        build_components(
+            system,
+            ComponentInstruction(
+                kind="component",
+                source="generators",
+                component_type="PSSEGenerator",
+                fields={"name": "alias", "active_power_mw": "power"},
+                references={"bus": ComponentReference(component_type="PSSEBus", name_field="bus_name")},
+            ),
+            source=generators,
+            component_type=generator_type,
+            identities=identities,
+            config=config,
+        )
     )
 
     assert system.get_component(PSSEBus, "SHARED").name == "SHARED"
@@ -972,31 +987,35 @@ def test_component_builder_rejects_empty_duplicate_and_missing_names(tmp_path: P
     backend = PolarsTabularBackend()
 
     empty_system = System(name="empty-name")
-    with pytest.raises(ValueError, match="empty name"):
-        build_components(
-            empty_system,
-            ComponentInstruction(
-                kind="component",
-                source="buses",
-                component_type="PSSEBus",
-                fields={"name": "name", "number": "number", "base_kv": "base_kv"},
-            ),
-            source=TabularSource(
-                pl.DataFrame([{"name": "  ", "number": 1, "base_kv": 100.0}]).lazy(), backend
-            ),
-            component_type=PSSEBus,
-            identities=set(),
-            config=config,
-        )
+    empty_name = build_components(
+        empty_system,
+        ComponentInstruction(
+            kind="component",
+            source="buses",
+            component_type="PSSEBus",
+            fields={"name": "name", "number": "number", "base_kv": "base_kv"},
+        ),
+        source=TabularSource(pl.DataFrame([{"name": "  ", "number": 1, "base_kv": 100.0}]).lazy(), backend),
+        component_type=PSSEBus,
+        identities=set(),
+        config=config,
+    )
+    assert is_err(empty_name)
+    assert isinstance(empty_name.err(), ValueError)
+    assert "empty name" in str(empty_name.err())
 
-    with pytest.raises(ValueError, match="Missing reference"):
-        get_component(System(name="missing"), PSSEBus, "UNKNOWN", label="reference")
+    missing_reference = get_component(System(name="missing"), PSSEBus, "UNKNOWN", label="reference")
+    assert is_err(missing_reference)
+    assert isinstance(missing_reference.err(), ValueError)
+    assert "Missing reference" in str(missing_reference.err())
 
     ambiguous = System(name="ambiguous")
     ambiguous.add_component(PSSEBus(name="DUP", number=1, base_kv=100.0))
     ambiguous.add_component(PSSEBus(name="DUP", number=2, base_kv=100.0))
-    with pytest.raises(ValueError, match="Ambiguous reference"):
-        get_component(ambiguous, PSSEBus, "DUP", label="reference")
+    ambiguous_reference = get_component(ambiguous, PSSEBus, "DUP", label="reference")
+    assert is_err(ambiguous_reference)
+    assert isinstance(ambiguous_reference.err(), ValueError)
+    assert "Ambiguous reference" in str(ambiguous_reference.err())
 
 
 def test_document_and_array_sources_keep_their_native_access_contracts() -> None:
@@ -1069,13 +1088,15 @@ def test_component_builder_preserves_defaults_false_and_explicit_null() -> None:
         ],
         None,
     )
-    build_components(
-        system,
-        instruction,
-        source=rows,
-        component_type=PSSEGenerator,
-        identities={(PSSEBus, "NORTH")},
-        config=config,
+    expect_ok(
+        build_components(
+            system,
+            instruction,
+            source=rows,
+            component_type=PSSEGenerator,
+            identities={(PSSEBus, "NORTH")},
+            config=config,
+        )
     )
     generators = {generator.name: generator for generator in system.get_components(PSSEGenerator)}
     assert generators["NORTH_1"].available is True
@@ -1084,17 +1105,19 @@ def test_component_builder_preserves_defaults_false_and_explicit_null() -> None:
 
     null_system = System(name="null-component")
     null_system.add_component(PSSEBus(name="NORTH", number=101, base_kv=230.0))
-    with pytest.raises(ValidationError):
-        build_components(
-            null_system,
-            instruction,
-            source=DocumentSource(
-                [{"name": "NORTH_3", "power": 1.0, "available": None, "bus_name": "NORTH"}], None
-            ),
-            component_type=PSSEGenerator,
-            identities=set(),
-            config=config,
-        )
+    invalid_component = build_components(
+        null_system,
+        instruction,
+        source=DocumentSource(
+            [{"name": "NORTH_3", "power": 1.0, "available": None, "bus_name": "NORTH"}], None
+        ),
+        component_type=PSSEGenerator,
+        identities=set(),
+        config=config,
+    )
+    assert is_err(invalid_component)
+    assert isinstance(invalid_component.err(), ValidationError)
+    assert "available" in str(invalid_component.err())
 
 
 def test_component_builder_validates_fields_models_and_duplicate_names() -> None:
@@ -1106,26 +1129,30 @@ def test_component_builder_validates_fields_models_and_duplicate_names() -> None
         component_type="PSSEBus",
         fields={"name": "name", "number": "number", "base_kv": "base_kv"},
     )
-    with pytest.raises(ValueError, match="Source has no field"):
-        build_components(
-            System(name="missing-fields"),
-            instruction,
-            source=DocumentSource([{"name": "NORTH"}], None),
-            component_type=PSSEBus,
-            identities=set(),
-            config=config,
-        )
+    missing_fields = build_components(
+        System(name="missing-fields"),
+        instruction,
+        source=DocumentSource([{"name": "NORTH"}], None),
+        component_type=PSSEBus,
+        identities=set(),
+        config=config,
+    )
+    assert is_err(missing_fields)
+    assert isinstance(missing_fields.err(), ValueError)
+    assert "Source has no field" in str(missing_fields.err())
 
     invalid = DocumentSource([{"name": "NORTH", "number": 1, "base_kv": 0.0}], None)
-    with pytest.raises(ValidationError):
-        build_components(
-            System(name="invalid-model"),
-            instruction,
-            source=invalid,
-            component_type=PSSEBus,
-            identities=set(),
-            config=config,
-        )
+    invalid_model = build_components(
+        System(name="invalid-model"),
+        instruction,
+        source=invalid,
+        component_type=PSSEBus,
+        identities=set(),
+        config=config,
+    )
+    assert is_err(invalid_model)
+    assert isinstance(invalid_model.err(), ValidationError)
+    assert "base_kv" in str(invalid_model.err())
 
     duplicate = DocumentSource(
         [
@@ -1134,17 +1161,22 @@ def test_component_builder_validates_fields_models_and_duplicate_names() -> None
         ],
         None,
     )
-    with pytest.raises(ValueError, match="Duplicate component"):
-        build_components(
-            System(name="duplicate"),
-            instruction,
-            source=duplicate,
-            component_type=PSSEBus,
-            identities=set(),
-            config=config,
-        )
-    with pytest.raises(ValueError, match="not a Component"):
-        resolve_model_type("BusGeo", config=config, expected=Component)
+    duplicate_components = build_components(
+        System(name="duplicate"),
+        instruction,
+        source=duplicate,
+        component_type=PSSEBus,
+        identities=set(),
+        config=config,
+    )
+    assert is_err(duplicate_components)
+    assert isinstance(duplicate_components.err(), ValueError)
+    assert "Duplicate component" in str(duplicate_components.err())
+
+    wrong_model = resolve_model_type("BusGeo", config=config, expected=Component)
+    assert is_err(wrong_model)
+    assert isinstance(wrong_model.err(), ValueError)
+    assert "not a Component" in str(wrong_model.err())
 
 
 def test_supplemental_builder_validates_attributes_and_shares_to_selected_owners() -> None:
@@ -1162,25 +1194,31 @@ def test_supplemental_builder_validates_attributes_and_shares_to_selected_owners
         fields={"region": "region"},
         owners=[ComponentOwner(component_type="PSSEBus", names=["NORTH", "SOUTH"])],
     )
-    build_supplemental_attributes(
-        system,
-        instruction,
-        source=DocumentSource([{"region": "west"}], None),
-        attribute_type=resolve_model_type("BusGeo", config=config, expected=SupplementalAttribute),
-        config=config,
+    expect_ok(
+        build_supplemental_attributes(
+            system,
+            instruction,
+            source=DocumentSource([{"region": "west"}], None),
+            attribute_type=expect_ok(
+                resolve_model_type("BusGeo", config=config, expected=SupplementalAttribute)
+            ),
+            config=config,
+        )
     )
     for owner in (north, south):
         attributes = system.get_supplemental_attributes_with_component(owner)
         assert [attribute.region for attribute in attributes] == ["west"]
 
-    with pytest.raises(ValidationError):
-        build_supplemental_attributes(
-            system,
-            instruction,
-            source=DocumentSource([{"region": None}], None),
-            attribute_type=resolve_model_type("BusGeo", config=config, expected=SupplementalAttribute),
-            config=config,
-        )
+    invalid_attribute = build_supplemental_attributes(
+        system,
+        instruction,
+        source=DocumentSource([{"region": None}], None),
+        attribute_type=expect_ok(resolve_model_type("BusGeo", config=config, expected=SupplementalAttribute)),
+        config=config,
+    )
+    assert is_err(invalid_attribute)
+    assert isinstance(invalid_attribute.err(), ValidationError)
+    assert "region" in str(invalid_attribute.err())
 
 
 @pytest.mark.parametrize(
@@ -1210,21 +1248,58 @@ def test_column_time_axis_rejects_invalid_samples(
 ) -> None:
     """Reject absent, irregular, unsupported, or incompatible timestamp columns."""
     axis = ColumnTimeAxis(kind="column", column="timestamp", resolution_seconds=resolution_seconds)
-    with pytest.raises((TypeError, ValueError), match=message):
-        resolve_time_axis(axis, timestamps, sample_count)
+    result = resolve_time_axis(axis, timestamps, sample_count)
+    assert is_err(result)
+    assert isinstance(result.err(), (TypeError, ValueError))
+    assert message in str(result.err())
+
+
+@pytest.mark.time_series
+def test_timestamp_parser_returns_expected_errors_as_results() -> None:
+    result = parse_timestamp("not-a-timestamp")
+
+    assert is_err(result)
+    assert isinstance(result.err(), ValueError)
+
+
+@pytest.mark.time_series
+def test_timestamp_parser_rejects_numpy_nat() -> None:
+    timestamp = np.datetime64("NaT")
+
+    parsed = parse_timestamp(timestamp)
+    assert is_err(parsed)
+    assert isinstance(parsed.err(), ValueError)
+    assert "NaT" in str(parsed.err())
+
+    axis = ColumnTimeAxis(kind="column", column="timestamp", resolution_seconds=3600)
+    resolved = resolve_time_axis(axis, [timestamp], 1)
+    assert is_err(resolved)
+    assert isinstance(resolved.err(), ValueError)
+
+
+@pytest.mark.time_series
+def test_time_axis_rejects_mixed_timezone_awareness_as_result() -> None:
+    axis = ColumnTimeAxis(kind="column", column="timestamp", resolution_seconds=3600)
+    timestamps = [datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 1, 1)]
+
+    result = resolve_time_axis(axis, timestamps, len(timestamps))
+
+    assert is_err(result)
+    assert isinstance(result.err(), ValueError)
+    assert "consistent timezone awareness" in str(result.err())
 
 
 @pytest.mark.time_series
 def test_time_axis_accepts_datetime_values_and_regular_configuration() -> None:
     """Interpret supported datetime values and fixed regular axes explicitly."""
     start = datetime(2024, 1, 1)
-    assert parse_timestamp(start) == start
+    assert expect_ok(parse_timestamp(start)) == start
     times = [np.datetime64("2024-01-01T00:00:00"), np.datetime64("2024-01-01T01:00:00")]
-    initial, resolution = resolve_time_axis(ColumnTimeAxis(kind="column", column="time"), times, 2)
+    initial, resolution = expect_ok(resolve_time_axis(ColumnTimeAxis(kind="column", column="time"), times, 2))
     assert initial == start
     assert resolution == timedelta(hours=1)
     configured = RegularTimeAxis(kind="regular", initial_timestamp=start, resolution_seconds=900)
-    assert resolve_time_axis(configured, None, 4) == (start, timedelta(minutes=15))
+    assert expect_ok(resolve_time_axis(configured, None, 4)) == (start, timedelta(minutes=15))
 
 
 @pytest.mark.parametrize(
@@ -1289,6 +1364,26 @@ def test_build_system_fails_explicitly_for_missing_input_or_output_source(tmp_pa
         build_system(config, name="missing-source")
 
 
+def test_build_system_from_sources_raises_internal_result_errors() -> None:
+    from r2x_core import build_system_from_sources
+
+    config = PluginConfig(models=("fixtures.ingestion_models",))
+    instruction = ComponentInstruction(
+        kind="component",
+        source="buses",
+        component_type="PSSEBus",
+        fields={"name": "name", "number": "number", "base_kv": "base_kv"},
+    )
+
+    with pytest.raises(ValueError, match="Source has no field"):
+        build_system_from_sources(
+            {"buses": DocumentSource([{"name": "NORTH"}], None)},
+            config=config,
+            instructions=[instruction],
+            name="missing-field",
+        )
+
+
 def test_builders_reject_unknown_mappings_and_empty_owner_groups(tmp_path: Path) -> None:
     """Reject unsupported output fields and time series with no selected owners or samples."""
     config = PluginConfig(models=("fixtures.ingestion_models",), config_path_override=tmp_path)
@@ -1299,15 +1394,17 @@ def test_builders_reject_unknown_mappings_and_empty_owner_groups(tmp_path: Path)
         component_type="PSSEBus",
         fields={"not_a_field": "name"},
     )
-    with pytest.raises(ValueError, match="Unknown fields for PSSEBus"):
-        build_components(
-            system,
-            component_instruction,
-            source=DocumentSource([{"name": "NORTH"}], None),
-            component_type=PSSEBus,
-            identities=set(),
-            config=config,
-        )
+    unknown_component_fields = build_components(
+        system,
+        component_instruction,
+        source=DocumentSource([{"name": "NORTH"}], None),
+        component_type=PSSEBus,
+        identities=set(),
+        config=config,
+    )
+    assert is_err(unknown_component_fields)
+    assert isinstance(unknown_component_fields.err(), ValueError)
+    assert "Unknown fields for PSSEBus" in str(unknown_component_fields.err())
 
     bus = PSSEBus(name="NORTH", number=101, base_kv=230.0)
     system.add_component(bus)
@@ -1318,24 +1415,30 @@ def test_builders_reject_unknown_mappings_and_empty_owner_groups(tmp_path: Path)
         fields={"not_a_field": "region"},
         owners=[ComponentOwner(component_type="PSSEBus", name="NORTH")],
     )
-    with pytest.raises(ValueError, match="Unknown fields for BusGeo"):
-        build_supplemental_attributes(
-            system,
-            supplemental_instruction,
-            source=DocumentSource([{"region": "west"}], None),
-            attribute_type=resolve_model_type("BusGeo", config=config, expected=SupplementalAttribute),
-            config=config,
-        )
+    unknown_attribute_fields = build_supplemental_attributes(
+        system,
+        supplemental_instruction,
+        source=DocumentSource([{"region": "west"}], None),
+        attribute_type=expect_ok(resolve_model_type("BusGeo", config=config, expected=SupplementalAttribute)),
+        config=config,
+    )
+    assert is_err(unknown_attribute_fields)
+    assert isinstance(unknown_attribute_fields.err(), ValueError)
+    assert "Unknown fields for BusGeo" in str(unknown_attribute_fields.err())
 
-    with pytest.raises(ValueError, match="no component owners"):
-        resolve_owners(system, [], config=config, rows=())
-    with pytest.raises(ValueError, match="non-empty string"):
-        resolve_owners(
-            system,
-            [ComponentOwner(component_type="PSSEBus", name_field="name")],
-            config=config,
-            rows=({"name": None},),
-        )
+    no_owners = resolve_owners(system, [], config=config, rows=())
+    assert is_err(no_owners)
+    assert isinstance(no_owners.err(), ValueError)
+    assert "no component owners" in str(no_owners.err())
+    invalid_owner_name = resolve_owners(
+        system,
+        [ComponentOwner(component_type="PSSEBus", name_field="name")],
+        config=config,
+        rows=({"name": None},),
+    )
+    assert is_err(invalid_owner_name)
+    assert isinstance(invalid_owner_name.err(), ValueError)
+    assert "non-empty string" in str(invalid_owner_name.err())
 
     empty_columns = pl.DataFrame(
         schema={"name": pl.String, "timestamp": pl.String, "load": pl.Float64}
@@ -1348,19 +1451,23 @@ def test_builders_reject_unknown_mappings_and_empty_owner_groups(tmp_path: Path)
         time_axis=ColumnTimeAxis(kind="column", column="timestamp"),
         owners=[ComponentOwner(component_type="PSSEBus", name_field="name")],
     )
-    with pytest.raises(ValueError, match="no samples"):
+    missing_samples = attach_time_series(
+        system,
+        empty_series,
+        source=TabularSource(empty_columns, PolarsTabularBackend()),
+        config=config,
+    )
+    assert is_err(missing_samples)
+    assert isinstance(missing_samples.err(), ValueError)
+    assert "no samples" in str(missing_samples.err())
+    optional_series = empty_series.model_copy(update={"name": "optional", "skip_if_empty": True})
+    expect_ok(
         attach_time_series(
             system,
-            empty_series,
+            optional_series,
             source=TabularSource(empty_columns, PolarsTabularBackend()),
             config=config,
         )
-    optional_series = empty_series.model_copy(update={"name": "optional", "skip_if_empty": True})
-    attach_time_series(
-        system,
-        optional_series,
-        source=TabularSource(empty_columns, PolarsTabularBackend()),
-        config=config,
     )
     assert system.list_time_series_metadata(bus, name="optional") == []
 
@@ -1372,13 +1479,15 @@ def test_builders_reject_unknown_mappings_and_empty_owner_groups(tmp_path: Path)
         time_axis={"kind": "regular", "initial_timestamp": "2024-01-01", "resolution_seconds": 3600},
         owners=[ComponentOwner(component_type="PSSEBus", name="NORTH")],
     )
-    with pytest.raises(ValueError, match="cannot be empty"):
-        attach_time_series(
-            system,
-            empty_values,
-            source=ArraySource({"load": np.array([])}, None),
-            config=config,
-        )
+    no_values = attach_time_series(
+        system,
+        empty_values,
+        source=ArraySource({"load": np.array([])}, None),
+        config=config,
+    )
+    assert is_err(no_values)
+    assert isinstance(no_values.err(), ValueError)
+    assert "cannot be empty" in str(no_values.err())
 
 
 @pytest.mark.time_series
@@ -1420,7 +1529,7 @@ def test_optional_grouped_polars_time_series_preserves_owner_metadata_and_endpoi
         owners=[ComponentOwner(component_type="PSSEBus", name_field="owner_name")],
     )
 
-    attach_time_series(system, instruction, source=source, config=config)
+    expect_ok(attach_time_series(system, instruction, source=source, config=config))
 
     for owner, solve_year, expected in (
         (north, 2032, [1.0, 2.0]),
@@ -1458,11 +1567,13 @@ def test_grouped_time_series_handles_schema_bearing_absent_source(skip_if_empty:
     )
 
     if skip_if_empty:
-        attach_time_series(system, instruction, source=source, config=config)
+        expect_ok(attach_time_series(system, instruction, source=source, config=config))
         assert system.list_time_series_metadata(bus, name="absent_load") == []
     else:
-        with pytest.raises(ValueError, match="Time-series source has no samples"):
-            attach_time_series(system, instruction, source=source, config=config)
+        result = attach_time_series(system, instruction, source=source, config=config)
+        assert is_err(result)
+        assert isinstance(result.err(), ValueError)
+        assert "Time-series source has no samples" in str(result.err())
 
 
 def test_optional_literal_owner_skips_empty_source_before_owner_lookup() -> None:
@@ -1483,7 +1594,7 @@ def test_optional_literal_owner_skips_empty_source_before_owner_lookup() -> None
         owners=[ComponentOwner(component_type="PSSEBus", name="MISSING")],
     )
 
-    attach_time_series(system, instruction, source=source, config=config)
+    expect_ok(attach_time_series(system, instruction, source=source, config=config))
 
     assert list(system.get_components(PSSEBus)) == []
 
@@ -1507,8 +1618,10 @@ def test_optional_grouped_time_series_validates_fields_before_empty_skip() -> No
         owners=[ComponentOwner(component_type="PSSEBus", name_field="owner_name")],
     )
 
-    with pytest.raises(ValueError, match=r"Source has no field\(s\): \['load'\]"):
-        attach_time_series(system, instruction, source=source, config=config)
+    result = attach_time_series(system, instruction, source=source, config=config)
+    assert is_err(result)
+    assert isinstance(result.err(), ValueError)
+    assert "Source has no field(s): ['load']" in str(result.err())
 
 
 @pytest.mark.time_series
@@ -1540,8 +1653,10 @@ def test_optional_grouped_time_series_resolves_owner_before_row_metadata() -> No
         owners=[ComponentOwner(component_type="PSSEBus", name_field="owner_name")],
     )
 
-    with pytest.raises(ValueError, match="Missing owner PSSEBus named 'MISSING'"):
-        attach_time_series(system, instruction, source=source, config=config)
+    result = attach_time_series(system, instruction, source=source, config=config)
+    assert is_err(result)
+    assert isinstance(result.err(), ValueError)
+    assert "Missing owner PSSEBus named 'MISSING'" in str(result.err())
 
 
 @pytest.mark.time_series

@@ -471,7 +471,11 @@ class DataReader:
         :meth:`~r2x_core.DataReader.read_and_assemble_records` : Assemble an already-loaded mapping snapshot.
         :doc:`data-workflow` : Source loading and cross-boundary assembly.
         """
-        records = load_table_mapping(mapping_path)
+        mapping_result = load_table_mapping(mapping_path)
+        if is_ok(mapping_result):
+            records = mapping_result.value
+        else:
+            raise mapping_result.err()
         return self.read_and_assemble_records(
             data_files,
             records,

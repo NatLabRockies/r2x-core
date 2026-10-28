@@ -124,7 +124,20 @@ def main() -> None:
     source = ROOT / "docs/source"
     output = ROOT / "docs/build/api-json"
     subprocess.run(
-        [sys.executable, "-m", "sphinx", "-E", "-b", "json", "-W", "-q", str(source), str(output)],
+        [
+            sys.executable,
+            "-m",
+            "sphinx",
+            "-E",
+            "-b",
+            "json",
+            "-W",
+            "-q",
+            "-c",
+            str(ROOT / "scripts/sphinx"),
+            str(source),
+            str(output),
+        ],
         cwd=ROOT,
         check=True,
     )

@@ -10,3 +10,5 @@ packageid = "packageid"
 ser = "ser"
 # Fixed operations and maintenance cost column in power-systems inputs
 fom = "fom"
+# Compressed air energy storage technology code.
+CAES = "CAES"

@@ -15,11 +15,11 @@ r2x-core supports two types of upgrades through [`UpgradeType`](/r2x-core/refere
 >>>
 >>> # FILE: Upgrade raw data files before loading into a system
 >>> UpgradeType.FILE
-<UpgradeType.FILE: 'FILE'>
+# <UpgradeType.FILE: 'FILE'>
 >>>
 >>> # SYSTEM: Upgrade already-loaded System objects
 >>> UpgradeType.SYSTEM
-<UpgradeType.SYSTEM: 'SYSTEM'>
+# <UpgradeType.SYSTEM: 'SYSTEM'>
 ```
 
 **FILE upgrades** are useful when the data format or schema changes between versions. **SYSTEM upgrades** are useful when the system model structure changes.
@@ -34,7 +34,7 @@ View the [`UpgradeStep`](/r2x-core/references/api/) structure to understand how 
 >>> # Create an example upgrade step definition
 >>> class_name = UpgradeStep.__name__
 >>> print(f"Upgrade step class: {class_name}")
-Upgrade step class: UpgradeStep
+# Upgrade step class: UpgradeStep
 ```
 
 ## Execute a single step
@@ -50,9 +50,9 @@ This example checks the returned result and changed system name:
 >>> step = UpgradeStep(name="rename", func=rename, target_version="2.0.0", upgrade_type=UpgradeType.SYSTEM)
 >>> result = run_upgrade_step(System(name="original"), step=step)
 >>> result.is_ok()
-True
+# True
 >>> result.unwrap().name
-'upgraded'
+# 'upgraded'
 ```
 Selection, version comparison and rollback are separate concerns; see the [upgrade error contract](/r2x-core/references/upgrader/).
 

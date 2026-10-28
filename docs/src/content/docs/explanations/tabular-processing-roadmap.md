@@ -26,7 +26,7 @@ including regex-shaped names such as `^load$` or `*`.
 ...     {"op": "sort", "by": {"year": "asc"}},
 ... ])
 >>> [step.op for step in processing.steps]
-['unpivot_columns', 'rename_columns', 'sort']
+# ['unpivot_columns', 'rename_columns', 'sort']
 ```
 
 The JSON `kind` tag is `"tabular"` and is filled by the model when omitted.
@@ -54,7 +54,7 @@ Non-finite replacement numbers and duplicate matching sources are rejected.
 ...     {"op": "select_keys", "keys": ["new"]},
 ... ])
 >>> [step.op for step in processing.steps]
-['rename_keys', 'replace_values', 'select_keys']
+# ['rename_keys', 'replace_values', 'select_keys']
 ```
 
 ## Validation and execution

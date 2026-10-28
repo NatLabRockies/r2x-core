@@ -13,14 +13,28 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 
-from doctest_runner import minimum_python, run_block
+from scripts.doctest_runner import minimum_python, run_block
 
-FIXTURE = Path(__file__).parent / "examples/csv-system"
+ROOT = Path(__file__).resolve().parents[1]
+DOCS_CONTENT = ROOT / "docs/src/content/docs"
+FIXTURE = ROOT / "examples/csv-system"
 
 
 class CsvTutorialTest(unittest.TestCase):
+    def test_tutorials_install_the_package_without_cloning(self) -> None:
+        tutorial = (DOCS_CONTENT / "tutorials/getting-started.md").read_text(encoding="utf-8")
+        self.assertIn("uv add r2x-core", tutorial)
+        self.assertIn("python -m pip install r2x-core", tutorial)
+
+        cloned_pages = [
+            page.relative_to(DOCS_CONTENT).as_posix()
+            for page in DOCS_CONTENT.rglob("*.md")
+            if page.name != "contributing.md" and "git clone" in page.read_text(encoding="utf-8")
+        ]
+        self.assertEqual(cloned_pages, [])
+
     def test_marked_examples_have_checked_expectations(self) -> None:
-        content = Path(__file__).parent / "src/content/docs"
+        content = DOCS_CONTENT
         checked = 0
         for page in content.rglob("*.md"):
             if "references" in page.relative_to(content).parts:
@@ -44,7 +58,7 @@ class CsvTutorialTest(unittest.TestCase):
         self.assertGreater(checked, 0)
 
     def test_declared_syntax_and_expectations(self) -> None:
-        page = Path(__file__).parent / "src/content/docs/tutorials/plugin-discovery.md"
+        page = DOCS_CONTENT / "tutorials/plugin-discovery.md"
         blocks = list(
             re.finditer(r"^```python([^\n]*)\n(.*?)^```", page.read_text(encoding="utf-8"), re.M | re.S)
         )

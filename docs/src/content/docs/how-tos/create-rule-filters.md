@@ -14,7 +14,7 @@ model instead of instantiating the `RuleFilter` type alias.
 >>> from r2x_core import FieldFilter, RuleFilter
 >>> active: RuleFilter = FieldFilter(field="status", op="eq", values=["active"])
 >>> active.model_dump()
-{'op': 'eq', 'values': ['active'], 'casefold': True, 'on_missing': 'exclude', 'kind': 'field', 'field': 'status'}
+# {'op': 'eq', 'values': ['active'], 'casefold': True, 'on_missing': 'exclude', 'kind': 'field', 'field': 'status'}
 ```
 
 The supported operators are `eq`, `neq`, `in`, `not_in`, `geq`, `startswith`,
@@ -47,7 +47,7 @@ lookup. Getter-backed filters require the active `PluginContext` when evaluated.
 ...     values=["gas"],
 ... )
 >>> fuel_filter.op
-'eq'
+# 'eq'
 ```
 
 For filters loaded from records, register a named getter and refer to it by
@@ -74,9 +74,9 @@ all children to match. Each composition needs at least one child.
 ...     FieldFilter(field="name", op="startswith", values=["plant_"]),
 ... ])
 >>> [filter_.kind for filter_ in filter_by_fuel_or_name.filters]
-['field', 'field']
+# ['field', 'field']
 >>> AllOfFilter(filters=[FieldFilter(field="status", op="eq", values=["active"])]).kind
-'all_of'
+# 'all_of'
 ```
 
 Use the composed filter directly on a rule:
@@ -94,7 +94,7 @@ Use the composed filter directly on a rule:
 ...     filter=selected,
 ... )
 >>> rule.filter.kind
-'any_of'
+# 'any_of'
 ```
 
 A leaf filter's `on_missing` setting controls missing-field behavior. Its

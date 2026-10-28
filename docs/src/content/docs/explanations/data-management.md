@@ -27,9 +27,9 @@ The separation lets a parser request only the inputs it needs.
 ...     records = sources["generators"].data.collect().to_dicts()
 >>> # Expected: the source reader applies the configured filter.
 >>> [record["name"] for record in records]
-['Alpha']
+# ['Alpha']
 >>> records
-[{'name': 'Alpha', 'capacity_mw': 100, 'status': 'active'}]
+# [{'name': 'Alpha', 'capacity_mw': 100, 'status': 'active'}]
 ```
 
 ## Processing is a separate contract

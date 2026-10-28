@@ -28,7 +28,7 @@ supports columnar groups where each field is a dataset.
 ...     ),
 ... )
 >>> item.reader.options["columns_key"]
-'columns'
+# 'columns'
 ```
 
 ### Read a configured HDF5 table
@@ -54,9 +54,9 @@ supports columnar groups where each field is a dataset.
 ...     assert isinstance(source, TabularSource)
 ...     frame = source.data.collect()
 ...     frame.columns
-['generation', 'load']
+# ['generation', 'load']
 >>> frame.shape
-(2, 2)
+# (2, 2)
 ```
 
 ### Preserve arrays for time-series output
@@ -69,9 +69,9 @@ instruction. See [Attach time series](/r2x-core/how-tos/attach-timeseries/).
 ```python doctest
 >>> from r2x_core import ArraySource, H5PyFileReader, H5Reader
 >>> issubclass(H5PyFileReader, H5Reader)
-True
+# True
 >>> ArraySource.__name__
-'ArraySource'
+# 'ArraySource'
 ```
 
 For direct HDF5 dataset inspection, `r2x_core.h5_adapter.configurable_h5_reader`

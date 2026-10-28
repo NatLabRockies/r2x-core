@@ -26,10 +26,10 @@ deterministic and limits an export to the intended contract.
 >>> records = components_to_records(system, fields=["name", "capacity_mw"], key_mapping={"capacity_mw": "capacity"})
 >>> # Expected: selected fields are retained and the output key is renamed.
 >>> records
-[{'name': 'Alpha', 'capacity': 100.0}]
+# [{'name': 'Alpha', 'capacity': 100.0}]
 >>> selected = components_to_records(system, fields=["name"], filter_func=lambda component: component.capacity_mw > 200)
 >>> selected
-[]
+# []
 ```
 
 ## Write and check a CSV
@@ -53,7 +53,7 @@ is removed after the check, so no persistent user files are modified.
 ...         rows = list(csv.DictReader(stream))
 >>> # Expected: the file contains the exported component name.
 >>> rows
-[{'name': 'Alpha'}]
+# [{'name': 'Alpha'}]
 ```
 
 ## Filter arguments for a known callable
@@ -68,9 +68,9 @@ validate values or implement a model transformation.
 >>> options = filter_kwargs_for(scale, kwargs={"factor": 3.0, "unused": "ignored"})
 >>> # Expected: unknown keys are removed before calling the function.
 >>> options
-{'factor': 3.0}
+# {'factor': 3.0}
 >>> scale(4.0, **options)
-12.0
+# 12.0
 ```
 
 See [Utilities](/r2x-core/references/utils/) for exact signatures and

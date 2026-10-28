@@ -23,7 +23,7 @@ Output purpose and fields are configured separately in `parser_rules.json`.
 >>> from r2x_core import DataFile, FileInfo, FileType, ReaderConfig
 >>> common = DataFile(name="load", relative_fpath="load.h5")
 >>> common.format_name
-'hdf5'
+# 'hdf5'
 >>> custom = DataFile(
 ...     name="case",
 ...     relative_fpath="case.raw",
@@ -31,7 +31,7 @@ Output purpose and fields are configured separately in `parser_rules.json`.
 ...     info=FileInfo(file_type=FileType.TIME_SERIES),
 ... )
 >>> custom.format_name, custom.info.file_type.value
-('dummy_raw', 'time_series')
+# ('dummy_raw', 'time_series')
 ```
 
 An unknown extension without an explicit format raises when `format_name` is

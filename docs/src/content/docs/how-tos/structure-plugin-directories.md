@@ -27,9 +27,9 @@ Define a configuration class that extends `PluginConfig`:
 ...     scenario: str = "reference"
 >>> config = MyConfig(solve_year=2030)
 >>> config.solve_year
-2030
+# 2030
 >>> config.scenario
-'reference'
+# 'reference'
 ```
 
 ## Load mapping configuration
@@ -51,7 +51,7 @@ loops to the plugin.
 ...     store = DataStore(config.config_path)
 ...     store.load_file_mapping(config.fmap_path)
 ...     store.list_data()
-[]
+# []
 ```
 
 ## Register Custom Getters
@@ -64,7 +64,7 @@ Use the `getter` decorator to register custom field extractors:
 ... def extract_name(component):
 ...     return component.name
 >>> extract_name.__name__
-'extract_name'
+# 'extract_name'
 ```
 
 ## See Also

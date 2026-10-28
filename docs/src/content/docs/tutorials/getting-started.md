@@ -1,61 +1,44 @@
 ---
-title: Build and verify a CSV capacity scenario
-description: Filter a small input, build typed components, scale capacity through lifecycle hooks, and reload the saved system.
+title: Use r2x-core to read CSV data and scale a system
+description: Install r2x-core, filter CSV rows with DataReader, and scale an in-memory System with a plugin.
 ---
 
 <span id="getting-started-with-r2x-core"></span>
 
-Turn three CSV records into a saved, inspectable system with two active generators.
-You will apply a 10% capacity increase, verify the resulting 165 MW total, and reload the artifact in a separate Python process.
-The complete [worked example](https://github.com/NatLabRockies/r2x-core/tree/main/docs/examples/csv-system) is included in this repository; no external dataset or CLI installation is needed.
+Use the installed `r2x-core` package to read CSV data and scale a small system by 10%, verifying a 165 MW result.
+The Python examples are self-contained doctests. You do not need a repository checkout, external dataset, or CLI installation.
 
 ```mermaid
 flowchart TD
-  CSV[Three CSV rows] --> Filter[DataFile filters status active]
-  Filter --> Build[build_system validates and constructs two Generator components]
-  Build --> Scale[on_transform scales 150 MW to 165 MW]
-  Scale --> Export[on_export saves system JSON and sidecars]
-  Export --> Reload[Fresh process reloads and verifies components]
+  CSV[CSV rows] --> Read[DataReader filters active rows]
+  Read --> Rows[Alpha and Bravo]
+  System[In-memory System: 100 + 50 MW] --> Scale[on_transform scales by 1.1]
+  Scale --> Result[165 MW total]
 ```
 
 <span id="prerequisites"></span>
 
-## Prepare the example
+## Install r2x-core
 
-Complete [Getting started: prerequisites and environment](/r2x-core/getting-started/environment/) first.
-This tutorial additionally needs Git to obtain its small CSV fixture and matching library source.
-Use a new working directory, then obtain the example and the matching library source:
+Complete [Getting started: prerequisites and environment](/r2x-core/getting-started/environment/) first. Then choose the command for your environment.
 
-```bash
-git clone --depth 1 https://github.com/NatLabRockies/r2x-core.git
-```
-
-Enter the checkout and install its locked runtime dependencies:
+For a project managed by uv, add `r2x-core` as a project dependency:
 
 ```bash
-cd r2x-core
-uv sync --locked --no-dev
+uv add r2x-core
 ```
 
-This installs `r2x-core` from this checkout, including [infrasys](https://github.com/NatLabRockies/infrasys) for component storage and [Polars](https://docs.pola.rs/) for tabular input.
-Move into the fixture directory so its relative input and output paths resolve correctly:
+For a standard Python environment, activate its virtual environment and install with pip:
 
 ```bash
-cd docs/examples/csv-system
+python -m pip install r2x-core
 ```
 
-`uv run --no-dev` below finds the project at the repository root.
-You do not need to build the documentation site to run this example.
+Both commands install the released package and its runtime dependencies, including [infrasys](https://natlabrockies.github.io/infrasys/) for component storage and [Polars](https://docs.pola.rs/) for tabular input.
 
 ## Inspect the input and schema
 
-Read the supplied fixture:
-
-```bash
-cat inputs/generators.csv
-```
-
-It contains:
+Use these sample rows:
 
 ```csv
 name,capacity_mw,status
@@ -66,10 +49,8 @@ Retired,25,retired
 
 `Alpha` and `Bravo` contribute 150 MW before scaling.
 The retired row must not appear in the result.
-`tutorial_model.py` defines the small schema used in this exercise:
-
-The checks below are self-contained versions of the fixture's model, data and transform boundaries.
-The documentation build also executes the complete fixture and its independent reload.
+The `Generator` class below defines the small schema used in this exercise.
+Each Python code block is a self-contained doctest.
 
 ```python doctest
 >>> from infrasys import Component
@@ -81,7 +62,7 @@ The documentation build also executes the complete fixture and its independent r
 >>> assert generator.capacity_mw >= 0
 >>> # Expected: this boundary produces the tutorial's named components or capacity.
 >>> generator.name, generator.capacity_mw
-('Alpha', 100.0)
+# ('Alpha', 100.0)
 ```
 
 `Component` supplies identity and the required name; the field adds nonnegative capacity in MW.
@@ -93,7 +74,7 @@ For ReEDS inputs, start with [r2x-reeds](https://github.com/NatLabRockies/r2x-re
 
 ## Understand the data boundary
 
-`build_system.py` creates an existing-directory `DataStore` and registers a named file definition:
+A `DataStore` can hold named file definitions. This doctest writes a small CSV to a temporary directory and reads it through `DataReader`:
 
 ```python doctest
 >>> from pathlib import Path
@@ -111,7 +92,7 @@ For ReEDS inputs, start with [r2x-reeds](https://github.com/NatLabRockies/r2x-re
 ...
 >>> # Expected: this boundary produces the tutorial's named components or capacity.
 >>> [row["name"] for row in rows]
-['Alpha', 'Bravo']
+# ['Alpha', 'Bravo']
 ```
 
 `generators` is the logical source name; `relative_fpath` is resolved under the supplied input root. The filter runs during source processing. `DataReader` exposes the typed source-loading seam, while `build_system` also consumes the configured component instruction. Registration alone does not prove that an input is readable.
@@ -125,10 +106,9 @@ See [file configuration](/r2x-core/how-tos/configure-data-files/) for reader opt
 
 ## Follow the three implemented hooks
 
-The script binds `BuildConfig()` to a `PluginContext`, then invokes `BuildScenario.from_context(context).run()`.
-Its `on_build` hook delegates to `build_system`, which executes `file_mapping.json` and `parser_rules.json`; the application does not read rows or attach components itself. Only the hooks implemented by this plugin run:
+The complete file-based example implements three lifecycle hooks. The doctest below demonstrates `on_transform` with an in-memory system:
 
-| Hook | Work in this example | Observable check |
+| Hook | Work in the complete example | Observable check |
 | --- | --- | --- |
 | `on_build` | Read active rows and add two `Generator` components. | `Retired` is absent. |
 | `on_transform` | Multiply each capacity by `BuildConfig.scale`, default `1.1`. | Capacities become 110 and 55 MW. |
@@ -160,70 +140,15 @@ The transformation is deliberately small:
 >>> assert result.system is not None
 >>> # Expected: this boundary produces the tutorial's named components or capacity.
 >>> round(sum(item.capacity_mw for item in result.system.get_components(Generator)), 1)
-165.0
+# 165.0
 ```
 
-`self.system` is the system created by `on_build`; `Ok(system)` updates the shared context.
-The output hook explicitly uses `overwrite=True` for this tutorial's fixed output path.
-Each rerun rebuilds from the original CSV, so it does not apply the 10% increase repeatedly to an already scaled artifact.
+Returning `Ok(system)` updates the shared context with the transformed system.
 [Lifecycle contracts](/r2x-core/references/plugins/) describe the complete hook order, context updates, and error propagation.
 
-## Execute and verify the in-memory result
+## Explore the complete example
 
-Run the supplied script:
-
-```bash
-uv run --no-dev python build_system.py
-```
-
-Expect these lines:
-
-```text
-2 active generators
-165.0 MW after scaling
-Saved output/system.json
-```
-
-The script asserts the component count before printing.
-Check that the saved entrypoint and companion storage directory are present:
-
-```bash
-ls output
-```
-
-Expect `system.json` and `system_time_series/`.
-Keep them together when copying the artifact, even though this fixture has no attached time-series values.
-The JSON is an infrasys-compatible system artifact, not a native Sienna or PLEXOS export.
-A native export requires the relevant model package's exporter.
-
-## Verify a fresh-process reload
-
-Run the independent inspection script:
-
-```bash
-uv run --no-dev python inspect_system.py
-```
-
-Expect:
-
-```text
-Alpha: 110.0 MW
-Bravo: 55.0 MW
-```
-
-The script calls `System.from_json("output/system.json")`, queries `Generator` components, and asserts both names and the 165 MW total.
-This checks the saved result rather than only the object left in memory by the build script.
-The loader must be able to import `tutorial_model.Generator`; running from the fixture directory keeps that model module importable.
-For CLI-managed inspection of an installed model package, follow [the CLI artifact guide](https://github.com/NatLabRockies/r2x-cli/blob/main/docs/inspect-artifacts.md).
-
-## Diagnose a failed check
-
-| Symptom | Check and fix |
-| --- | --- |
-| `Path does not exist: inputs` | Run from `docs/examples/csv-system`, where `inputs/` exists. |
-| A negative capacity raises validation errors | Correct the CSV; the model rejects values below zero. |
-| Reload cannot import `tutorial_model` | Use the fixture directory, or install your own model package into the loading environment. |
-| JSON exists but companion storage is missing | Copy the whole output bundle, then rerun inspection. |
+The repository also contains a file-based version with mapping configuration, parser rules, export, and a separate reload script. Browse the [CSV example source](https://github.com/NatLabRockies/r2x-core/tree/main/examples/csv-system) for those files. They are not included in the published `r2x-core` package, but are not needed to follow or run the doctests on this page.
 
 See [troubleshooting](/r2x-core/troubleshooting/) for file registration, lifecycle failures, and environment diagnosis.
 

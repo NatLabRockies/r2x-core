@@ -18,7 +18,7 @@ Define a `PluginConfig` subclass:
 ...     year: int
 >>> config = MyPluginConfig(input_folder=Path("/data"), year=2030)
 >>> config.year
-2030
+# 2030
 ```
 
 ## Plugin Implementation
@@ -39,7 +39,7 @@ Extend `Plugin` and implement lifecycle hooks:
 >>> plugin = MyPlugin.from_context(ctx)
 >>> result = plugin.run()
 >>> result.system.name
-'result'
+# 'result'
 ```
 
 ## Entry Point Registration

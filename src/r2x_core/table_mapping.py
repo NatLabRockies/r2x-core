@@ -664,7 +664,14 @@ def validate_table_mapping_records(
     declared_source_names: Sequence[str] = (),
     absent_source_names: Sequence[str] = (),
 ) -> set[str]:
-    """Reject invalid outputs and resolve a selected table dependency closure."""
+    """Reject invalid outputs and resolve a selected table dependency closure.
+
+    See Also
+    --------
+    :meth:`~r2x_core.DataReader.read_and_assemble_records` : Assemble supplied records with decoded sources.
+    :doc:`table-mapping` : Table mapping configuration and assembly.
+    :doc:`data-workflow` : Source and table dependency ordering.
+    """
     record_names = [record.name for record in records]
     record_by_name = {record.name: record for record in records}
     record_indices = {record.name: index for index, record in enumerate(records)}
@@ -724,6 +731,19 @@ def validate_table_mapping_records(
     required_names: set[str] = set()
 
     def optional_selection_candidates(record: TableMappingRecord, /) -> set[str]:
+        """Return first-source candidates that may be absent for this record.
+
+        Parameters
+        ----------
+        record : TableMappingRecord
+            Table declaration being checked.
+
+        Returns
+        -------
+        set of str
+            Sources selected by a first-present or first-nonempty operation
+            that are not referenced by later operations.
+        """
         if (
             record.source is None
             and record.operations
@@ -735,6 +755,19 @@ def validate_table_mapping_records(
         return set()
 
     def include_table(name: str, /) -> None:
+        """Add a table and its table dependencies to the required closure.
+
+        Parameters
+        ----------
+        name : str
+            Name of a declared table output.
+
+        Raises
+        ------
+        ValueError
+            If the table or one of its non-optional sources is unknown, or if a
+            table dependency is declared after its consumer.
+        """
         if name in required_names:
             return
         record = record_by_name.get(name)
@@ -925,6 +958,12 @@ def assemble_tables(
     ``first_nonempty`` constructors may skip these names; ordinary operations
     still require their sources. A record's ``materialize`` flag snapshots its
     final projected output eagerly for downstream reuse.
+
+    See Also
+    --------
+    :meth:`~r2x_core.DataReader.read_and_assemble_sources` : Schedule file and table inputs together.
+    :doc:`table-mapping` : Table mapping configuration and assembly.
+    :doc:`data-workflow` : Source and table dependency ordering.
     """
     records = load_table_mapping(mapping_path)
     return assemble_table_records(
@@ -968,6 +1007,12 @@ def assemble_table_records(
     evaluation errors can surface during assembly. Seeded ``initial_tables``
     are returned unchanged and bypass record operations, projection, and
     materialization.
+
+    See Also
+    --------
+    :meth:`~r2x_core.DataReader.read_and_assemble_records` : Schedule supplied records with input files.
+    :doc:`table-mapping` : Table mapping configuration and assembly.
+    :doc:`data-workflow` : Source and table dependency ordering.
     """
     records = TypeAdapter(list[TableMappingRecord]).validate_python(records)
     seeded_tables = dict(initial_tables or {})

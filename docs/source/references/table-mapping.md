@@ -335,7 +335,7 @@ inputs and output-column collisions are errors.
   "defaults": {"priority": 90},
   "case_sensitive": false,
   "groups": [
-    {"label": "storage", "exact": ["caes"], "attributes": {"priority": 80}},
+    {"label": "storage", "exact": ["CAES"], "attributes": {"priority": 80}},
     {"label": "storage", "prefixes": ["battery_"]}
   ]
 }
@@ -959,7 +959,7 @@ between omitted fields and explicitly supplied nulls when saving the models.
 ...     "operation": "filter", "column": "capacity", "comparison": "greater_than", "value": 0.0,
 ... })
 >>> isinstance(positive, TableFilterOperation)
-True
+# True
 >>> source_match = TypeAdapter(TableOperation).validate_python({
 ...     "operation": "match_source_patterns", "column": "technology",
 ...     "source": "subsets", "pattern_column": "subset",
@@ -969,7 +969,7 @@ True
 ...     "unmatched": "keep", "case_sensitive": False,
 ... })
 >>> isinstance(source_match, TableMatchSourcePatternsOperation)
-True
+# True
 >>> records = [
 ...     TableMappingRecord(name="base", operations=[base]),
 ...     TableMappingRecord(name="new", operations=[new]),
@@ -1017,7 +1017,7 @@ True
 ...     {"absent": absent_input, "empty": present_empty}, [fallback, selected_record], backend=backend
 ... )
 >>> selected["selected"] is present_empty
-True
+# True
 >>> nonempty_input = TabularSource(pl.DataFrame({"value": [8]}, schema={"value": pl.Int64}).lazy(), backend)
 >>> nonempty_selection = TableFirstNonEmptyOperation(
 ...     operation="first_nonempty", sources=["empty", "nonempty_input"], fallback="empty_fallback",
@@ -1028,25 +1028,25 @@ True
 ...     backend=backend,
 ... )
 >>> nonempty_tables["selected_nonempty"] is nonempty_input
-True
+# True
 >>> with TemporaryDirectory() as folder:
 ...     path = Path(folder) / "table_mapping.json"
 ...     payload = [record.model_dump(mode="json", by_alias=True, exclude_unset=True) for record in records]
 ...     path.write_text(json.dumps(payload), encoding="utf-8") > 0
 ...     tables = assemble_tables({}, mapping_path=path, backend=backend)
-True
+# True
 >>> rows = list(tables["energy"].iter_rows())
 >>> [(row["resource"], row["metric"], row["amount"], row["unit"]) for row in rows]
-[('solar', 'available', 16.0, 'MW'), ('solar', 'capacity', 20.0, 'MW'), ('wind', 'available', 5.0, 'MW'), ('wind', 'capacity', 10.0, 'MW')]
+# [('solar', 'available', 16.0, 'MW'), ('solar', 'capacity', 20.0, 'MW'), ('wind', 'available', 5.0, 'MW'), ('wind', 'capacity', 10.0, 'MW')]
 >>> [row["ratio"] for row in rows]
-[0.85, 0.85, 0.7, 0.7]
+# [0.85, 0.85, 0.7, 0.7]
 >>> copied = assemble_table_records(
 ...     tables,
 ...     [TableMappingRecord(name="copied_base", source="base", operations=[])],
 ...     backend=backend,
 ... )
 >>> list(copied["copied_base"].iter_rows())
-[{'plant': 'wind_1', 'region': 'west', 'capacity': 10.0, 'factor': None, 'backup': 0.5, 'reserve': 2.0, 'year': 2032}]
+# [{'plant': 'wind_1', 'region': 'west', 'capacity': 10.0, 'factor': None, 'backup': 0.5, 'reserve': 2.0, 'year': 2032}]
 ```
 
 `assemble_tables` loads one JSON mapping file. `assemble_table_records` accepts
@@ -1120,7 +1120,7 @@ from a missing column in a present file. Other present columns remain available
 with their reader-provided types. Names are exact, including punctuation. A
 blank native header must be renamed to a nonempty output name. Renames must not
 collide with another output column. CSV declarations also guide reader schema
-inference so a late fractional value is not mis-inferred as an integer. Native
+inference so a late fractional value is not incorrectly inferred as an integer. Native
 floating-point columns declared as int64 are rejected rather than silently
 truncated, including values read from HDF5.
 

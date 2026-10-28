@@ -24,7 +24,7 @@ attached before a later failure are not rolled back.
 ...     name="prepared",
 ... )
 >>> prepared.name
-'prepared'
+# 'prepared'
 ```
 
 ## Parser basics
@@ -73,7 +73,7 @@ the CSV input, validates component instances, and adds them to the `System`.
 ...     system = build_system(config, name="parsed", input_folder=root)
 ...     generators = tuple(system.get_components(Generator))
 ...     len(generators), generators[0].name, generators[0].capacity_mw
-(1, 'Alpha', 100.0)
+# (1, 'Alpha', 100.0)
 ```
 
 When target field names match source column names, explicit mappings can be
@@ -86,7 +86,7 @@ For an uncommon physical format, register an application `FileReader` and its
 symbolic `reader.format` in `file_mapping.json`. The reader returns named typed
 sources; core still handles all configured output and attachment work. See
 [Custom readers and typed sources](/r2x-core/how-tos/custom-readers-and-backends/)
-and the [illustrative RAW example](https://github.com/NatLabRockies/r2x-core/tree/main/docs/examples/psse-raw).
+and the [illustrative RAW example](https://github.com/NatLabRockies/r2x-core/tree/main/examples/psse-raw).
 That example uses an invented CSV-like grammar, not actual PSS/E RAW syntax.
 
 ## Working with systems

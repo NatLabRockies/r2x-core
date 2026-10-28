@@ -1,13 +1,33 @@
 """Regression checks for the Sphinx-to-Starlight link boundary."""
 
 import re
+import runpy
 import unittest
 from functools import partial
+from pathlib import Path
 
-from generate_api import SphinxContents, link_code_names, rewrite_link
+from scripts.generate_api import SphinxContents, link_code_names, rewrite_link
+
+SPHINX_CONFIG = runpy.run_path(str(Path(__file__).resolve().parents[1] / "scripts/sphinx/conf.py"))
 
 
 class ApiLinksTest(unittest.TestCase):
+    def test_sphinx_configuration_maps_external_api_inventories(self) -> None:
+        mappings = SPHINX_CONFIG["intersphinx_mapping"]
+        self.assertIn("sphinx.ext.intersphinx", SPHINX_CONFIG["extensions"])
+        self.assertEqual(mappings["python"], ("https://docs.python.org/3", None))
+        self.assertEqual(mappings["infrasys"], ("https://natlabrockies.github.io/infrasys/", None))
+        self.assertEqual(mappings["pydantic"], ("https://docs.pydantic.dev/latest/", None))
+
+    def test_linkcode_skips_installed_dependency_sources(self) -> None:
+        linkcode_resolve = SPHINX_CONFIG["linkcode_resolve"]
+        self.assertIsNone(linkcode_resolve("py", {"module": "rust_ok", "fullname": "Ok"}))
+
+    def test_linkcode_targets_repository_source(self) -> None:
+        link = SPHINX_CONFIG["linkcode_resolve"]("py", {"module": "r2x_core.system", "fullname": "System"})
+        self.assertIsNotNone(link)
+        self.assertIn("/src/r2x_core/system.py#L", link)
+
     def test_contents_preserve_section_class_and_member_anchors(self) -> None:
         parser = SphinxContents()
         parser.feed(

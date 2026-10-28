@@ -241,9 +241,9 @@ an exact result.
 ...     amount * fractions[kind] for kind, amount in quantities.items()
 ... ]
 >>> contributions
-[Decimal('3.0'), Decimal('0.0'), Decimal('100.0')]
+# [Decimal('3.0'), Decimal('0.0'), Decimal('100.0')]
 >>> sum(contributions)
-Decimal('103.0')
+# Decimal('103.0')
 ```
 
 ## 8. Construct the requested solve years

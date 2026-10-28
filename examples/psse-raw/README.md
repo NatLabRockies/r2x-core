@@ -10,7 +10,7 @@ case and does not claim PSS/E compatibility.
 Run from the repository root with the existing environment:
 
 ```bash
-UV_NO_SYNC=1 uv run --no-sync python docs/examples/psse-raw/run.py
+uv run --no-sync python examples/psse-raw/run.py
 ```
 
 The reader decodes `BUS` and `GEN` records into named tables. `file_mapping.json`

@@ -28,7 +28,7 @@ Existing directives under `source/references/` remain the source of truth for AP
 Autodoc, Napoleon, and autodoc-pydantic preserve Python signatures, field types and defaults, returns, errors, inherited contracts, and examples.
 Replacing these with hand-maintained contracts would duplicate source and lose coverage.
 
-`generate_api.py` builds JSON in `build/api-json/`, then wraps each reference body in generated Starlight content under `src/content/docs/references/`.
+`../scripts/generate_api.py` builds JSON in `build/api-json/`, then wraps each reference body in generated Starlight content under `src/content/docs/references/`.
 It resolves relative links into Astro routes and retains API anchor IDs.
 The Sphinx contents tree also generates `src/generated/api-toc.json`; Starlight route middleware uses it for the native desktop sidebar and mobile contents dropdown. Do not hand-maintain a second member list.
 Implementation links are pinned to the build checkout's Git commit.
@@ -46,7 +46,7 @@ Its deployment condition, branch, token, and permissions are preserved; running 
 
 ## Executable examples and branding
 
-`examples/csv-system/` is the small input-to-artifact workflow used by the getting-started tutorial.
+The repository-root `examples/csv-system/` directory contains the small input-to-artifact workflow used by the getting-started tutorial.
 Run its build and inspection scripts from that directory with the root project environment.
 The negative-input case is expected to fail validation before export.
 The source SVGs under `src/assets/` are the shared R2X light/dark and square marks; the header keeps the package title visible and uses R2X's sizing and theme colors.

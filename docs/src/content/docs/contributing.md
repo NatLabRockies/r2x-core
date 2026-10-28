@@ -73,13 +73,14 @@ npm run preview
 
 Add new content to the documentation:
 
-1. Create or edit Markdown pages in `docs/src/content/docs/`; API extraction inputs remain in `docs/source/references/`
-2. Update the sidebar in `docs/astro.config.mjs` if adding new sections
-3. Build and preview locally:
-   ```console
-   mise run docs
+1. Create or edit Markdown pages in `docs/src/content/docs/`; API extraction inputs remain in
+   `docs/source/references/`.
+2. Update the sidebar in `docs/astro.config.mjs` if adding new sections.
+3. Run the documentation examples:
+   ```bash
+   uv run --locked pytest --no-cov -q tests/test_docs_doctest.py
    ```
-4. Check that links and references work correctly
+4. Build and preview locally with `mise run docs`, then check that links and references work.
 
 ## Contributing Guidelines
 
@@ -119,14 +120,25 @@ Report bugs or request features:
 
 Follow documentation standards:
 
-1. Use standard Markdown with Starlight frontmatter. Mark runnable examples with `python doctest` fences and verify their output.
-2. Follow Diataxis principles:
+1. Use standard Markdown with Starlight frontmatter. Mark runnable Python examples with
+   `python doctest` fences.
+2. Keep each example self-contained. Use `>>>` for inputs and prefix every expected-output
+   line with `# ` so the result remains a Python comment when copied. Prefix every line of
+   multi-line output too.
+
+   ```python doctest
+   >>> total = 2 + 2
+   >>> total
+   # 4
+   ```
+
+   The documentation test runner checks the commented expectation. Use an `assert` when a displayed result is unnecessary.
+3. Follow Diataxis principles:
    - **How-tos**: Goal-oriented guides
    - **Tutorials**: Learning-oriented lessons
    - **Reference**: Information-oriented details
    - **Explanation**: Understanding-oriented discussion
-3. Include code examples where appropriate
-4. Test documentation builds locally before submitting
+4. Include code examples where appropriate and run the documentation doctests and build before submitting.
 
 ## Git Conventions
 

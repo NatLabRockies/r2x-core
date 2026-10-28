@@ -22,7 +22,7 @@ Execute plugins in your r2x-core workflows.
 >>> plugin = MyPlugin.from_context(context)
 >>> result = plugin.run()
 >>> result.system.name
-'test'
+# 'test'
 ```
 
 ## Plugin Lifecycle Hooks

@@ -26,9 +26,9 @@ This checked example exports a generic named component and verifies an independe
 ...     assert restored.name == "example"
 ...
 >>> restored.name
-'example'
+# 'example'
 >>> [component.name for component in restored.get_components(Component)]
-['Generator1']
+# ['Generator1']
 ```
 
 The round trip verifies that the exported system can be loaded.

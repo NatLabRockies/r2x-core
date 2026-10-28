@@ -124,7 +124,13 @@ def plan_source_assembly(
     initial_sources: Mapping[str, DecodedSource],
     initial_table_names: set[str],
 ) -> list[AssemblyNode]:
-    """Validate a cross-boundary source graph and return a stable execution order."""
+    """Validate a cross-boundary source graph and return a stable execution order.
+
+    See Also
+    --------
+    :meth:`~r2x_core.DataReader.read_and_assemble_sources` : Read inputs and assemble a table graph.
+    :doc:`data-workflow` : Source loading and cross-boundary assembly.
+    """
     file_names = [data_file.name for data_file in data_files]
     table_names = [record.name for record in table_records]
     if len(set(file_names)) != len(file_names):
@@ -159,6 +165,25 @@ def plan_source_assembly(
     table_indices = {name: index for index, name in enumerate(table_names)}
 
     def resolve_source(source_name: str, /, *, consumer: str) -> AssemblyNode | None:
+        """Resolve a dependency name to its configured file or table producer.
+
+        Parameters
+        ----------
+        source_name : str
+            Referenced source name.
+        consumer : str
+            File or table declaration that references the source.
+
+        Returns
+        -------
+        AssemblyNode or None
+            The producing file or table, or ``None`` for an initial source.
+
+        Raises
+        ------
+        ValueError
+            If the source is not initial or declared in either mapping.
+        """
         if source_name in initial_names:
             return None
         if source_name in table_indices:
@@ -440,6 +465,11 @@ class DataReader:
         before any input is opened. File batches share one decode cache, and
         ``initial_tables`` supplies explicitly preassembled table outputs.
         ``read_data_files`` retains its declaration-ordered, single-phase rules.
+
+        See Also
+        --------
+        :meth:`~r2x_core.DataReader.read_and_assemble_records` : Assemble an already-loaded mapping snapshot.
+        :doc:`data-workflow` : Source loading and cross-boundary assembly.
         """
         records = load_table_mapping(mapping_path)
         return self.read_and_assemble_records(
@@ -464,7 +494,14 @@ class DataReader:
         initial_sources: Mapping[str, DecodedSource] | None = None,
         initial_tables: Mapping[str, TabularSource] | None = None,
     ) -> DecodedSources:
-        """Schedule inputs and table records against one validated mapping snapshot."""
+        """Schedule inputs and table records against one validated mapping snapshot.
+
+        See Also
+        --------
+        :meth:`~r2x_core.DataReader.read_and_assemble_sources` : Load table records from a mapping file.
+        :doc:`data-workflow` : Source loading and cross-boundary assembly.
+        :doc:`table-mapping` : Table mapping configuration and assembly.
+        """
         records = TypeAdapter(list[TableMappingRecord]).validate_python(records)
         raw_files = tuple(data_files)
         configured_files = tuple(

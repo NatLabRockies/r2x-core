@@ -14,7 +14,7 @@ Use [`DataStore`](/r2x-core/references/api/) to instantiate an empty data store:
 >>> from r2x_core import DataStore
 >>> store = DataStore()
 >>> type(store).__name__
-'DataStore'
+# 'DataStore'
 ```
 
 ## Add Files to a DataStore
@@ -37,7 +37,7 @@ Use the [`add_data`](/r2x-core/references/api/) method to register data files:
 >>> store = DataStore()
 >>> store.add_data(files)
 >>> len(store.list_data())
-2
+# 2
 ```
 
 ## List Available Data Files
@@ -55,9 +55,9 @@ Check which data files are registered in the store:
 >>>
 >>> # Check registered data
 >>> "generators" in store.list_data()
-True
+# True
 >>> sorted(store.list_data())
-['generators', 'loads']
+# ['generators', 'loads']
 ```
 
 ## See Also

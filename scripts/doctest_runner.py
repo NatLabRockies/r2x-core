@@ -54,10 +54,19 @@ def run_block(code: str, *, name: str, filename: str, minimum: tuple[int, int]) 
 
 
 def _execute(code: str, *, name: str, filename: str) -> tuple[doctest.TestResults, str]:
-    test = doctest.DocTestParser().get_doctest(code, {}, name, filename, 0)
-    output = io.StringIO()
-    result = doctest.DocTestRunner(verbose=False).run(test, out=output.write)
-    return result, output.getvalue()
+    from r2x_core.getters import GETTER_REGISTRY
+
+    code = re.sub(r"(?m)^# (.*)$", r"\1", code)
+    original_getters = GETTER_REGISTRY.copy()
+    GETTER_REGISTRY.clear()
+    try:
+        test = doctest.DocTestParser().get_doctest(code, {}, name, filename, 0)
+        output = io.StringIO()
+        result = doctest.DocTestRunner(verbose=False).run(test, out=output.write)
+        return result, output.getvalue()
+    finally:
+        GETTER_REGISTRY.clear()
+        GETTER_REGISTRY.update(original_getters)
 
 
 if __name__ == "__main__":

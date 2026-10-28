@@ -64,7 +64,7 @@ allowing flexible reporting.
 >>> assert natural_stored == device_stored == 0.5
 >>> # Expected: normalized and absolute values match the declared unit contracts.
 >>> natural_stored, device_stored
-(0.5, 0.5)
+# (0.5, 0.5)
 ```
 
 > Important: Internal storage is always in device-base per-unit. Display modes (device-base, natural units, system-base) affect only the string representation when printing or generating reports. Calculations always operate on the consistent internal representation.
@@ -96,7 +96,7 @@ errors during calculation.
 >>> assert gen1.p_max == gen2.p_max == 0.8
 >>> # Expected: normalized and absolute values match the declared unit contracts.
 >>> gen1.p_max, gen2.p_max
-(0.8, 0.8)
+# (0.8, 0.8)
 ```
 
 The base field must also carry a `Unit` annotation. Numeric per-unit input is
@@ -132,7 +132,7 @@ they need.
 >>> system = System(system_base=100.0)
 >>> system.add_components(gen)
 >>> gen.system_base
-100.0
+# 100.0
 ```
 
 > Tip: Use `HasUnits` for standalone components that don't need system integration. Use `HasPerUnit` when components will be added to a `System` and need system-base display capabilities.
@@ -166,7 +166,7 @@ stores per-unit values calculated relative to that base.
 >>> assert bus.p_mva == 0.5
 >>> # Expected: normalized and absolute values match the declared unit contracts.
 >>> bus.p_mva, bus.voltage_kv
-(0.5, 138.0)
+# (0.5, 138.0)
 ```
 
 The specification integrates with Pydantic's validation system through the

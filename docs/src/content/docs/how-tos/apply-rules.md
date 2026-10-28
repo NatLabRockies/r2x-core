@@ -21,7 +21,7 @@ Capture statistics about rule application:
 ...     error=None
 ... )
 >>> result.converted
-10
+# 10
 >>> translation = TranslationResult(
 ...     total_rules=1,
 ...     successful_rules=1,
@@ -32,9 +32,9 @@ Capture statistics about rule application:
 ...     time_series_updated=0
 ... )
 >>> translation.success
-True
+# True
 >>> translation.total_converted
-10
+# 10
 ```
 
 ## Apply All Rules
@@ -55,9 +55,9 @@ It tests the executor with generic components rather than requiring an external 
 >>> result = apply_rules_to_context(context)
 >>> # Expected: one rule successfully converts one generic component.
 >>> result.success, result.total_converted
-(True, 1)
+# (True, 1)
 >>> sorted(item.name for item in target.get_components(Component))
-['Alpha']
+# ['Alpha']
 ```
 
 ## Apply Single Rule
@@ -75,9 +75,9 @@ Use `apply_single_rule()` to apply one rule:
 >>> result = apply_single_rule(rule, context=context)
 >>> # Expected: the single-rule result records one constructed component.
 >>> result.unwrap().converted
-1
+# 1
 >>> sorted(item.name for item in target.get_components(Component))
-['Alpha']
+# ['Alpha']
 ```
 
 ## Attachment rollback

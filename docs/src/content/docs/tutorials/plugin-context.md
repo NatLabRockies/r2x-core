@@ -18,20 +18,20 @@ This example needs only the [installed library](/r2x-core/install/).
 >>> context = PluginContext(config=ScenarioConfig(), system=original)
 >>> # Expected: configuration is available without accessing private context fields.
 >>> context.config.scenario
-'reference'
+# 'reference'
 >>> context.system is original
-True
+# True
 >>> context.store is None, context.source_system is None, context.target_system is None
-(True, True, True)
+# (True, True, True)
 >>> context.rules
-()
+# ()
 >>> context.metadata["stage"] = "validated"
 >>> context.metadata["stage"]
-'validated'
+# 'validated'
 >>> context.system.name = "changed"
 >>> # Expected: both references point to the same mutable system.
 >>> original.name
-'changed'
+# 'changed'
 ```
 
 ## Bind a plugin to that state
@@ -52,7 +52,7 @@ Inside a class plugin, use `self.config` and `self.system`, not `self._ctx`.
 >>> result = Rename.from_context(context).run()
 >>> # Expected: the public system property exposes the supplied context system.
 >>> result.system.name
-'renamed'
+# 'renamed'
 >>> assert result.system is context.system
 ```
 

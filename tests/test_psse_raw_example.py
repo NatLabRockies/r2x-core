@@ -9,7 +9,7 @@ import pytest
 
 from r2x_core import InputColumn, PluginConfig, ReaderConfig, build_system
 
-EXAMPLE = Path(__file__).parents[1] / "docs" / "examples" / "psse-raw"
+EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "psse-raw"
 
 
 @pytest.mark.polars

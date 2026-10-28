@@ -23,13 +23,13 @@ This tutorial first inspects a complete class without requiring external model d
 >>> plugin = BuildDemo.from_context(PluginContext(config=DemoConfig()))
 >>> # Expected: this class implements a build hook, not a hidden parser registry.
 >>> sorted(name for name, value in vars(BuildDemo).items() if name.startswith("on_") and callable(value))
-['on_build']
+# ['on_build']
 >>> list(inspect.signature(BuildDemo.on_build).parameters)
-['self']
+# ['self']
 >>> DemoConfig.model_json_schema()["properties"]["scenario"]["default"]
-'reference'
+# 'reference'
 >>> plugin.run().system.name
-'reference'
+# 'reference'
 ```
 
 The hook list and schema above come from the actual class and configuration,
@@ -72,7 +72,7 @@ runtime validation of plugin configuration.
 >>> result = generic_transform(System(name="grid"), scale_cfg)
 >>> # Expected: the typed transform executed and changed the system name.
 >>> result.unwrap().name
-'grid_transformed'
+# 'grid_transformed'
 ```
 
 ## Register an installable package

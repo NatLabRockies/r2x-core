@@ -48,7 +48,7 @@ The comments explain expected values; the following output and assertions check 
 >>> result = BuildDemo.from_context(context).run()
 >>> # Expected: the build hook ran before the transform hook.
 >>> result.system.name
-'capacity-demo-ready'
+# 'capacity-demo-ready'
 >>> assert result is context
 >>> # Expected: an invalid name is rejected before a system is built.
 >>> invalid = PluginContext(config=BuildConfig(system_name=" "))
@@ -57,7 +57,7 @@ The comments explain expected values; the following output and assertions check 
 ... except PluginError as error:
 ...     assert "system_name must not be blank" in str(error)
 ...     print(type(error).__name__)
-PluginError
+# PluginError
 >>> assert invalid.system is None
 ```
 

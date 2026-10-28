@@ -19,7 +19,7 @@ Compare the version with the [installed release's source tags](https://github.co
 Install the dependency in the intended project using [Installation](/r2x-core/install/); rename a shadowing local module if that is the cause.
 Repeat the command and [first-use check](/r2x-core/getting-started/verify/) before retrying the application.
 
-For `ModuleNotFoundError: tutorial_model` during reload, run the example from `docs/examples/csv-system`, where that module lives.
+For `ModuleNotFoundError: tutorial_model` during reload, run the example from `examples/csv-system`, where that module lives.
 For another model, install its component-defining package in the loading environment. Installing core alone cannot supply those classes.
 
 ## “Path does not exist” or a data name is absent from the store
@@ -46,7 +46,7 @@ This self-contained check shows an existing but empty root:
 ...
 >>> # Expected: the empty example store resolves its root but has no registered inputs.
 >>> root_matches, names
-(True, [])
+# (True, [])
 ```
 
 A name missing from `list_data()` is absent from the mapping configuration; register its actual `DataFile` before reading it.

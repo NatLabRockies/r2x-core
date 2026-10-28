@@ -14,7 +14,7 @@ Use semantic versioning (MAJOR.MINOR.PATCH) to manage versions based on the natu
 >>> from r2x_core import SemanticVersioningStrategy
 >>> strategy = SemanticVersioningStrategy()
 >>> type(strategy).__name__
-'SemanticVersioningStrategy'
+# 'SemanticVersioningStrategy'
 ```
 
 ## Create a Git-Based Versioning Strategy
@@ -26,7 +26,7 @@ Track versions using Git tags and commit hashes:
 >>> commits = ["abc123", "def456", "ghi789"]
 >>> strategy = GitVersioningStrategy(commits)
 >>> type(strategy).__name__
-'GitVersioningStrategy'
+# 'GitVersioningStrategy'
 ```
 
 ## Work with Version Strategies
@@ -41,9 +41,9 @@ Both strategies implement the [`VersionStrategy`](/r2x-core/references/api/) int
 >>>
 >>> # Both implement the same interface
 >>> isinstance(semantic, VersionStrategy)
-True
+# True
 >>> isinstance(git, VersionStrategy)
-True
+# True
 ```
 
 ## See Also

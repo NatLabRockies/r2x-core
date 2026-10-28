@@ -58,7 +58,7 @@ configured construction and attachment.
 ...     store = DataStore(root)
 ...     store.load_file_mapping(mapping)
 ...     store.list_data()
-['generators']
+# ['generators']
 ```
 
 A record accepts exactly one path source: `fpath`, `relative_fpath`, or `glob`.

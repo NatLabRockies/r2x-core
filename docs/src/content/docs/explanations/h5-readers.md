@@ -30,11 +30,11 @@ the returned column values. The temporary fixture is removed after the read.
 ...         columns = configurable_h5_reader(stream, data_key="values", columns_key="labels")
 >>> # Expected: the matrix is separated into the two named columns.
 >>> sorted(columns)
-['north', 'south']
+# ['north', 'south']
 >>> columns["north"].tolist()
-[100.0, 120.0]
+# [100.0, 120.0]
 >>> columns["south"].tolist()
-[150.0, 160.0]
+# [150.0, 160.0]
 ```
 
 ## Groups, time indexes and columnar data

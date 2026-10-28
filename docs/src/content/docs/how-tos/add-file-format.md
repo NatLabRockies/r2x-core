@@ -11,7 +11,7 @@ string.
 ```python doctest
 >>> from r2x_core import DecodedSource, DecodedSources, FileReader, ReaderConfig
 >>> DecodedSource.__name__, FileReader.__name__, ReaderConfig.__name__
-('DecodedSource', 'FileReader', 'ReaderConfig')
+# ('DecodedSource', 'FileReader', 'ReaderConfig')
 ```
 
 `DecodedSources` is a mapping from application-defined source names to
@@ -23,7 +23,7 @@ implement `DecodedSource` directly. Pair processing with the payload through
 
 The source loader, named transformations, and construction workflow remain
 shared. See [Custom readers and typed sources](/r2x-core/how-tos/custom-readers-and-backends/)
-and the [runnable illustrative RAW example](https://github.com/NatLabRockies/r2x-core/tree/main/docs/examples/psse-raw).
+and the [runnable illustrative RAW example](https://github.com/NatLabRockies/r2x-core/tree/main/examples/psse-raw).
 The example grammar is deliberately invented and is not PSS/E RAW compatibility.
 
 A new built-in format is appropriate only when the same reader and semantics

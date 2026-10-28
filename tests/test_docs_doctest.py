@@ -18,11 +18,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from doctest_runner import minimum_python, run_block
+
+from scripts.doctest_runner import minimum_python, run_block
 
 DOCS_ROOT = Path(__file__).resolve().parents[1] / "docs"
 FENCE_RE = re.compile(r"^(```|~~~)\s*([^\n`]*)?$")
-DOCTEST_PROMPT_RE = re.compile(r"^\s*>>> ")
+DOCTEST_PROMPT_RE = re.compile(r"^\s*>>> ?")
+DOCTEST_CONTINUATION_RE = re.compile(r"^\s*\.\.\. ?")
 
 
 @dataclass(frozen=True)
@@ -111,6 +113,44 @@ def extract_doctest_lines(block_lines: list[str]) -> list[str]:
             result.append(line)
 
     return result
+
+
+def test_comment_prefixed_expectations_are_compared() -> None:
+    correct = run_block(">>> 2 + 2\n# 4", name="commented_output", filename=__file__, minimum=(3, 11))
+    incorrect = run_block(">>> 2 + 2\n# 5", name="incorrect_output", filename=__file__, minimum=(3, 11))
+
+    assert correct.failed == 0
+    assert incorrect.failed == 1
+
+
+def test_getter_registrations_are_isolated_between_blocks() -> None:
+    code = "\n".join(
+        (
+            ">>> from r2x_core import getter",
+            ">>> @getter",
+            "... def extract_name(component):",
+            "...     return component.name",
+            ">>> extract_name.__name__",
+            "# 'extract_name'",
+        )
+    )
+
+    for index in range(2):
+        result = run_block(code, name=f"getter_registry_{index}", filename=__file__, minimum=(3, 11))
+        assert result.failed == 0
+
+
+def test_documentation_expectations_are_copyable() -> None:
+    violations: list[str] = []
+    for path in sorted(DOCS_ROOT.rglob("*.md")):
+        for block in extract_doctest_blocks(path):
+            for line in block.text.splitlines():
+                if not line.strip() or DOCTEST_PROMPT_RE.match(line) or DOCTEST_CONTINUATION_RE.match(line):
+                    continue
+                if not line.startswith("# "):
+                    violations.append(f"{path}:{block.start_line}: {line!r}")
+
+    assert not violations, "Doctest expected output must be prefixed with '# ':\n" + "\n".join(violations)
 
 
 def run_doctest_block(block: DocBlock, block_index: int) -> tuple[int, int]:

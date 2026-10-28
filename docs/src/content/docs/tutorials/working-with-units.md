@@ -36,7 +36,7 @@ calculated.
 ...     output=0.85
 ... )
 >>> print(gen.name)
-Coal Plant 1
+# Coal Plant 1
 ```
 
 The `output` field stores the value in per-unit normalized to `base_power`.
@@ -69,7 +69,7 @@ Core tracks and converts accordingly.
 ...     tap_position=1.05
 ... )
 >>> print(tx.name)
-Main TX
+# Main TX
 ```
 
 ## Step 3: Change Display Modes
@@ -82,7 +82,7 @@ calculations. The `UnitSystem` controls how values are presented to users.
 >>>
 >>> current = get_unit_system()
 >>> print(type(current).__name__)
-UnitSystem
+# UnitSystem
 >>>
 >>> set_unit_system(UnitSystem.DEVICE_BASE)
 ```
@@ -111,7 +111,7 @@ management.
 ...     reactive_power=0.3
 ... )
 >>> print(load.name)
-Load 1
+# Load 1
 ```
 
 ## Inspect the serialized generator
@@ -144,21 +144,21 @@ The following self-contained check recreates that same generator:
 >>> fields = {"name", "base_power", "rated_voltage", "output"}
 >>> snapshot = gen.model_dump(include=fields)
 >>> snapshot
-{'name': 'Coal Plant 1', 'base_power': 500.0, 'rated_voltage': 22.0, 'output': 0.85}
+# {'name': 'Coal Plant 1', 'base_power': 500.0, 'rated_voltage': 22.0, 'output': 0.85}
 >>> json_text = gen.model_dump_json(include=fields, indent=2)
 >>> print(json_text)
-{
-  "name": "Coal Plant 1",
-  "base_power": 500.0,
-  "rated_voltage": 22.0,
-  "output": 0.85
-}
+# {
+#   "name": "Coal Plant 1",
+#   "base_power": 500.0,
+#   "rated_voltage": 22.0,
+#   "output": 0.85
+# }
 >>> json.loads(json_text) == snapshot
-True
+# True
 >>> snapshot["output"] * snapshot["base_power"]
-425.0
+# 425.0
 >>> Generator.model_fields["output"].metadata
-[UnitSpec(unit='pu', base='base_power')]
+# [UnitSpec(unit='pu', base='base_power')]
 ```
 
 Neither representation expands these fields into `{value, unit}` objects.

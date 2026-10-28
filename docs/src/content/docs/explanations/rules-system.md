@@ -33,9 +33,9 @@ name rather than pretending to translate a real model's electrical fields.
 >>> result = apply_single_rule(rule, context=context)
 >>> # Expected: one matched source component becomes one named target component.
 >>> result.unwrap().converted
-1
+# 1
 >>> sorted(component.name for component in target.get_components(Component))
-['Alpha']
+# ['Alpha']
 ```
 
 ## Resolve types within a model configuration

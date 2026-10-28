@@ -21,7 +21,9 @@ class Page(HTMLParser):
 
 class LegacyFragmentsTest(unittest.TestCase):
     def test_bookmarks_reach_final_anchors(self) -> None:
-        root = Path(__file__).parent / "dist"
+        root = Path(__file__).resolve().parents[1] / "docs/dist"
+        if not (root / "index.html").is_file():
+            self.skipTest("Build the documentation site before checking legacy fragments")
         bookmarks = {
             "install": (
                 "python-version-support",

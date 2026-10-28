@@ -55,7 +55,7 @@ package instead of this checkout.
 1. Identify the symbol and matching focused reference file.
 2. Inspect the installed/project source for signatures, defaults, and return
    type behavior.
-3. Use docs/examples only for intent and worked usage.
+3. Use the repository-root `examples/` directory only for intent and worked usage.
 4. If docs and source disagree, trust source and report the mismatch.
 5. In the handoff, name the decisive module or reference consulted.
 6. For logging work, inspect `src/r2x_core/logger.py` and

@@ -35,11 +35,11 @@ distinct. Literal and mapped feature names cannot overlap. `context`, `self`, an
 ...     owners=[ComponentOwner(component_type="Bus", name_field="bus_name")],
 ... )
 >>> load.owners[0].name_field
-'bus_name'
+# 'bus_name'
 >>> load.metadata["enabled"]
-False
+# False
 >>> load.metadata_columns["weather_year"]
-'weather_year'
+# 'weather_year'
 ```
 
 A regular axis uses `initial_timestamp` and a positive
@@ -65,9 +65,9 @@ and replacement behavior.
 ```python doctest
 >>> from r2x_core import replace_single_time_series, transfer_time_series_metadata
 >>> replace_single_time_series.__doc__.splitlines()[0]
-'Replace exactly one time series association without removing shared data.'
+# 'Replace exactly one time series association without removing shared data.'
 >>> transfer_time_series_metadata.__doc__.splitlines()[0]
-'Transfer time series metadata for target system.'
+# 'Transfer time series metadata for target system.'
 ```
 
 See [Build a parser](/r2x-core/how-tos/build-parsers/),

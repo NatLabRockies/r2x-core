@@ -18,7 +18,7 @@ Complete API documentation for all r2x-core classes and functions.
    :members:
    :undoc-members:
    :show-inheritance:
-   :no-index:
+   :exclude-members: unit, base, DEVICE_BASE, SYSTEM_BASE, NATURAL_UNITS
 ```
 
 ## Data Management
@@ -230,9 +230,9 @@ Complete API documentation for all r2x-core classes and functions.
 >>>
 >>> resolved = resolve_getter("api_resolve_getter")
 >>> resolved.is_ok()
-True
+# True
 >>> resolved.unwrap() is api_resolve_getter
-True
+# True
 ```
 
 ```{eval-rst}

@@ -20,11 +20,11 @@ A [`Rule`](/r2x-core/references/api/) defines how to convert components from one
 ...     field_map={"name": "name", "kv_rating": "voltage_kv"},
 ... )
 >>> rule.source_type
-'BusComponent'
+# 'BusComponent'
 >>> rule.target_type
-'NodeComponent'
+# 'NodeComponent'
 >>> rule.version
-1
+# 1
 ```
 
 The `version` field supports schema evolution. When source or target formats change, you can create new rule versions while maintaining compatibility with older data.
@@ -44,7 +44,7 @@ When source components may be missing certain fields, the `defaults` parameter p
 ...     defaults={"zone": "unspecified"},
 ... )
 >>> rule.defaults
-{'zone': 'unspecified'}
+# {'zone': 'unspecified'}
 ```
 
 Defaults are applied only when the source component lacks the specified field. If the source has a value, it takes precedence over the default.
@@ -61,7 +61,7 @@ A rule can create a primary component and supplemental attributes from the same 
 ...     field_map={"location_name": "zone"},
 ... )
 >>> output.target_type
-'BusGeographicInfo'
+# 'BusGeographicInfo'
 
 >>> rule = Rule(
 ...     source_type="BusComponent",
@@ -129,9 +129,9 @@ JSON examples.
 ...     filter=active,
 ... )
 >>> rule.filter.kind
-'field'
+# 'field'
 >>> rule.filter.field
-'status'
+# 'status'
 ```
 
 ## Create Rules from Records
@@ -157,9 +157,9 @@ The [`from_records`](/r2x-core/references/api/) class method creates rules from 
 ... ]
 >>> rules = Rule.from_records(records)
 >>> len(rules)
-2
+# 2
 >>> rules[0].source_type
-'Bus'
+# 'Bus'
 ```
 
 The method validates each record and raises :exc:`~pydantic.ValidationError` if required fields are missing or have invalid types.
@@ -176,7 +176,7 @@ The method validates each record and raises :exc:`~pydantic.ValidationError` if 
 ...     rule.version = 2
 ... except Exception as e:
 ...     "FrozenInstanceError" in type(e).__name__
-True
+# True
 ```
 
 If you need a modified rule, create a new instance with the changed values. This explicit approach makes changes visible and prevents accidental mutation.
@@ -191,13 +191,13 @@ If you need a modified rule, create a new instance with the changed values. This
 >>> # Single source, multiple targets
 >>> rule = Rule(source_type="Gen", target_type=["Thermal", "Renewable"], version=1)
 >>> rule.get_source_types()
-['Gen']
+# ['Gen']
 >>> rule.get_target_types()
-['Thermal', 'Renewable']
+# ['Thermal', 'Renewable']
 >>> rule.has_multiple_targets()
-True
+# True
 >>> rule.has_multiple_sources()
-False
+# False
 ```
 
 Multiple targets are useful when a single source component should create multiple target components, such as splitting a combined generator into separate thermal and renewable units.
@@ -219,9 +219,9 @@ The [`apply_rules_to_context`](/r2x-core/references/api/) function returns a [`T
 ...     error=None,
 ... )
 >>> result.converted
-10
+# 10
 >>> result.success
-True
+# True
 
 >>> # TranslationResult aggregates all rule results
 >>> translation = TranslationResult(
@@ -234,9 +234,9 @@ True
 ...     time_series_updated=2,
 ... )
 >>> translation.success
-True
+# True
 >>> translation.total_converted
-10
+# 10
 ```
 
 The [`summary`](/r2x-core/references/api/) method prints a formatted table of results, useful for logging and debugging translation workflows.
@@ -259,9 +259,9 @@ It tests the executor with generic components rather than requiring an external 
 >>> result = apply_rules_to_context(context)
 >>> # Expected: one rule successfully converts one generic component.
 >>> result.success, result.total_converted
-(True, 1)
+# (True, 1)
 >>> sorted(item.name for item in target.get_components(Component))
-['Alpha']
+# ['Alpha']
 ```
 
 ## Apply a Single Rule
@@ -279,9 +279,9 @@ Apply one rule at a time using [`apply_single_rule`](/r2x-core/references/api/):
 >>> result = apply_single_rule(rule, context=context)
 >>> # Expected: the single-rule result records one constructed component.
 >>> result.unwrap().converted
-1
+# 1
 >>> sorted(item.name for item in target.get_components(Component))
-['Alpha']
+# ['Alpha']
 ```
 
 ## See Also

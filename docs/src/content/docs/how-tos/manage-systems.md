@@ -16,7 +16,7 @@ A [`System`](/r2x-core/references/api/) represents a power system model containi
 >>> system.add_component(Component(name="comp2"))
 >>> records = components_to_records(system)
 >>> len(records)
-2
+# 2
 ```
 
 ## Filter Components By Type
@@ -36,7 +36,7 @@ A [`System`](/r2x-core/references/api/) represents a power system model containi
 ...     filter_func=lambda c: isinstance(c, Generator)
 ... )
 >>> len(gen_records)
-1
+# 1
 ```
 
 ## Select Specific Fields
@@ -55,7 +55,7 @@ A [`System`](/r2x-core/references/api/) represents a power system model containi
 ...     fields=["name", "voltage"]
 ... )
 >>> len(records[0])
-2
+# 2
 ```
 
 ## Export Components To CSV
@@ -71,7 +71,7 @@ A [`System`](/r2x-core/references/api/) represents a power system model containi
 ...     path = Path(tmpdir) / "output.csv"
 ...     export_components_to_csv(system, file_path=path)
 ...     path.exists()
-True
+# True
 ```
 
 ## Validate a component manually
@@ -89,7 +89,7 @@ application does not own a construction loop.
 >>> system = System(name="manual-edit")
 >>> system.add_component(bus)
 >>> system.get_component(Bus, "north").base_kv
-230.0
+# 230.0
 ```
 
 ## See Also

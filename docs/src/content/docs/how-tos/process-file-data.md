@@ -19,7 +19,7 @@ that operation.
 ... ])
 >>> data_file = DataFile(name="data", relative_fpath="data.csv", proc_spec=processing)
 >>> [step.op for step in data_file.proc_spec.steps]
-['rename_columns', 'drop_columns', 'filter_columns']
+# ['rename_columns', 'drop_columns', 'filter_columns']
 ```
 
 `filter_columns` matches exact values in every listed column. Use the
@@ -41,7 +41,7 @@ before filtering:
 ...     {"op": "filter_columns", "filter_by": {"year": "{solve_year}"}},
 ... ])
 >>> [step.op for step in processing.steps]
-['unpivot_columns', 'rename_columns', 'cast_columns', 'filter_columns']
+# ['unpivot_columns', 'rename_columns', 'cast_columns', 'filter_columns']
 ```
 
 Use `unpivot` when the identifier columns should be specified explicitly. Use
@@ -55,7 +55,7 @@ single-character separator:
 >>> from r2x_core import SplitColumnSpec
 >>> split = SplitColumnSpec(separator="|", into=["year", "zone"])
 >>> split.model_dump()
-{'separator': '|', 'into': ['year', 'zone']}
+# {'separator': '|', 'into': ['year', 'zone']}
 ```
 
 ## Normalize formatted numeric values
@@ -73,7 +73,7 @@ value-family validation and supported aggregation functions.
 ...     {"op": "scale_columns", "scale": {"share": 0.01}},
 ... ])
 >>> [step.op for step in processing.steps]
-['replace_values', 'strip_characters', 'cast_columns', 'scale_columns']
+# ['replace_values', 'strip_characters', 'cast_columns', 'scale_columns']
 ```
 
 `lowercase` changes column names and string values when enabled. Place it first
@@ -86,7 +86,7 @@ if later steps use lowercase column names:
 ...     {"op": "select_columns", "select_columns": ["name"]},
 ... ])
 >>> [step.op for step in processing.steps]
-['lowercase', 'select_columns']
+# ['lowercase', 'select_columns']
 ```
 
 ## Use placeholders
@@ -103,7 +103,7 @@ error.
 ...     {"op": "scale_columns", "scale": {"capacity": "{scale_factor}"}},
 ... ])
 >>> [step.op for step in processing.steps]
-['filter_columns', 'scale_columns']
+# ['filter_columns', 'scale_columns']
 ```
 
 `fpath`, `relative_fpath`, `glob`, reader options, and processing values support
@@ -125,9 +125,9 @@ before it reads any inputs.
 ...     data_file=DataFile(name="example", relative_fpath="example.csv"),
 ... )
 >>> result.is_ok()
-True
+# True
 >>> result.value.collect().to_dicts()
-[{'name': 'alpha'}]
+# [{'name': 'alpha'}]
 ```
 
 See the [processor reference](/r2x-core/references/processors/) for the full

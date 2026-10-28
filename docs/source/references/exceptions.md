@@ -15,7 +15,7 @@ Raised when data validation fails, such as invalid file formats or missing requi
 ...     raise ValidationError(msg)
 ... except ValidationError as e:
 ...     print(f"Caught validation error: {e}")
-Caught validation error: Invalid column name: 'missing_column'
+# Caught validation error: Invalid column name: 'missing_column'
 ```
 
 ## Component Creation Errors
@@ -31,7 +31,7 @@ Raised when component creation fails, such as missing dependencies or invalid co
 ...     raise ComponentCreationError(msg)
 ... except ComponentCreationError as e:
 ...     print(f"Caught creation error: {e}")
-Caught creation error: Failed to create component: missing 'name' field
+# Caught creation error: Failed to create component: missing 'name' field
 ```
 
 ## Upgrade Errors
@@ -47,7 +47,7 @@ Raised when a system upgrade fails, such as incompatible version transitions or 
 ...     raise UpgradeError(msg)
 ... except UpgradeError as e:
 ...     print(f"Caught upgrade error: {e}")
-Caught upgrade error: Cannot upgrade from v1.0 to v3.0: missing v2.0 intermediate
+# Caught upgrade error: Cannot upgrade from v1.0 to v3.0: missing v2.0 intermediate
 ```
 
 ## CLI Errors
@@ -63,7 +63,7 @@ Raised during CLI plugin execution when command-line operations fail.
 ...     raise CLIError(msg)
 ... except CLIError as e:
 ...     print(f"Caught CLI error: {e}")
-Caught CLI error: Plugin execution failed: timeout after 30 seconds
+# Caught CLI error: Plugin execution failed: timeout after 30 seconds
 ```
 
 ## Plugin Errors
@@ -79,7 +79,7 @@ Raised during plugin execution when plugin operations fail, such as missing plug
 ...     raise PluginError(msg)
 ... except PluginError as e:
 ...     print(f"Caught plugin error: {e}")
-Caught plugin error: Plugin 'my_plugin' not found in registry
+# Caught plugin error: Plugin 'my_plugin' not found in registry
 ```
 
 ## Error Handling Best Practices

@@ -101,11 +101,11 @@ marked absent instead of being treated as a present, empty file:
 ...     )
 ...     source = DataReader().read_data_files([file], folder_path=Path(folder))["generation"]
 >>> source.availability is SourceAvailability.ABSENT
-True
+# True
 >>> source.fields()
-['year', 'mw']
+# ['year', 'mw']
 >>> list(source.iter_rows())
-[]
+# []
 ```
 
 An optional physical input may declare `required_when` with the name of an

@@ -28,9 +28,9 @@ an error or is skipped.
 ...     ),
 ... )
 >>> profile.info.file_type
-<FileType.TIME_SERIES: 'time_series'>
+# <FileType.TIME_SERIES: 'time_series'>
 >>> profile.info.requirement
-<FileRequirement.OPTIONAL: 'optional'>
+# <FileRequirement.OPTIONAL: 'optional'>
 ```
 
 An optional physical file can become required when a previously declared table
@@ -42,7 +42,7 @@ is false, while malformed present files still fail.
 >>> from r2x_core import DataFile, FileInfo, FileRequirement, SourcePredicate
 >>> condition = SourcePredicate(source="water_switch", predicate="enabled")
 >>> condition.source
-'water_switch'
+# 'water_switch'
 >>> water = DataFile(
 ...     name="water_upgrades",
 ...     relative_fpath="inputs_case/upgradelink_water.csv",
@@ -50,7 +50,7 @@ is false, while malformed present files still fail.
 ...     required_when={"source": "water_switch", "predicate": "enabled"},
 ... )
 >>> water.required_when.source
-'water_switch'
+# 'water_switch'
 ```
 
 The predicate source must be declared before the physical input and must be
@@ -71,9 +71,9 @@ JSON configuration cannot import arbitrary code.
 ...     reader=ReaderConfig(format="dummy_raw", options={"encoding": "utf-8"}),
 ... )
 >>> data_file.format_name
-'dummy_raw'
+# 'dummy_raw'
 >>> data_file.reader.options
-{'encoding': 'utf-8'}
+# {'encoding': 'utf-8'}
 ```
 
 ## Configure ordered processing
@@ -86,7 +86,7 @@ its paired processor determine compatibility, not the filename extension.
 >>> from r2x_core import FileProcessing, TabularProcessing
 >>> processing: FileProcessing = TabularProcessing()
 >>> processing.kind
-'tabular'
+# 'tabular'
 ```
 
 ```python doctest
@@ -102,7 +102,7 @@ its paired processor determine compatibility, not the filename extension.
 ...     ])
 ...     data_file = DataFile(name="processed", fpath=path, proc_spec=processing)
 ...     [step.op for step in data_file.proc_spec.steps]
-['rename_columns', 'drop_columns']
+# ['rename_columns', 'drop_columns']
 ```
 
 ## Inline tables and source selection
@@ -122,7 +122,7 @@ validated before processing. `rows=[]` is a present, typed empty source.
 ...     }),
 ... )
 >>> defaults.inline_table.raw_schema
-{'year': 'int64', 'technology': 'string'}
+# {'year': 'int64', 'technology': 'string'}
 >>> selected = DataFile(
 ...     name="selected_costs",
 ...     source_selection=SourceSelection(
@@ -130,7 +130,7 @@ validated before processing. `rows=[]` is a present, typed empty source.
 ...     ),
 ... )
 >>> selected.source_selection.mode
-'first_present'
+# 'first_present'
 ```
 
 `first_present` selects the first available named source even if it has no
@@ -153,7 +153,7 @@ JSON processing has a separate step vocabulary:
 ...     {"op": "select_keys", "keys": ["new_key"]},
 ... ])
 >>> [step.op for step in processing.steps]
-['rename_keys', 'replace_values', 'select_keys']
+# ['rename_keys', 'replace_values', 'select_keys']
 ```
 
 See the [processor reference](/r2x-core/references/processors/) for operation

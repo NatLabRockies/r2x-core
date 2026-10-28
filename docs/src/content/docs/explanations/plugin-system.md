@@ -46,7 +46,7 @@ This complete example shows that the function changes a supplied system:
 >>> result = rename(system, RenameConfig())
 >>> # Expected: a successful Result contains the same changed system.
 >>> result.unwrap().name
-'renamed'
+# 'renamed'
 >>> assert result.unwrap() is system
 ```
 

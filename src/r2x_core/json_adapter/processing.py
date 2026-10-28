@@ -67,11 +67,29 @@ def drop_keys(value: JSONValue, *, keys: frozenset[str]) -> JSONValue:
 
 
 def filter_records(value: JSONValue, *, where: dict[str, JSONValue]) -> JSONValue:
-    """Filter lists or object maps by all configured exact field values."""
+    """Filter lists or object maps by all configured exact field values.
+
+    See Also
+    --------
+    :doc:`processors` : JSON processing behavior.
+    """
     if not where:
         return value
 
     def matches(item: JSONValue) -> bool:
+        """Return whether an object satisfies all configured field conditions.
+
+        Parameters
+        ----------
+        item : JSONValue
+            Candidate JSON value to test.
+
+        Returns
+        -------
+        bool
+            Whether the candidate is an object containing every configured key
+            with a matching value.
+        """
         if not isinstance(item, dict):
             return False
         return all(
@@ -115,9 +133,29 @@ def select_keys(value: JSONValue, *, keys: frozenset[str]) -> JSONValue:
 
 
 def is_json_value(value: object, /) -> TypeGuard[JSONValue]:
-    """Return whether a value contains only JSON-compatible, acyclic values."""
+    """Return whether a value contains only JSON-compatible, acyclic values.
+
+    See Also
+    --------
+    :doc:`processors` : JSON processing behavior.
+    """
 
     def is_valid(candidate: object, ancestors: frozenset[int]) -> bool:
+        """Check JSON compatibility while tracking the current recursion path.
+
+        Parameters
+        ----------
+        candidate : object
+            Value to validate.
+        ancestors : frozenset[int]
+            Identities of containers already visited on the current path.
+
+        Returns
+        -------
+        bool
+            Whether the candidate is a JSON scalar or an acyclic list or object
+            containing valid values.
+        """
         if candidate is None or isinstance(candidate, str | int | float | bool):
             return True
         if isinstance(candidate, list):

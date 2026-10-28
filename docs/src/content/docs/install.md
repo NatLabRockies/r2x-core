@@ -8,7 +8,7 @@ title: "Installation"
 Current package metadata supports Python 3.11 through 3.14 (`>=3.11,<3.15`).
 Check the [PyPI package page](https://pypi.org/project/r2x-core/) when choosing a released version.
 
-Start with [Prerequisites and environment](/r2x-core/getting-started/environment/) if you need a fresh project.
+Start with [Prerequisites and environment](/r2x-core/getting-started/environment/) if you need a fresh project. Use `uv add r2x-core` for a project managed by uv. In a standard Python environment, activate its virtual environment and use `python -m pip install r2x-core`.
 
 <span id="python-version-support"></span>
 <span id="installation-options"></span>

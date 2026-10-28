@@ -97,10 +97,12 @@ build-backend = "uv_build"
 [tool.ty.src]
 include = ["src"]
 [tool.pytest.ini_options]
-pythonpath = ["src", "docs"]
+pythonpath = ["src", "."]
 testpaths = ["tests"]
 addopts = ["--cov=r2x_core", "--cov-report=term-missing"]
-markers = ["polars: tests exercising Polars-backed table decoding or processing"]
+markers = [
+  "polars: tests exercising Polars-backed table decoding or processing",
+]
 
 [tool.ruff]
 line-length = 110

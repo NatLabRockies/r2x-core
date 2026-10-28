@@ -24,7 +24,7 @@ For configured component construction, applications provide their model module,
 reader registration, and the three output instructions in `parser_rules.json`.
 `build_system` performs processing, model validation, component construction,
 reference resolution, and attachment. The runnable
-[illustrative RAW example](https://github.com/NatLabRockies/r2x-core/tree/main/docs/examples/psse-raw) demonstrates
+[illustrative RAW example](https://github.com/NatLabRockies/r2x-core/tree/main/examples/psse-raw) demonstrates
 the full route. Its invented CSV-like grammar is not actual PSS/E RAW syntax.
 
 ## Pair a payload with its processor

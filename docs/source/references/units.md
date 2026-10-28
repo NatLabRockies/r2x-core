@@ -4,12 +4,13 @@ For complete API documentation of the units module, see [api](/r2x-core/referenc
 
 ## Quick Reference
 
-- {py:class}`~r2x_core.Unit` - Unit field annotation
-- {py:class}`~r2x_core.HasUnits` - Base mixin for unit-aware components
-- {py:class}`~r2x_core.HasPerUnit` - Extended mixin with system-base support
-- {py:class}`~r2x_core.UnitSystem` - Display mode enumeration
-- {py:func}`~r2x_core.set_unit_system` - Set global display mode
-- {py:func}`~r2x_core.get_unit_system` - Get current display mode
+- {py:func}`~r2x_core.units.Unit` - Unit field annotation
+- {py:class}`~r2x_core.units.UnitSpec` - Unit metadata and base-field specification
+- {py:class}`~r2x_core.units.HasUnits` - Base mixin for unit-aware components
+- {py:class}`~r2x_core.units.HasPerUnit` - Extended mixin with system-base support
+- {py:class}`~r2x_core.units.UnitSystem` - Display mode enumeration
+- {py:func}`~r2x_core.units.set_unit_system` - Set global display mode
+- {py:func}`~r2x_core.units.get_unit_system` - Get current display mode
 
 ```{seealso}
 - [working with units](/r2x-core/tutorials/working-with-units/) for a step-by-step introduction

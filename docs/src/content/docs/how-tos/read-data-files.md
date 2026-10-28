@@ -24,9 +24,9 @@ supports new extensions without editing core's inference table.
 ...     reader=ReaderConfig(options={"skip_rows": 1}),
 ... )
 >>> data_file.name
-'generators'
+# 'generators'
 >>> data_file.format_name
-'csv'
+# 'csv'
 ```
 
 Built-in reader options are validated by the selected reader. Application
@@ -56,9 +56,9 @@ representations. The source map is execution-local.
 ...     is_table = isinstance(table, TabularSource)
 ...     columns = table.data.collect().columns
 >>> is_table
-True
+# True
 >>> columns
-['id', 'name', 'capacity']
+# ['id', 'name', 'capacity']
 ```
 
 ## Optional inputs and paths

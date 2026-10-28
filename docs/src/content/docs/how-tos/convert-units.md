@@ -17,9 +17,9 @@ Create components with unit-aware fields using the `HasPerUnit` mixin.
 ...     active_power: Annotated[float, Unit("pu", base="base_power")]
 >>> gen = Generator(name="Gen1", base_power=100.0, active_power=0.95)
 >>> gen.base_power
-100.0
+# 100.0
 >>> gen.active_power
-0.95
+# 0.95
 ```
 
 ## Input Values in Natural Units
@@ -42,14 +42,14 @@ or non-finite bases fail scalar conversion:
 ...     active_power={"value": 200.0, "unit": "MVA"}
 ... )
 >>> gen.active_power
-0.8
+# 0.8
 >>> small = Generator(
 ...     name="Gen3",
 ...     base_power=100.0,
 ...     active_power={"value": 5000.0, "unit": "kW"},
 ... )
 >>> small.active_power
-0.05
+# 0.05
 ```
 
 Fields without `base=...` also convert mappings to their declared unit. For
@@ -80,12 +80,12 @@ does not divide them by the base again:
 ...     limits=Limits(minimum=-40.0, maximum=40.0),
 ... )
 >>> battery.model_dump()["limits"]
-{'value': {'minimum': -0.8, 'maximum': 0.8}, 'unit': 'pu'}
+# {'value': {'minimum': -0.8, 'maximum': 0.8}, 'unit': 'pu'}
 >>> restored = Battery.model_validate(battery.model_dump())
 >>> restored.limits.minimum, restored.limits.maximum
-(-0.8, 0.8)
+# (-0.8, 0.8)
 >>> Battery.model_validate_json(battery.model_dump_json()).limits.maximum
-0.8
+# 0.8
 ```
 
 `System.to_json()` uses the same representation for component fields. Keep the
@@ -110,11 +110,11 @@ Change how values are displayed:
 >>> set_unit_system(UnitSystem.DEVICE_BASE)
 >>> gen = Generator(name="Gen", base_power=150.0, active_power=0.90)
 >>> gen.active_power
-0.9
+# 0.9
 >>> set_unit_system(UnitSystem.NATURAL_UNITS)
 >>> repr_str = repr(gen)
 >>> "MVA" in repr_str
-True
+# True
 ```
 
 ## See Also

@@ -6,9 +6,15 @@ extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.napoleon",
     "sphinx.ext.autosummary",
+    "sphinx.ext.intersphinx",
     "sphinx.ext.linkcode",
     "sphinxcontrib.autodoc_pydantic",
 ]
+intersphinx_mapping = {
+    "python": ("https://docs.python.org/3", None),
+    "infrasys": ("https://natlabrockies.github.io/infrasys/", None),
+    "pydantic": ("https://docs.pydantic.dev/latest/", None),
+}
 source_suffix = {".md": "markdown", ".rst": "restructuredtext"}
 myst_all_links_external = True
 autosummary_generate = True
@@ -36,6 +42,7 @@ def linkcode_resolve(domain, info):
         obj = inspect.unwrap(obj)
         source = Path(inspect.getsourcefile(obj)).resolve()
         root = Path(__file__).resolve().parents[2]
+        source.relative_to(root / "src" / "r2x_core")
         relative = source.relative_to(root).as_posix()
         lines, start = inspect.getsourcelines(obj)
         revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()

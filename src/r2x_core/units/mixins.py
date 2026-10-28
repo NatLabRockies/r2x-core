@@ -32,7 +32,14 @@ class HasUnits:
     def __get_pydantic_core_schema__(
         cls, source_type: Any, handler: GetCoreSchemaHandler
     ) -> core_schema.CoreSchema:
-        """Collect and validate unit metadata after field annotations resolve."""
+        """Collect and validate unit metadata after field annotations resolve.
+
+        See Also
+        --------
+        :class:`~r2x_core.units.UnitSpec` : Describes unit and base-field metadata.
+        :func:`~r2x_core.units.unit_spec` : Create a field unit specification.
+        :doc:`units` : Unit annotations and conversion behavior.
+        """
         schema = handler(source_type)
 
         specs: dict[str, UnitSpec] = {}
@@ -53,6 +60,19 @@ class HasUnits:
         cls.unit_specs = specs
 
         def bind_unit_nodes(node: Any) -> Any:
+            """Bind this model's base-unit metadata into its schema nodes.
+
+            Parameters
+            ----------
+            node : Any
+                Pydantic core-schema node or nested schema structure.
+
+            Returns
+            -------
+            Any
+                The schema structure with base-unit validators bound to fields
+                owned by this model. Nested model schemas remain unchanged.
+            """
             if isinstance(node, dict):
                 if node.get("type") == "definitions":
                     return {**node, "schema": bind_unit_nodes(node["schema"])}

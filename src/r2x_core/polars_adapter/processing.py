@@ -127,7 +127,12 @@ def unpivot_polars_frame(
     value_type_name: str | None = None,
     data_file: DataFile | None = None,
 ) -> pl.LazyFrame:
-    """Unpivot selected columns using an explicit value-type policy."""
+    """Unpivot selected columns using an explicit value-type policy.
+
+    See Also
+    --------
+    :doc:`processors` : Tabular processing behavior and unpivot semantics.
+    """
     schema = data_frame.collect_schema()
     schema_names = schema.names()
     require_columns(schema_names, list(index), operation="unpivot index", data_file=data_file)
@@ -171,6 +176,18 @@ def unpivot_polars_frame(
     occupied_names = set(schema_names) | set(output_names)
 
     def temporary_name(label: str) -> str:
+        """Reserve a collision-free temporary column name.
+
+        Parameters
+        ----------
+        label : str
+            Descriptive part of the preferred column name.
+
+        Returns
+        -------
+        str
+            An unused name added to ``occupied_names``.
+        """
         name = f"__r2x_unpivot_{label}__"
         while name in occupied_names:
             name = f"_{name}"
@@ -315,7 +332,13 @@ def match_source_patterns(
     step: MatchSourcePatternsOptions,
     data_file: DataFile | None = None,
 ) -> pl.LazyFrame:
-    """Select one configured source pattern for each left row."""
+    """Select one configured source pattern for each left row.
+
+    See Also
+    --------
+    :doc:`table-mapping` : Source-backed table mapping operations.
+    :doc:`processors` : Processing and pattern-matching behavior.
+    """
     operation_name = "match_source_patterns"
     left_schema = data_frame.collect_schema()
     right_schema = pattern_source.collect_schema()
@@ -367,6 +390,18 @@ def match_source_patterns(
     occupied_names = set(left_names) | set(right_names)
 
     def temporary_name(label: str) -> str:
+        """Reserve a collision-free temporary column name.
+
+        Parameters
+        ----------
+        label : str
+            Descriptive part of the preferred column name.
+
+        Returns
+        -------
+        str
+            An unused name added to ``occupied_names``.
+        """
         name = f"__r2x_match_patterns_{label}__"
         while name in occupied_names:
             name = f"_{name}"
@@ -413,6 +448,19 @@ def match_source_patterns(
     )
 
     def normalized_decimal(column: str) -> pl.Expr:
+        """Build an expression that removes leading zeroes from decimal text.
+
+        Parameters
+        ----------
+        column : str
+            Name of the string column to normalize.
+
+        Returns
+        -------
+        polars.Expr
+            Expression yielding canonical decimal digits, with zero represented
+            as ``"0"``.
+        """
         digits = pl.col(column).str.replace(r"^0+", "")
         return pl.when(digits == "").then(pl.lit("0")).otherwise(digits)
 
@@ -842,7 +890,12 @@ def replace_values(
 def pivot_table(
     data_frame: pl.LazyFrame, *, step: PivotStep, data_file: DataFile | None = None
 ) -> pl.LazyFrame:
-    """Pivot exact input columns lazily through Polars' native pivot."""
+    """Pivot exact input columns lazily through Polars' native pivot.
+
+    See Also
+    --------
+    :doc:`processors` : Tabular processing behavior and pivot options.
+    """
     schema_names = data_frame.collect_schema().names()
     input_columns = [step.pivot_on, *step.group_by, *step.aggregate_on]
     require_columns(schema_names, input_columns, operation="pivot", data_file=data_file)
@@ -867,6 +920,20 @@ def pivot_table(
     occupied_names = set(schema_names) | {str(value) for value in pivot_values}
 
     def allocate_alias(prefix: str, *, suffixes: tuple[str, ...] = ()) -> str:
+        """Reserve a pivot alias without colliding with existing output names.
+
+        Parameters
+        ----------
+        prefix : str
+            Preferred alias.
+        suffixes : tuple of str, optional
+            Pivot suffixes whose generated names must also be available.
+
+        Returns
+        -------
+        str
+            An available alias reserved with its requested suffix names.
+        """
         candidate = prefix
         while candidate in occupied_names or any(
             f"{candidate}_{suffix}" in occupied_names for suffix in suffixes

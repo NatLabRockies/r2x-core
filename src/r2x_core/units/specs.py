@@ -115,6 +115,12 @@ class UnitSpec:
         Structured per-unit fields serialize as ``{"value": ..., "unit": "pu"}``.
         This explicit envelope marks stored internal values and prevents a second
         natural-unit conversion when validating serialized data.
+
+        See Also
+        --------
+        :class:`~r2x_core.units.HasUnits` : Collects unit metadata from a model.
+        :func:`~r2x_core.units.unit_spec` : Create unit metadata for an annotation.
+        :doc:`units` : Unit annotations and conversion behavior.
         """
         actual_type = unit_value_type(source_type)
 
@@ -181,6 +187,24 @@ class UnitSpec:
             *,
             base_unit: str | None = None,
         ) -> Any:
+            """Convert a unit envelope before applying Pydantic validation.
+
+            Parameters
+            ----------
+            value : Any
+                Input value, optionally a mapping with ``value`` and ``unit``.
+            next_validator : core_schema.ValidatorFunctionWrapHandler
+                Validator for the annotated field's underlying type.
+            info : core_schema.ValidationInfo
+                Validation context containing earlier field values.
+            base_unit : str or None, optional
+                Unit of the base field, bound by :class:`~r2x_core.units.HasUnits`.
+
+            Returns
+            -------
+            Any
+                The validated internal value.
+            """
             if isinstance(value, dict):
                 base_value = info.data.get(self.base) if self.base is not None and info.data else None
                 value = convert_to_internal(value, self, base_value=base_value, base_unit=base_unit)
@@ -232,6 +256,12 @@ def unit_spec(
     -------
     UnitSpec
         Unit metadata for use with ``typing.Annotated``.
+
+    See Also
+    --------
+    :class:`~r2x_core.units.UnitSpec` : Stores unit and base-field metadata.
+    :class:`~r2x_core.units.HasUnits` : Applies unit metadata to a Pydantic model.
+    :doc:`units` : Unit annotations and conversion behavior.
     """
     return UnitSpec(unit=unit, base=base)
 

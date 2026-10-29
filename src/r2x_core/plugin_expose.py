@@ -54,7 +54,8 @@ def expose_plugin(func: F) -> F:
     True
     """
     if not callable(func):
-        raise TypeError(f"expose_plugin() argument must be callable, got {type(func).__name__}")
+        msg = f"expose_plugin() argument must be callable, got {type(func).__name__}"
+        raise TypeError(msg)
 
     func.__r2x_exposed__ = True
     return func

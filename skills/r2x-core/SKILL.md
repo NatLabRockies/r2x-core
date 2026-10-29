@@ -1,12 +1,11 @@
 ---
 name: r2x-core
 description: >
-  Build, debug, review, and extend r2x-core translators and their public Python
-  APIs, including Plugin, PluginConfig, PluginContext, exposed transforms,
-  Rule and RuleFilter translation, DataFile/DataStore/DataReader ingestion,
-  HDF5 readers, unit-aware components, persistence, and upgrades. Use when a
-  task mentions r2x-core, model translation, parser or exporter plugins, rule
-  mappings, DataStore configuration, per-unit behavior, or r2x-core schema
+  Build, debug, review, and extend r2x-core translators and public Python APIs,
+  including plugins, rules, typed file ingestion, parser construction, named
+  table mappings, HDF5 readers, unit-aware components, persistence, and upgrades.
+  Use for r2x-core, model translation, parser or exporter plugins, rule mappings,
+  DataStore configuration, table assembly, per-unit behavior, or r2x-core schema
   upgrades. Do not use for standalone Python guidance or foundational infrasys
   modeling with no r2x-core surface.
 ---
@@ -21,20 +20,24 @@ only the focused reference needed for the task.
 ## Mental model
 
 ```text
-input files -> DataStore/DataReader -> PluginContext -> Plugin lifecycle
-                                      -> Rule executor -> target System
-                                      -> persistence or export
+files -> DataReader -> optional table assembly -> parser instructions -> System
+System -> PluginContext -> Rule executor -> target System -> export/persistence
 ```
 
 - `PluginConfig` owns typed configuration and configuration-asset paths.
-- `PluginContext` owns shared mutable execution state: config, stores, systems,
-  rules, metadata, and version settings.
+- `DataStore` holds file-mapping configuration. `DataReader` reads files and
+  returns named, typed sources.
+- `build_system(...)` reads configured inputs and parser instructions to build
+  a `System`; `build_system_from_sources(...)` builds from already decoded data.
+- Table mappings optionally assemble named tables between file reading and
+  parser construction. They are separate from `DataFile.proc_spec` operations.
+- `PluginContext` owns shared execution state: config, stores, systems, rules,
+  metadata, and version settings.
 - `Plugin` provides optional lifecycle hooks. Hooks return `rust_ok` results;
-  `Plugin.run()` updates the context and returns the context.
+  `Plugin.run()` updates and returns the context, or raises `PluginError` for a
+  hook `Err`.
 - `Rule` declares source-to-target component construction. The executor reads
   systems from the context and writes target components to the target system.
-- `DataFile` describes one input. `DataStore` groups file specifications and
-  `DataReader` performs the read and processing pipeline.
 - Domain `System` / `Component` semantics remain owned by infrasys and the
   component package, not by this skill.
 
@@ -46,10 +49,12 @@ Read [QUICKREF.md](./references/QUICKREF.md) first. Then route by task center:
 | ----------------------------------------------------------- | ------------------------------------------------------------- |
 | Plugin class, config, context, exposure, lifecycle          | [PLUGINS.md](./references/PLUGINS.md)                         |
 | Rule declarations, filters, getters, execution              | [RULES.md](./references/RULES.md)                             |
-| Files, readers, processors, HDF5, datastore                 | [DATA_STORE.md](./references/DATA_STORE.md)                   |
+| Files, readers, processors, HDF5, DataStore                 | [DATA_STORE.md](./references/DATA_STORE.md)                   |
+| Parser instructions and configured System construction      | [INGESTION.md](./references/INGESTION.md)                     |
+| Named-table mappings and cross-boundary assembly             | [TABLE_MAPPING.md](./references/TABLE_MAPPING.md)             |
 | `Annotated` unit fields and display modes                   | [UNITS.md](./references/UNITS.md)                             |
 | Version strategies, `UpgradeStep`, coordinator              | [VERSIONING_UPGRADES.md](./references/VERSIONING_UPGRADES.md) |
-| Component extraction, creation, export, time-series helpers | [UTILITIES.md](./references/UTILITIES.md)                     |
+| Component extraction, export, time-series helpers           | [UTILITIES.md](./references/UTILITIES.md)                     |
 | Source/signature verification or docs drift                 | [DISCOVERY.md](./references/DISCOVERY.md)                     |
 | Logging levels, sinks, structured context, or diagnostics   | [LOGGING.md](./references/LOGGING.md)                         |
 | `r2x` CLI orchestration and plugin validation               | [R2X_CLI.md](./references/R2X_CLI.md)                         |
@@ -65,32 +70,36 @@ to eliminate:
    public API.
 2. Verify unfamiliar signatures against root exports, defining source, nearby
    tests, and project docs. Source and tests outrank stale documentation.
-3. `Plugin.run()` returns `PluginContext`, not `Result`. It raises
-   `PluginError` when a hook returns `Err`.
+3. `Plugin.run()` returns `PluginContext`, not `Result`. It raises `PluginError`
+   when a hook returns `Err`.
 4. `apply_rules_to_context(context)` reads rules from `context.rules`; it does
    not accept a second rules argument. `apply_single_rule(rule, *, context=...)`
    takes the rule first and returns rule-application statistics in a `Result`.
-5. `DataFile` uses `info`, `reader`, and `proc_spec`. Its path source is exactly
-   one of `fpath`, `relative_fpath`, or `glob`. `DataStore.add_data(...)` takes a
-   sequence of files.
-6. `VersionReader` is a protocol. `UpgradeStep` uses `target_version` with
+5. A physical `DataFile` sets exactly one of `fpath`, `relative_fpath`, or
+   `glob`. A derived input instead sets exactly one of `source`,
+   `source_selection`, or `inline_table`. Reader settings apply only to physical
+   files. `DataStore` stores mappings; use `DataReader` to read them.
+6. `ReaderConfig` uses `format` and `options`. `DataFile.proc_spec` uses ordered
+   `steps` tagged by `op`; table-mapping records use ordered `operations` tagged
+   by `operation`. Do not mix these two schemas.
+7. `VersionReader` is a protocol. `UpgradeStep` uses `target_version` with
    optional `min_version` and `max_version`; it does not use
    `from_version`/`to_version` constructor fields.
-7. Use Pydantic v2 `PluginConfig` subclasses and explicit typed fields. Use
+8. Use Pydantic v2 `PluginConfig` subclasses and explicit typed fields. Use
    `Annotated[..., Field(...)]` for new modeled fields and
    `Field(default_factory=...)` for mutable defaults.
-8. Use `Ok` / `Err` at recoverable boundaries. Branch on results explicitly; do
+9. Use `Ok` / `Err` at recoverable boundaries. Branch on results explicitly; do
    not unwrap live results, catch `Exception` broadly, or hide failures behind
    `None`.
-9. Prefer domain models, protocols, named structured returns, and keyword-only
-   configuration over loose dictionaries, `object`, casual casts, and long
-   positional tuples.
-10. Use the repository logging policy. Loguru is disabled by default; every
+10. Prefer domain models, protocols, named structured returns, and keyword-only
+    configuration over loose dictionaries, `object`, casual casts, and long
+    positional tuples.
+11. Use the repository logging policy. Loguru is disabled by default; every
     application built on r2x-core should disable its own package namespace at
     import time and enable it explicitly at the application boundary. Use
     `setup_logging(...)` only there, select levels by operational meaning, and
     keep diagnostics structured and non-sensitive.
-11. Test public behavior. Add a regression test for a bug, reuse repository
+12. Test public behavior. Add a regression test for a bug, reuse repository
     fixtures, and round-trip persistence changes through serialization.
 
 ## Minimal public examples
@@ -141,8 +150,9 @@ def rename_system(system: System, config: RenameConfig) -> Result[System, str]:
 
 ## Workflow
 
-1. **Classify the surface:** plugin, rules, data, units, persistence, or
-   upgrades. Keep pure infrasys work separate.
+1. **Classify the surface:** plugin, rules, file ingestion, parser construction,
+   table mapping, units, persistence, upgrades, or transform. Keep pure infrasys
+   work separate.
 2. **Inspect first:** read repository instructions, `pyproject.toml`, defining
    source modules, adjacent tests, and relevant docs. Reproduce failures when
    practical.
@@ -171,18 +181,20 @@ uv run python skills/r2x-core/tools/inspect_plugins.py --group r2x_plugin
 uv run python skills/r2x-core/tools/check_data_store.py <data-root> --list-unknown
 ```
 
-The API probe checks symbol presence, not semantics. The plugin probe inspects
-entry points in the active Python environment, not the repository source tree.
-This r2x-core checkout does not define an `r2x_plugin` entry point, so running the
-probe here without an installed translator should report no entries. Run it in
-the environment that contains the plugin package you want to inspect; otherwise
-that result is expected and not a discovery failure. The datastore probe
-classifies files; it cannot prove reader options or schema correctness.
+The API probe checks documented symbol presence, not signatures or semantics.
+The plugin probe inspects installed entry points in the active Python
+environment and imports class targets; it does not inspect source-tree metadata
+or function transforms. This r2x-core checkout does not define an `r2x_plugin`
+entry point, so running the probe here without an installed translator should
+report no entries. Run it in the environment that contains the plugin package
+you want to inspect; otherwise that result is expected. The datastore probe
+classifies extension-based format inference only; it cannot prove reader
+options, custom readers, or schema correctness.
 
 ## Handoff
 
-- **Surface:** plugin, rules, data, units, persistence, upgrades, transform,
-  or logging.
+- **Surface:** plugin, rules, data, parser ingestion, table mapping, units,
+  persistence, upgrades, transform, or logging.
 - **Contract:** public symbols and return/error behavior involved.
 - **Changes:** files and observable behavior.
 - **Validation:** exact commands and results.

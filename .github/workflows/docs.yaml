@@ -6,6 +6,9 @@ on:
       - main
     paths:
       - "docs/**"
+      - "examples/**"
+      - "scripts/**"
+      - "tests/test_docs_*.py"
       - "src/**"
       - "pyproject.toml"
       - "uv.lock"
@@ -14,6 +17,9 @@ on:
   pull_request:
     paths:
       - "docs/**"
+      - "examples/**"
+      - "scripts/**"
+      - "tests/test_docs_*.py"
       - "src/**"
       - "pyproject.toml"
       - "uv.lock"

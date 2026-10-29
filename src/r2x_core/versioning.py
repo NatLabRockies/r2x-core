@@ -11,15 +11,30 @@ Key abstractions:
 
 See Also
 --------
-:class:`~r2x_core.upgrader.BaseUpgrader` : Uses version strategies to order upgrades.
-:class:`~r2x_core.upgrader_utils.UpgradeStep` : Upgrade steps paired with version ranges.
+:class:`~r2x_core.utils.upgrade.UpgradeStep` : Upgrade steps paired with version ranges.
+:func:`~r2x_core.utils.upgrade.run_upgrade_step` : Executes one upgrade step.
 """
 
 from __future__ import annotations
 
 from abc import abstractmethod
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from rust_ok import Result
+
+    from .plugin_context import PluginContext
+    from .store import DataStore
+
+
+@runtime_checkable
+class UpgradeHandler(Protocol):
+    """Handle DataStore upgrades using the store and plugin context."""
+
+    def __call__(self, *, store: DataStore, ctx: PluginContext[Any]) -> Result[None, str] | None:
+        """Run configured upgrades before the store retries its operation."""
+        ...
 
 
 @runtime_checkable
@@ -50,19 +65,19 @@ class VersionStrategy(Protocol):
 
 
 class SemanticVersioningStrategy(VersionStrategy):
-    """Semantic versioning comparison using Python's string comparison.
+    """Compare dot-separated numeric version components.
 
-    Compares versions following major.minor.patch format.
-    Uses simple string comparison (assumes properly formatted versions).
+    Missing trailing components are treated as zero, so ``1.0`` equals
+    ``1.0.0``. Components must be integers.
 
     Examples
     --------
     >>> strategy = SemanticVersioningStrategy()
-    >>> strategy.compare_versions("1.0.0", "2.0.0")
+    >>> strategy.compare_versions("1.0.0", target="2.0.0")
     -1
-    >>> strategy.compare_versions("2.0.0", "2.0.0")
+    >>> strategy.compare_versions("2.0.0", target="2.0.0")
     0
-    >>> strategy.compare_versions("3.0.0", "2.0.0")
+    >>> strategy.compare_versions("3.0.0", target="2.0.0")
     1
 
     Notes
@@ -91,20 +106,9 @@ class SemanticVersioningStrategy(VersionStrategy):
 
 
 class GitVersioningStrategy(VersionStrategy):
-    """Git-based versioning using commit history order.
+    """Compare versions by their position in commit history.
 
-    Compares versions by their position in a git commit history.
-    Earlier commits are considered older versions.
-
-    Parameters
-    ----------
-    commit_history : list[str]
-        List of commit hashes ordered from oldest to newest.
-
-    Raises
-    ------
-    ValueError
-        If commit_history is empty or contains non-string values.
+    Earlier commits are considered older.
 
     Examples
     --------
@@ -112,11 +116,11 @@ class GitVersioningStrategy(VersionStrategy):
 
     >>> commits = ["abc123", "def456", "ghi789"]
     >>> strategy = GitVersioningStrategy(commits)
-    >>> strategy.compare_versions("abc123", "def456")
+    >>> strategy.compare_versions("abc123", target="def456")
     -1
-    >>> strategy.compare_versions("def456", "def456")
+    >>> strategy.compare_versions("def456", target="def456")
     0
-    >>> strategy.compare_versions("ghi789", "def456")
+    >>> strategy.compare_versions("ghi789", target="def456")
     1
     """
 

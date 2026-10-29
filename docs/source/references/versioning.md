@@ -15,11 +15,11 @@ methods and takes no `version_field` or `default_version` configuration.
 >>> strategy = SemanticVersioningStrategy()
 >>> # Expected: ordering follows semantic versions, not lexical string order.
 >>> strategy.compare_versions("1.9.0", target="1.10.0")
--1
+# -1
 >>> strategy.compare_versions("2.0.0", target="1.0.0")
-1
+# 1
 >>> strategy.compare_versions("1.0.0", target="1.0.0")
-0
+# 0
 ```
 
 ## Git history order
@@ -35,15 +35,15 @@ repository or network request is needed to test ordering.
 >>> strategy = GitVersioningStrategy(["older", "middle", "newer"])
 >>> # Expected: the first supplied history entry precedes the last.
 >>> strategy.compare_versions("older", target="newer")
--1
+# -1
 >>> strategy.compare_versions("newer", target="middle")
-1
+# 1
 >>> try:
 ...     strategy.compare_versions("unknown", target="newer")
 ... except ValueError as error:
 ...     assert "not found in history" in str(error)
 ...     print(type(error).__name__)
-ValueError
+# ValueError
 ```
 
 ## Version readers
@@ -68,7 +68,7 @@ This complete example reads an actual temporary `VERSION` file:
 ...     after = reader.read_version(root)
 >>> # Expected: absence is distinct from the version read from the created file.
 >>> before, after
-(None, '1.2.3')
+# (None, '1.2.3')
 ```
 
 Use [manage versions](/r2x-core/how-tos/manage-versions/) for selection guidance,

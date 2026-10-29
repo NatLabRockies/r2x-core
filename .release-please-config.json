@@ -59,7 +59,12 @@
           "type": "toml"
         },
         {
-          "path": "docs/source/conf.py",
+          "jsonpath": "$.package[?(@.name.value=='r2x-core')].version",
+          "path": "scripts/generate_api.py.lock",
+          "type": "toml"
+        },
+        {
+          "path": "scripts/sphinx/conf.py",
           "type": "generic"
         }
       ],

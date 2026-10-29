@@ -1,6 +1,10 @@
 """Unit tests for ``r2x_core.utils.overrides.merge_with_overrides``."""
 
+import pytest
+
 from r2x_core.utils import merge_with_overrides
+
+pytestmark = pytest.mark.plugin
 
 
 def test_merge_with_overrides_adds_new_keys_without_mutating_base():

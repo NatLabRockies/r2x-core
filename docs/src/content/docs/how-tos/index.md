@@ -1,12 +1,12 @@
 ---
-title: "How-To Guides"
+title: "How to guides"
 sidebar:
   hidden: true
 ---
 
 <span id="how-to-guides"></span>
 
-Task-focused guides for accomplishing specific goals with r2x-core.
+Guides for common tasks with r2x-core.
 
 ## Data Management
 
@@ -15,6 +15,7 @@ Learn how to configure and manage data in r2x-core.
 - [configure data settings](/r2x-core/how-tos/configure-data-settings/)
 - [configure data files](/r2x-core/how-tos/configure-data-files/)
 - [read data files](/r2x-core/how-tos/read-data-files/)
+- [custom readers and backends](/r2x-core/how-tos/custom-readers-and-backends/)
 - [read hdf5 files](/r2x-core/how-tos/read-hdf5-files/)
 - [manage datastores](/r2x-core/how-tos/manage-datastores/)
 - [process file data](/r2x-core/how-tos/process-file-data/)

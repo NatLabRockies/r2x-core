@@ -10,6 +10,8 @@ Use this when detecting dataset versions or applying schema/data migrations with
 - `UpgradeStep(name, func, target_version, upgrade_type, priority=100, min_version=None, max_version=None)`
 - `run_upgrade_step(data, *, step: UpgradeStep, upgrader_context=None) -> Result[Any, UpgradeError]`
 - `shall_we_upgrade(step, *, current_version, strategy) -> Result[bool, UpgradeError]` lives in `r2x_core.utils`, not top-level `r2x_core`.
+- `UpgradeHandler` is the separate `DataStore` callback contract: keyword-only
+  `store` and `ctx`, returning `None` or `Result[None, str]`.
 
 ## Do
 
@@ -91,6 +93,15 @@ errors and signature introspection failures propagate to the caller.
 It passes `upgrader_context=` only when the step function accepts an
 `upgrader_context` parameter or `**kwargs`.
 
+## DataStore upgrade handlers
+
+A configured `UpgradeHandler` returns `None` or `Ok(None)` for success and
+`Err(error)` for failure. A plain non-`None` result or `Ok` with a payload is
+invalid and raises `TypeError` without marking the handler as completed. Raised
+expected upgrade, I/O, and value errors are wrapped as `UpgradeError` with the
+original exception as `__cause__`; unrelated programming errors propagate.
+This callback is distinct from the infrasys `System.from_json` migration hook.
+
 ## Chaining upgrades
 
 Use `shall_we_upgrade(...)` from `r2x_core.utils` to respect `target_version`,
@@ -102,9 +113,8 @@ from r2x_core.utils import shall_we_upgrade
 
 
 def upgrade_chain(steps, payload, current_version, strategy, upgrader_context=None):
-    ordered = sorted(steps, key=lambda step: (step.target_version, step.priority))
-
-    for step in ordered:
+    # The caller supplies steps in strategy-aware version order.
+    for step in steps:
         decision = shall_we_upgrade(step, current_version=current_version, strategy=strategy)
         if decision.is_err():
             raise decision.err()
@@ -125,9 +135,10 @@ def upgrade_chain(steps, payload, current_version, strategy, upgrader_context=No
     return payload
 ```
 
-If the strategy is not lexical/semver-compatible with sorting by target string,
-use strategy-aware ordering from the caller or an explicit ordered list. Priority
-alone is not a version gate.
+The caller must supply steps in version-aware order. Lexical sorting by
+`target_version` is not safe for `SemanticVersioningStrategy` when version
+components have multiple digits, and custom strategies may use a different
+ordering entirely. `priority` can break ties but is not a version gate.
 
 ## Coordinating with infrasys
 

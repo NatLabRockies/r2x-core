@@ -9,6 +9,8 @@ import pytest
 from r2x_core.result import RuleResult, TranslationResult
 from r2x_core.rules import Rule
 
+pytestmark = pytest.mark.rules
+
 
 @pytest.fixture
 def sample_rule() -> Rule:

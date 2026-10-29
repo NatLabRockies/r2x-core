@@ -1,3 +1,5 @@
+import pytest
+
 from r2x_core.exceptions import (
     CLIError,
     ComponentCreationError,
@@ -5,6 +7,8 @@ from r2x_core.exceptions import (
     UpgradeError,
     ValidationError,
 )
+
+pytestmark = pytest.mark.core
 
 
 def test_cli_error():

@@ -33,6 +33,9 @@ class CapturingLogger:
         self.debugs.append(message.format(*args))
 
 
+pytestmark = pytest.mark.versioning
+
+
 def test_get_package_version_returns_string_for_installed_package(monkeypatch: pytest.MonkeyPatch) -> None:
     """For an installed distribution, the helper returns its real version.
 
@@ -41,7 +44,7 @@ def test_get_package_version_returns_string_for_installed_package(monkeypatch: p
     a source checkout without dist metadata, the real lookup would return
     the fallback and this assertion would flap).
     """
-    monkeypatch.setattr(version_mod, "version", lambda _name: "1.2.3")
+    monkeypatch.setattr(version_mod, "version", lambda name: "1.2.3")
     assert get_package_version("r2x_core") == "1.2.3"
 
 
@@ -65,7 +68,7 @@ def test_warn_when_persisted_newer_logs_warning(monkeypatch: pytest.MonkeyPatch)
     """
     logger = CapturingLogger()
     monkeypatch.setattr(version_mod, "logger", logger)
-    monkeypatch.setattr(version_mod, "get_package_version", lambda _name: "1.0.0")
+    monkeypatch.setattr(version_mod, "get_package_version", lambda name: "1.0.0")
 
     warn_if_persisted_version_newer_than_installed(Version("9999.0.0"), package_name="r2x_core")
 
@@ -77,7 +80,7 @@ def test_no_warning_when_persisted_not_newer(monkeypatch: pytest.MonkeyPatch) ->
     """A persisted version equal to or older than installed does not warn."""
     logger = CapturingLogger()
     monkeypatch.setattr(version_mod, "logger", logger)
-    monkeypatch.setattr(version_mod, "get_package_version", lambda _name: "1.0.0")
+    monkeypatch.setattr(version_mod, "get_package_version", lambda name: "1.0.0")
 
     warn_if_persisted_version_newer_than_installed(Version("0.0.1"), package_name="r2x_core")
 
@@ -93,7 +96,7 @@ def test_no_warning_when_installed_version_unparseable(monkeypatch: pytest.Monke
     """
     logger = CapturingLogger()
     monkeypatch.setattr(version_mod, "logger", logger)
-    monkeypatch.setattr(version_mod, "get_package_version", lambda _name: "unknown")
+    monkeypatch.setattr(version_mod, "get_package_version", lambda name: "unknown")
 
     warn_if_persisted_version_newer_than_installed(Version("9999.0.0"), package_name="r2x_core")
 
@@ -107,10 +110,10 @@ def test_warn_uses_configured_package_name(monkeypatch: pytest.MonkeyPatch) -> N
     """The helper looks up the version for the passed package_name, not a hardcoded one."""
     calls: list[str] = []
 
-    def _spy(name: str, *, fallback: str = UNKNOWN_VERSION) -> str:
+    def spy(name: str, *, fallback: str = UNKNOWN_VERSION) -> str:
         calls.append(name)
         return "1.0.0"
 
-    monkeypatch.setattr(version_mod, "get_package_version", _spy)
+    monkeypatch.setattr(version_mod, "get_package_version", spy)
     warn_if_persisted_version_newer_than_installed(Version("0.9.0"), package_name="some_other_package")
     assert calls == ["some_other_package"]

@@ -21,7 +21,7 @@ Capture statistics about rule application:
 ...     error=None
 ... )
 >>> result.converted
-10
+# 10
 >>> translation = TranslationResult(
 ...     total_rules=1,
 ...     successful_rules=1,
@@ -32,9 +32,9 @@ Capture statistics about rule application:
 ...     time_series_updated=0
 ... )
 >>> translation.success
-True
+# True
 >>> translation.total_converted
-10
+# 10
 ```
 
 ## Apply All Rules
@@ -55,9 +55,9 @@ It tests the executor with generic components rather than requiring an external 
 >>> result = apply_rules_to_context(context)
 >>> # Expected: one rule successfully converts one generic component.
 >>> result.success, result.total_converted
-(True, 1)
+# (True, 1)
 >>> sorted(item.name for item in target.get_components(Component))
-['Alpha']
+# ['Alpha']
 ```
 
 ## Apply Single Rule
@@ -75,10 +75,16 @@ Use `apply_single_rule()` to apply one rule:
 >>> result = apply_single_rule(rule, context=context)
 >>> # Expected: the single-rule result records one constructed component.
 >>> result.unwrap().converted
-1
+# 1
 >>> sorted(item.name for item in target.get_components(Component))
-['Alpha']
+# ['Alpha']
 ```
+
+## Attachment rollback
+
+If attaching a rule's outputs fails, r2x-core removes the outputs it just attached. For a primary component, cleanup removes only new components in its composed graph. Existing components and their state stay unchanged. If cleanup fails, the error includes the original attachment failure.
+
+This does not roll back an entire rule or translation, or undo arbitrary callback side effects. A reference created by a callback can prevent removal. If that happens, r2x-core keeps that branch and reports the cleanup failure. infrasys does not currently index every nested component association, and r2x-core does not rebuild those indexes. Direct associations still work, but nested associations are not guaranteed to be indexed.
 
 ## See Also
 

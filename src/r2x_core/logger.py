@@ -18,7 +18,7 @@ import traceback
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 
-from loguru import logger as _loguru_logger
+from loguru import logger as loguru_logger
 
 if TYPE_CHECKING:
     import loguru
@@ -46,7 +46,7 @@ VERBOSITY_DEBUG = 1
 VERBOSITY_TRACE = 2
 DEFAULT_LOG_LEVEL = "WARNING"
 
-_VERBOSITY_TO_LEVEL = {
+VERBOSITY_TO_LEVEL = {
     VERBOSITY_TRACE: "TRACE",
     VERBOSITY_INFO: "INFO",
     VERBOSITY_DEBUG: "DEBUG",
@@ -61,11 +61,11 @@ JSON_LEVEL_NAMES = {
 }
 DEFAULT_TIME_FORMAT = "%Y-%m-%dT%H:%M:%S.{ms}"
 
-_verbosity: int = 0
+current_verbosity: int = 0
 
 
 @lru_cache(maxsize=1)
-def _get_console() -> Console | None:
+def console() -> Console | None:
     """Return a cached Rich Console for stderr, or None if Rich is missing."""
     try:
         from rich.console import Console
@@ -74,14 +74,14 @@ def _get_console() -> Console | None:
     return Console(stderr=True, force_terminal=True)
 
 
-def _format_timestamp(record: dict[str, Any]) -> str:
+def format_timestamp(record: dict[str, Any]) -> str:
     """Format a log record's timestamp using LOG_TIME_FORMAT env var or default."""
     time_format = os.environ.get("LOG_TIME_FORMAT", DEFAULT_TIME_FORMAT)
     ms = f"{record['time'].microsecond // 1000:03d}"
     return record["time"].strftime(time_format.replace("{ms}", ms))
 
 
-def _render_exception(record: dict[str, Any], console: Console | None) -> None:
+def render_exception(record: dict[str, Any], console: Console | None) -> None:
     """Render exception traceback to stderr. Prefers Rich when available."""
     exc = record["exception"]
     if not exc or not exc.type or not exc.value or not exc.traceback:
@@ -100,7 +100,7 @@ def _render_exception(record: dict[str, Any], console: Console | None) -> None:
     print("".join(lines), file=sys.stderr)
 
 
-def _extract_extras(record: dict[str, Any]) -> dict[str, Any]:
+def extract_extras(record: dict[str, Any]) -> dict[str, Any]:
     """Pull user-supplied extras from a record, excluding the internal 'name' key."""
     return {k: v for k, v in record["extra"].items() if k != "name"}
 
@@ -109,28 +109,28 @@ def format_tty(record: dict[str, Any]) -> None:
     """Format log record for terminal output."""
     level = record["level"].name
     level_name = LEVEL_NAMES.get(level, f"{level:>5}")
-    extras = _extract_extras(record)
-    console = _get_console()
+    extras = extract_extras(record)
+    console_instance = console()
 
-    show_timestamp = _verbosity >= VERBOSITY_TRACE
+    show_timestamp = current_verbosity >= VERBOSITY_TRACE
     extras_str = "  ".join(f"{k}={v}" for k, v in extras.items()) if extras else ""
 
     rich_printed = False
-    if console is not None:
+    if console_instance is not None:
         try:
             from rich.text import Text
 
             color = LEVEL_COLORS.get(level, "white")
             text = Text()
             if show_timestamp:
-                text.append(_format_timestamp(record), style="dim")
+                text.append(format_timestamp(record), style="dim")
                 text.append(" ")
             text.append(level_name, style=f"{color} bold")
             text.append(" ")
             text.append(record["message"])
             if extras_str:
                 text.append(f"  {extras_str}", style="dim")
-            console.print(text)
+            console_instance.print(text)
             rich_printed = True
         except ImportError:
             pass
@@ -138,14 +138,14 @@ def format_tty(record: dict[str, Any]) -> None:
     if not rich_printed:
         parts: list[str] = []
         if show_timestamp:
-            parts.append(_format_timestamp(record))
+            parts.append(format_timestamp(record))
         parts.append(level_name)
         parts.append(record["message"])
         if extras_str:
             parts.append(extras_str)
         print(" ".join(parts), file=sys.stderr)
 
-    _render_exception(record, console if rich_printed else None)
+    render_exception(record, console_instance if rich_printed else None)
 
 
 def format_json(record: dict[str, Any]) -> str:
@@ -165,7 +165,7 @@ def format_json(record: dict[str, Any]) -> str:
         obj["file"] = record["file"].path
         obj["line"] = record["line"]
 
-    extras = _extract_extras(record)
+    extras = extract_extras(record)
     if extras:
         obj.update(extras)
 
@@ -207,23 +207,24 @@ def setup_logging(
       -vv: TRACE and above, with timestamps
     """
     if not log_file and not log_to_console:
-        raise ValueError(
+        msg = (
             "setup_logging called with no sinks: log_file is None and log_to_console is False. "
             "At least one output must be enabled."
         )
+        raise ValueError(msg)
 
-    global _verbosity
+    global current_verbosity
 
-    _verbosity = verbosity
+    current_verbosity = verbosity
 
-    _loguru_logger.enable("r2x_core")
+    loguru_logger.enable("r2x_core")
 
-    level = _VERBOSITY_TO_LEVEL.get(verbosity, DEFAULT_LOG_LEVEL)
+    level = VERBOSITY_TO_LEVEL.get(verbosity, DEFAULT_LOG_LEVEL)
 
-    _loguru_logger.remove()
+    loguru_logger.remove()
 
     if log_file:
-        _loguru_logger.add(
+        loguru_logger.add(
             log_file,
             level="TRACE",
             format="[{time:YYYY-MM-DD HH:mm:ss}] [PYTHON] {level} {message}",
@@ -233,7 +234,7 @@ def setup_logging(
         )
 
     if log_to_console:
-        _loguru_logger.add(
+        loguru_logger.add(
             structured_sink,
             level=level,
             backtrace=True,
@@ -243,4 +244,4 @@ def setup_logging(
 
 def get_logger(name: str) -> loguru.Logger:
     """Get a logger for a specific component or plugin."""
-    return _loguru_logger.bind(name=name)
+    return loguru_logger.bind(name=name)

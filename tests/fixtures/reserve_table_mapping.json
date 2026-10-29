@@ -1,0 +1,329 @@
+[
+  {
+    "columns": {
+      "datetime": "datetime",
+      "kind": {
+        "value": "load"
+      },
+      "quantity_mw": "quantity_mw",
+      "solve_year": "solve_year",
+      "transmission_region": "transmission_region"
+    },
+    "name": "reserve_load_quantities",
+    "operations": [
+      {
+        "how": "inner",
+        "on": [
+          "region"
+        ],
+        "operation": "join",
+        "source": "reserve_hierarchy"
+      },
+      {
+        "column": "weather_year",
+        "comparison": "equals",
+        "operation": "filter",
+        "value": "{primary_weather_year}"
+      },
+      {
+        "aggregate": [
+          {
+            "column": "value",
+            "operation": "sum",
+            "output": "quantity_mw"
+          }
+        ],
+        "columns": [
+          "transmission_region",
+          "solve_year",
+          "datetime"
+        ],
+        "operation": "group_by"
+      }
+    ],
+    "source": "load_profile_rows"
+  },
+  {
+    "columns": {
+      "datetime": "datetime",
+      "kind": {
+        "value": "wind"
+      },
+      "quantity_mw": "quantity_mw",
+      "solve_year": "solve_year",
+      "transmission_region": "transmission_region"
+    },
+    "name": "reserve_wind_quantities",
+    "operations": [
+      {
+        "how": "inner",
+        "on": [
+          "region"
+        ],
+        "operation": "join",
+        "source": "reserve_hierarchy"
+      },
+      {
+        "column": "category",
+        "comparison": "equals",
+        "operation": "filter",
+        "value": "wind"
+      },
+      {
+        "aggregate": [
+          {
+            "column": "value",
+            "operation": "sum",
+            "output": "quantity_mw"
+          }
+        ],
+        "columns": [
+          "transmission_region",
+          "solve_year",
+          "datetime"
+        ],
+        "operation": "group_by"
+      }
+    ],
+    "source": "renewable_values"
+  },
+  {
+    "name": "reserve_solar_capacity",
+    "operations": [
+      {
+        "how": "inner",
+        "on": [
+          "region"
+        ],
+        "operation": "join",
+        "source": "reserve_hierarchy"
+      },
+      {
+        "column": "category",
+        "comparison": "equals",
+        "operation": "filter",
+        "value": "solar"
+      },
+      {
+        "aggregate": [
+          {
+            "column": "capacity",
+            "operation": "sum",
+            "output": "quantity_mw"
+          }
+        ],
+        "columns": [
+          "transmission_region",
+          "solve_year"
+        ],
+        "operation": "group_by"
+      }
+    ],
+    "source": "generator_owners"
+  },
+  {
+    "columns": {
+      "datetime": "datetime",
+      "kind": {
+        "value": "solar"
+      },
+      "quantity_mw": "quantity_mw",
+      "solve_year": "solve_year",
+      "transmission_region": "transmission_region"
+    },
+    "name": "reserve_solar_quantities",
+    "operations": [
+      {
+        "how": "inner",
+        "on": [
+          "region"
+        ],
+        "operation": "join",
+        "source": "reserve_hierarchy"
+      },
+      {
+        "column": "category",
+        "comparison": "equals",
+        "operation": "filter",
+        "value": "solar"
+      },
+      {
+        "aggregate": [
+          {
+            "column": "capacity_factor",
+            "operation": "max",
+            "output": "max_cf"
+          }
+        ],
+        "columns": [
+          "transmission_region",
+          "solve_year",
+          "datetime"
+        ],
+        "operation": "group_by"
+      },
+      {
+        "column": "max_cf",
+        "comparison": "greater_than",
+        "operation": "filter",
+        "value": 0
+      },
+      {
+        "columns": [
+          "quantity_mw"
+        ],
+        "how": "inner",
+        "on": [
+          "transmission_region",
+          "solve_year"
+        ],
+        "operation": "join",
+        "source": "reserve_solar_capacity"
+      }
+    ],
+    "source": "renewable_values"
+  },
+  {
+    "name": "reserve_factors",
+    "operations": [
+      {
+        "columns": {
+          "load": "load_fraction",
+          "solar": "solar_fraction",
+          "wind": "wind_fraction"
+        },
+        "index": [
+          "reserve_type"
+        ],
+        "operation": "unpivot",
+        "value_name": "fraction",
+        "variable_name": "kind"
+      }
+    ],
+    "source": "reserve_products"
+  },
+  {
+    "name": "reserve_quantities",
+    "operations": [
+      {
+        "operation": "concat",
+        "sources": [
+          "reserve_load_quantities",
+          "reserve_wind_quantities",
+          "reserve_solar_quantities"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "reserve_contributions",
+    "operations": [
+      {
+        "columns": [
+          "reserve_type",
+          "fraction"
+        ],
+        "how": "inner",
+        "on": [
+          "kind"
+        ],
+        "operation": "join",
+        "source": "reserve_factors"
+      },
+      {
+        "columns": [
+          "quantity_mw",
+          "fraction"
+        ],
+        "operation": "multiply",
+        "output": "contribution"
+      },
+      {
+        "aggregate": [
+          {
+            "column": "contribution",
+            "operation": "sum",
+            "output": "contribution"
+          }
+        ],
+        "columns": [
+          "transmission_region",
+          "reserve_type",
+          "solve_year",
+          "datetime"
+        ],
+        "operation": "group_by"
+      }
+    ],
+    "source": "reserve_quantities"
+  },
+  {
+    "name": "solve_years",
+    "operations": [
+      {
+        "operation": "rows",
+        "schema": [
+          {
+            "dtype": "int64",
+            "name": "solve_year"
+          }
+        ],
+        "values": "{solve_year_rows}"
+      }
+    ]
+  },
+  {
+    "columns": {
+      "datetime": "datetime",
+      "name": "name",
+      "requirement": "contribution",
+      "solve_year": "solve_year"
+    },
+    "name": "reserve_requirement_rows",
+    "operations": [
+      {
+        "how": "cross",
+        "operation": "join",
+        "source": "solve_years"
+      },
+      {
+        "columns": [
+          "datetime"
+        ],
+        "how": "cross",
+        "operation": "join",
+        "source": "calendar"
+      },
+      {
+        "columns": [
+          "contribution"
+        ],
+        "how": "left",
+        "on": [
+          "transmission_region",
+          "reserve_type",
+          "solve_year",
+          "datetime"
+        ],
+        "operation": "join",
+        "source": "reserve_contributions"
+      },
+      {
+        "columns": [
+          "contribution"
+        ],
+        "operation": "fill_null",
+        "value": 0
+      },
+      {
+        "columns": [
+          "name",
+          "solve_year",
+          "datetime"
+        ],
+        "operation": "sort"
+      }
+    ],
+    "source": "reserve_component_rows"
+  }
+]

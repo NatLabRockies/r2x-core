@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 if TYPE_CHECKING:
-    from r2x_core import PluginConfig, PluginContext
+    from r2x_core import PluginConfig, PluginContext, Rule, System
 
 FIXTURE_MODEL_MODULES: tuple[str, ...] = (
     "fixtures.source_system",
@@ -13,34 +13,34 @@ FIXTURE_MODEL_MODULES: tuple[str, ...] = (
 )
 
 
-def _build_config() -> PluginConfig:
+def build_config() -> PluginConfig:
     """Create a PluginConfig pointing at fixture component modules."""
     from r2x_core import PluginConfig
 
     return PluginConfig(models=FIXTURE_MODEL_MODULES)
 
 
-def _build_plugin_context(
-    rules_simple,
-    source_system,
-    target_system,
+def build_plugin_context(
+    rules_simple: list[Rule],
+    source_system: System,
+    target_system: System,
 ) -> PluginContext:
     from r2x_core import PluginContext
 
     return PluginContext(
         source_system=source_system,
         target_system=target_system,
-        config=_build_config(),
-        rules=rules_simple,
+        config=build_config(),
+        rules=tuple(rules_simple),
         store=None,
     )
 
 
 @pytest.fixture
 def context_example(
-    rules_simple,
-    source_system,
-    target_system,
+    rules_simple: list[Rule],
+    source_system: System,
+    target_system: System,
 ) -> PluginContext:
     """PluginContext with populated systems and fixture rules."""
-    return _build_plugin_context(rules_simple, source_system, target_system)
+    return build_plugin_context(rules_simple, source_system, target_system)

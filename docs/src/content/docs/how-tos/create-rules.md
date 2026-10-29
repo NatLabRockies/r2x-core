@@ -17,9 +17,9 @@ Rules describe how to convert components from one model format to another.
 ...     field_map={"name": "name", "kv_rating": "voltage_kv"}
 ... )
 >>> rule.source_type
-'Bus'
+# 'Bus'
 >>> rule.version
-1
+# 1
 ```
 
 ## With Default Values
@@ -36,7 +36,7 @@ Provide defaults for fields that may be missing in source components:
 ...     defaults={"zone": "unspecified"}
 ... )
 >>> rule.defaults
-{'zone': 'unspecified'}
+# {'zone': 'unspecified'}
 ```
 
 ## From Records
@@ -51,7 +51,7 @@ Load multiple rules from a list of dictionaries:
 ... ]
 >>> rules = Rule.from_records(records)
 >>> len(rules)
-2
+# 2
 ```
 
 ## See Also

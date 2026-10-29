@@ -1,0 +1,8 @@
+# Dummy PSS/E-style records. This is NOT a valid PSS/E RAW case.
+# BUS,number,name,base_kv
+BUS,101,NORTH,230.0
+BUS,102,SOUTH,115.0
+# GEN,bus_number,machine_id,p_mw,status
+GEN,101,1,100.0,1
+GEN,102,1,0.0,1
+GEN,102,2,25.0,0

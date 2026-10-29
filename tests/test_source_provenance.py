@@ -35,6 +35,9 @@ class RoundTripUnmappedType(Component):
     payload: str = Field(default="")
 
 
+pytestmark = [pytest.mark.ingestion, pytest.mark.system]
+
+
 @pytest.fixture
 def context_preserve_source(
     rules_simple: list[Rule],
@@ -332,7 +335,7 @@ def test_finalize_survives_missing_r2x_core_metadata(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(
         provenance_mod,
         "get_package_version",
-        lambda _name, fallback="unknown": fallback,
+        lambda name, fallback="unknown": fallback,
     )
 
     stub_source = System(system_base=100.0, name="stub")
@@ -346,7 +349,7 @@ def test_system_serialize_uses_same_version_sentinel_as_provenance(
     """System-level and provenance-level r2x versions share the same no-metadata sentinel."""
     import r2x_core.system as system_mod
 
-    monkeypatch.setattr(system_mod, "get_package_version", lambda _name, fallback="unknown": fallback)
+    monkeypatch.setattr(system_mod, "get_package_version", lambda name, fallback="unknown": fallback)
     system = System(system_base=100.0, name="target")
     attrs = system.serialize_system_attributes()
     assert attrs["r2x_core_version"] == "0.0.0"

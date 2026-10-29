@@ -17,6 +17,9 @@ class SimpleConfig(PluginConfig):
     name: str = "test"
 
 
+pytestmark = pytest.mark.plugin
+
+
 def test_expose_marks_function():
     """@expose_plugin sets __r2x_exposed__ marker attribute."""
 

@@ -2,6 +2,8 @@
 
 import pytest
 
+pytestmark = pytest.mark.versioning
+
 
 @pytest.mark.parametrize(
     "current,target,expected",

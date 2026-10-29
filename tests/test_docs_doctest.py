@@ -18,11 +18,16 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from doctest_runner import minimum_python, run_block
+
+from scripts.doctest_runner import minimum_python, run_block
+
+pytestmark = pytest.mark.docs
+
 
 DOCS_ROOT = Path(__file__).resolve().parents[1] / "docs"
 FENCE_RE = re.compile(r"^(```|~~~)\s*([^\n`]*)?$")
-DOCTEST_PROMPT_RE = re.compile(r"^\s*>>> ")
+DOCTEST_PROMPT_RE = re.compile(r"^\s*>>> ?")
+DOCTEST_CONTINUATION_RE = re.compile(r"^\s*\.\.\. ?")
 
 
 @dataclass(frozen=True)
@@ -57,7 +62,7 @@ def extract_doctest_blocks(path: Path) -> list[DocBlock]:
 
     while i < len(lines):
         match = FENCE_RE.match(lines[i])
-        if not match or not _is_doctest_marker(match.group(2)):
+        if not match or not is_doctest_marker(match.group(2)):
             i += 1
             continue
 
@@ -72,7 +77,7 @@ def extract_doctest_blocks(path: Path) -> list[DocBlock]:
             i += 1
 
         # Extract doctest-formatted lines
-        doctest_lines = _extract_doctest_lines(block_lines)
+        doctest_lines = extract_doctest_lines(block_lines)
         if doctest_lines:
             blocks.append(
                 DocBlock(
@@ -88,7 +93,7 @@ def extract_doctest_blocks(path: Path) -> list[DocBlock]:
     return blocks
 
 
-def _is_doctest_marker(lang_info: str | None) -> bool:
+def is_doctest_marker(lang_info: str | None) -> bool:
     """Check if language info contains both 'python' and 'doctest' markers."""
     if not lang_info:
         return False
@@ -96,7 +101,7 @@ def _is_doctest_marker(lang_info: str | None) -> bool:
     return "python" in parts and "doctest" in parts
 
 
-def _extract_doctest_lines(block_lines: list[str]) -> list[str]:
+def extract_doctest_lines(block_lines: list[str]) -> list[str]:
     """Extract lines that look like doctest (prompts and expected output)."""
     result = []
     has_prompt = False
@@ -113,7 +118,45 @@ def _extract_doctest_lines(block_lines: list[str]) -> list[str]:
     return result
 
 
-def _run_doctest_block(block: DocBlock, block_index: int) -> tuple[int, int]:
+def test_comment_prefixed_expectations_are_compared() -> None:
+    correct = run_block(">>> 2 + 2\n# 4", name="commented_output", filename=__file__, minimum=(3, 11))
+    incorrect = run_block(">>> 2 + 2\n# 5", name="incorrect_output", filename=__file__, minimum=(3, 11))
+
+    assert correct.failed == 0
+    assert incorrect.failed == 1
+
+
+def test_getter_registrations_are_isolated_between_blocks() -> None:
+    code = "\n".join(
+        (
+            ">>> from r2x_core import getter",
+            ">>> @getter",
+            "... def extract_name(component):",
+            "...     return component.name",
+            ">>> extract_name.__name__",
+            "# 'extract_name'",
+        )
+    )
+
+    for index in range(2):
+        result = run_block(code, name=f"getter_registry_{index}", filename=__file__, minimum=(3, 11))
+        assert result.failed == 0
+
+
+def test_documentation_expectations_are_copyable() -> None:
+    violations: list[str] = []
+    for path in sorted(DOCS_ROOT.rglob("*.md")):
+        for block in extract_doctest_blocks(path):
+            for line in block.text.splitlines():
+                if not line.strip() or DOCTEST_PROMPT_RE.match(line) or DOCTEST_CONTINUATION_RE.match(line):
+                    continue
+                if not line.startswith("# "):
+                    violations.append(f"{path}:{block.start_line}: {line!r}")
+
+    assert not violations, "Doctest expected output must be prefixed with '# ':\n" + "\n".join(violations)
+
+
+def run_doctest_block(block: DocBlock, block_index: int) -> tuple[int, int]:
     """Run a single doctest block.
 
     Returns
@@ -167,7 +210,7 @@ def test_markdown_doctest(doc_path: Path) -> None:
     total_tests = 0
 
     for i, block in enumerate(blocks):
-        failures, tests = _run_doctest_block(block, i)
+        failures, tests = run_doctest_block(block, i)
         total_failures += failures
         total_tests += tests
 

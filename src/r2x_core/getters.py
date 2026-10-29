@@ -3,16 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, TypeAlias, TypeVar
+from typing import Any, TypeAlias, TypeVar
 
 from loguru import logger
-from rust_ok import Err, Ok
+from rust_ok import Err, Ok, Result
 
-if TYPE_CHECKING:
-    from rust_ok import Result
-
-
-GetterFunc: TypeAlias = Callable[..., Any]
+GetterFunc: TypeAlias = Callable[..., Result[Any, ValueError]]
 
 
 F = TypeVar("F", bound=GetterFunc)
@@ -31,44 +27,47 @@ def getter(func: F | None = None, *, name: str | None = None) -> F | Callable[[F
     When using parentheses, the name parameter must be provided as a keyword argument.
     """
 
-    def _decorator(f: F) -> F:
+    def decorate_getter(f: F) -> F:
         """Decorate function."""
         key = name or f.__name__
         if key in GETTER_REGISTRY:
-            raise ValueError(f"Getter '{key}' already registered")
+            msg = f"Getter '{key}' already registered"
+            raise ValueError(msg)
         GETTER_REGISTRY[key] = f
         logger.debug("Registered getter '{}'", key)
         return f
 
     if func is not None:
         if not callable(func):
-            raise TypeError(f"getter() first argument must be callable or None, got {type(func).__name__}")
+            msg = f"getter() first argument must be callable or None, got {type(func).__name__}"
+            raise TypeError(msg)
         if name is not None:
-            raise TypeError(
-                "Cannot specify 'name' when using @getter without parentheses. Use @getter(name='...') instead"
-            )
-        return _decorator(func)
+            msg = "Cannot specify 'name' when using @getter without parentheses. Use @getter(name='...') instead"
+            raise TypeError(msg)
+        return decorate_getter(func)
 
-    return _decorator
+    return decorate_getter
 
 
 def resolve_getter(getter: GetterFunc | str) -> Result[GetterFunc, TypeError]:
     """Resolve a getter reference to a callable."""
-    from .utils import build_attr_getter
+    from .utils.rules import build_attr_getter
 
+    if isinstance(getter, str):
+        if getter in GETTER_REGISTRY:
+            return Ok(GETTER_REGISTRY[getter])
+        if "." not in getter:
+            logger.warning(
+                "Getter '{}' not found in registry; ensure it is imported before loading rules. Falling back to attribute lookup.",
+                getter,
+            )
+        return Ok(build_attr_getter(getter.split(".")))
     if callable(getter):
         return Ok(getter)
-    if getter in GETTER_REGISTRY:
-        return Ok(GETTER_REGISTRY[getter])
-    if "." not in getter:
-        logger.warning(
-            "Getter '{}' not found in registry; ensure it is imported before loading rules. Falling back to attribute lookup.",
-            getter,
-        )
-    return Ok(build_attr_getter(getter.split(".")))
+    return Err(TypeError(f"Getter must be callable or str, got {type(getter).__name__}"))
 
 
-def _preprocess_rule_getters(getters_dict: dict[str, Any]) -> Result[dict[str, Any], TypeError]:
+def resolve_rule_getters(getters_dict: dict[str, Any]) -> Result[dict[str, GetterFunc], TypeError]:
     """Convert string-based getters in a rule into callables."""
     resolved: dict[str, GetterFunc] = {}
     for field, getter in getters_dict.items():

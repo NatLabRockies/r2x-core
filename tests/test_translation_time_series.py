@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -17,7 +18,7 @@ from infrasys.utils.sqlite import create_in_memory_db
 
 from r2x_core import PluginConfig, PluginContext, Rule, System, apply_rules_to_context
 from r2x_core.time_series import (
-    _main_db_path,
+    main_database_path,
     replace_single_time_series,
     transfer_time_series_metadata,
 )
@@ -25,6 +26,9 @@ from r2x_core.time_series import (
 
 class ConnectedBusComponent(Component):
     bus: BusComponent
+
+
+pytestmark = pytest.mark.time_series
 
 
 @pytest.mark.parametrize("component_count", [0, 1, 33_000])
@@ -275,7 +279,7 @@ def test_time_series_transfer_falls_back_without_db_path(monkeypatch, context_ex
             "SELECT COUNT(*) FROM time_series_associations"
         ).fetchone()[0]
 
-    monkeypatch.setattr("r2x_core.time_series._main_db_path", lambda _conn: None)
+    monkeypatch.setattr("r2x_core.time_series.main_database_path", lambda conn: None)
     stats = transfer_time_series_metadata(context_example)
 
     with target_system.open_time_series_store(mode="r") as store:
@@ -288,23 +292,33 @@ def test_time_series_transfer_falls_back_without_db_path(monkeypatch, context_ex
     assert final_count == initial_count
 
 
-def test_time_series_transfer_uses_attach_path(tmp_path, monkeypatch, context_example: PluginContext):
-    """ATTACH-based bulk copy path is exercised when a DB path is available."""
+def test_time_series_transfer_uses_attach_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, context_example: PluginContext
+) -> None:
+    """ATTACH-based bulk copy closes the temporary database connection."""
     apply_rules_to_context(context_example)
+    connections: list[sqlite3.Connection] = []
 
-    def _copy_src_to_temp(conn):
+    def copy_source_to_temp(conn: sqlite3.Connection) -> str:
         dst = tmp_path / "src_ts.db"
-        with sqlite3.connect(dst) as dst_con:
+        with closing(sqlite3.connect(dst)) as dst_con, dst_con:
+            connections.append(dst_con)
             conn.backup(dst_con)
         return str(dst)
 
-    monkeypatch.setattr("r2x_core.time_series._main_db_path", _copy_src_to_temp)
+    monkeypatch.setattr("r2x_core.time_series.main_database_path", copy_source_to_temp)
     stats = transfer_time_series_metadata(context_example)
 
     assert stats.transferred >= 0
+    assert connections
+    for connection in connections:
+        with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
+            connection.execute("SELECT 1")
 
 
-def test_time_series_transfer_logs_post_remap_cleanup(monkeypatch, context_example: PluginContext, caplog):
+def test_time_series_transfer_logs_post_remap_cleanup(
+    monkeypatch: pytest.MonkeyPatch, context_example: PluginContext, caplog: pytest.LogCaptureFixture
+) -> None:
     """Post-remap dedupe path logs when rows are removed."""
     apply_rules_to_context(context_example)
     source_system = context_example.source_system
@@ -317,12 +331,12 @@ def test_time_series_transfer_logs_post_remap_cleanup(monkeypatch, context_examp
 
     call_counts = {"count": 0}
 
-    def _fake_dedup(conn, cols):
+    def fake_dedup(conn: sqlite3.Connection, cols: tuple[str, ...]) -> int:
         call_counts["count"] += 1
         # First call (pre-insert) does nothing, second call (post-update) reports removals.
         return 0 if call_counts["count"] == 1 else 1
 
-    monkeypatch.setattr("r2x_core.time_series._deduplicate_ts_associations", _fake_dedup)
+    monkeypatch.setattr("r2x_core.time_series.deduplicate_time_series_associations", fake_dedup)
 
     caplog.set_level("WARNING")
     stats = transfer_time_series_metadata(context_example)
@@ -332,26 +346,26 @@ def test_time_series_transfer_logs_post_remap_cleanup(monkeypatch, context_examp
     assert any("after remapping" in record.message for record in caplog.records)
 
 
-def test_main_db_path_propagates_closed_connection_error() -> None:
+def test_main_database_path_propagates_closed_connection_error() -> None:
     conn = sqlite3.connect(":memory:")
     conn.close()
     with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
-        _main_db_path(conn)
+        main_database_path(conn)
 
 
-def test_main_db_path_returns_none_for_memory_database() -> None:
+def test_main_database_path_returns_none_for_memory_database() -> None:
     conn = sqlite3.connect(":memory:")
     try:
-        assert _main_db_path(conn) is None
+        assert main_database_path(conn) is None
     finally:
         conn.close()
 
 
-def test_main_db_path_returns_path(tmp_path: Path) -> None:
+def test_main_database_path_returns_path(tmp_path: Path) -> None:
     path = tmp_path / "metadata.db"
     conn = sqlite3.connect(path)
     try:
-        assert _main_db_path(conn) == str(path)
+        assert main_database_path(conn) == str(path)
     finally:
         conn.close()
 

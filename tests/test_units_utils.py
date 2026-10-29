@@ -1,218 +1,303 @@
-"""Tests for units._utils internal utility functions."""
+"""Tests for the unit conversion and display functions."""
 
 from typing import Annotated
 
 import pytest
-from infrasys import Component
+from pydantic import BaseModel, ValidationError
 
-from r2x_core.units import HasUnits, Unit, UnitSystem, set_unit_system
-from r2x_core.units._specs import UnitSpec
-from r2x_core.units._utils import (
-    _convert_to_internal,
-    _format_for_display,
-    _get_base_unit_from_context,
-    _get_base_unit_from_subclass,
-    _is_annotated,
-)
+from r2x_core import HasUnits, Unit
+from r2x_core.units import UnitSystem, set_unit_system
+from r2x_core.units.conversion import convert_to_internal, format_for_display
+from r2x_core.units.specs import UnitSpec
+
+
+class PowerModel(HasUnits, BaseModel):
+    base_power: Annotated[float, Unit("MW")]
+    power: Annotated[float, Unit("pu", base="base_power")]
+
+
+pytestmark = pytest.mark.units
+
+
+def test_scalar_unit_validation_schema_includes_natural_and_enveloped_values() -> None:
+    validation_schema = PowerModel.model_json_schema(mode="validation")
+    power_schema = validation_schema["properties"]["power"]
+
+    assert {"type": "number"} in power_schema["anyOf"]
+    envelope = next(schema for schema in power_schema["anyOf"] if schema.get("type") == "object")
+    assert envelope["properties"]["value"]["type"] == "number"
+    assert envelope["properties"]["unit"]["type"] == "string"
+    assert envelope["properties"]["unit"]["minLength"] == 1
+    assert envelope["required"] == ["value", "unit"]
+    assert envelope.get("additionalProperties") is not False
+
+    serialization_schema = PowerModel.model_json_schema(mode="serialization")
+    assert serialization_schema["properties"]["power"]["type"] == "number"
+
+    model = PowerModel.model_validate_json('{"base_power":100,"power":{"value":5000,"unit":"kW"}}')
+    assert model.power == 0.05
+    assert model.model_dump(mode="json")["power"] == 0.05
+
+
+def test_scalar_unit_schema_accepts_numeric_envelopes_for_integer_fields() -> None:
+    class IntegerPower(HasUnits, BaseModel):
+        power: Annotated[int, Unit("MW")]
+
+    schema = IntegerPower.model_json_schema(mode="validation")["properties"]["power"]
+    envelope = next(item for item in schema["anyOf"] if item.get("type") == "object")
+
+    assert envelope["properties"]["value"]["type"] == "number"
+    assert IntegerPower.model_validate_json('{"power":{"value":0.001,"unit":"GW"}}').power == 1
+
+
+def test_scalar_unit_schema_allows_runtime_supported_extra_envelope_fields() -> None:
+    schema = PowerModel.model_json_schema(mode="validation")["properties"]["power"]
+    envelope = next(item for item in schema["anyOf"] if item.get("type") == "object")
+    model = PowerModel.model_validate_json(
+        '{"base_power":100,"power":{"value":1,"unit":"MW","note":"measured"}}'
+    )
+
+    assert envelope.get("additionalProperties") is not False
+    assert model.power == 0.01
+
+
+def test_optional_scalar_unit_validation_schema_keeps_null_and_envelope() -> None:
+    class OptionalPower(HasUnits, BaseModel):
+        base_power: Annotated[float, Unit("MW")]
+        power: Annotated[float | None, Unit("pu", base="base_power")] = None
+
+    schema = OptionalPower.model_json_schema(mode="validation")["properties"]["power"]
+
+    assert {"type": "number"} in schema["anyOf"]
+    assert {"type": "null"} in schema["anyOf"]
+    envelope = next(item for item in schema["anyOf"] if item.get("type") == "object")
+    assert envelope["properties"]["value"]["type"] == "number"
+    assert envelope["properties"]["unit"]["type"] == "string"
+    assert envelope["required"] == ["value", "unit"]
+    assert OptionalPower.model_validate_json('{"base_power":100,"power":null}').power is None
+    assert (
+        OptionalPower.model_validate_json('{"base_power":100,"power":{"value":5000,"unit":"kW"}}').power
+        == 0.05
+    )
 
 
 def test_convert_to_internal_with_int():
-    """Test _convert_to_internal with int value."""
-    spec = UnitSpec(unit="MVA", base=None)
-    result = _convert_to_internal(50, spec)
-    assert result == 50.0
+    spec = UnitSpec(unit="MVA")
+    assert convert_to_internal(50, spec) == 50.0
 
 
 def test_convert_to_internal_with_float():
-    """Test _convert_to_internal with float value."""
-    spec = UnitSpec(unit="MVA", base=None)
-    result = _convert_to_internal(50.5, spec)
-    assert result == 50.5
+    spec = UnitSpec(unit="MVA")
+    assert convert_to_internal(50.5, spec) == 50.5
 
 
 def test_convert_to_internal_with_invalid_type():
-    """Test _convert_to_internal with invalid type returns 0.0."""
-    spec = UnitSpec(unit="MVA", base=None)
-    result = _convert_to_internal("invalid", spec)
-    assert result == 0.0
+    spec = UnitSpec(unit="MVA")
+    with pytest.raises(ValueError, match="Expected"):
+        convert_to_internal("invalid", spec)
 
 
 def test_convert_to_internal_dict_missing_value_key():
-    """Test _convert_to_internal with dict missing 'value' key."""
-    spec = UnitSpec(unit="MVA", base=None)
-    result = _convert_to_internal({"unit": "MVA"}, spec)
-    assert result == 0.0
+    spec = UnitSpec(unit="MVA")
+    with pytest.raises(ValueError, match=r"value.*unit"):
+        convert_to_internal({"unit": "MVA"}, spec)
 
 
 def test_convert_to_internal_dict_missing_unit_key():
-    """Test _convert_to_internal with dict missing 'unit' key."""
-    spec = UnitSpec(unit="MVA", base=None)
-    result = _convert_to_internal({"value": 100.0}, spec)
-    assert result == 0.0
+    spec = UnitSpec(unit="MVA")
+    with pytest.raises(ValueError, match=r"value.*unit"):
+        convert_to_internal({"value": 100.0}, spec)
 
 
-def test_convert_to_internal_missing_base_value():
-    """Test _convert_to_internal raises when base_value is None but required."""
+@pytest.mark.parametrize(
+    ("value", "input_unit", "base_value", "base_unit", "expected"),
+    [
+        (5000.0, "kW", 100.0, "MW", 0.05),
+        (50.0, "MVA", 100.0, "MVA", 0.5),
+        (50000.0, "kVA", 100.0, "MVA", 0.5),
+    ],
+)
+def test_convert_to_internal_normalizes_compatible_units(
+    value: float, input_unit: str, base_value: float, base_unit: str, expected: float
+) -> None:
+    spec = UnitSpec(unit="pu", base="base_power")
+
+    assert (
+        convert_to_internal(
+            {"value": value, "unit": input_unit}, spec, base_value=base_value, base_unit=base_unit
+        )
+        == expected
+    )
+
+
+def test_has_units_normalizes_prefixed_natural_unit_input() -> None:
+    model = PowerModel(base_power=100.0, power={"value": 5000.0, "unit": "kW"})
+
+    assert model.power == 0.05
+
+
+@pytest.mark.parametrize(
+    ("declared_unit", "value", "input_unit", "base_value", "base_unit", "expected"),
+    [
+        ("MW/min", 10.0, "MW/min", 100.0, "MW", 0.1),
+        ("MW/min", 10000.0, "kW/min", 100.0, "MW", 0.1),
+        ("MW/min", 600.0, "MW/hour", 100.0, "MW", 0.1),
+        ("MW/min", 10.0, "MW/min", 100000.0, "kW", 0.1),
+        ("kW/min", 10.0, "MW/min", 100.0, "MW", 0.1),
+        ("MW/min**2", 10.0, "MW/min**2", 100.0, "MW", 0.1),
+        ("kV", 50.0, "V", 100.0, "V", 0.5),
+    ],
+)
+def test_convert_to_internal_normalizes_relative_quantities(
+    declared_unit: str,
+    value: float,
+    input_unit: str,
+    base_value: float,
+    base_unit: str,
+    expected: float,
+) -> None:
+    spec = UnitSpec(unit=declared_unit, base="base")
+
+    assert (
+        convert_to_internal(
+            {"value": value, "unit": input_unit}, spec, base_value=base_value, base_unit=base_unit
+        )
+        == expected
+    )
+
+
+def test_has_units_converts_scalar_rates_without_losing_time_units() -> None:
+    class RateModel(HasUnits, BaseModel):
+        base_power: Annotated[float, Unit("MW")]
+        ramp: Annotated[float, Unit("MW/min", base="base_power")]
+
+    assert RateModel(base_power=100.0, ramp={"value": 10.0, "unit": "MW/min"}).ramp == 0.1
+    assert RateModel(base_power=100.0, ramp={"value": 10000.0, "unit": "kW/min"}).ramp == 0.1
+
+
+def test_convert_to_internal_translates_invalid_relative_units() -> None:
+    value = {"value": 10.0, "unit": "MW/min"}
+
+    with pytest.raises(ValueError, match="Unknown unit"):
+        convert_to_internal(
+            value, UnitSpec(unit="InvalidUnit", base="base"), base_value=100.0, base_unit="MW"
+        )
+
+    with pytest.raises(ValueError, match="Unknown unit"):
+        convert_to_internal(
+            value, UnitSpec(unit="MW/min", base="base"), base_value=100.0, base_unit="InvalidUnit"
+        )
+
+
+def test_has_units_rejects_incompatible_natural_unit_input() -> None:
+    with pytest.raises(ValidationError, match="incompatible"):
+        PowerModel(base_power=100.0, power={"value": 50.0, "unit": "kV"})
+
+
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        ({"value": "not numeric", "unit": "MW"}, "value' must be numeric"),
+        ({"value": 1.0, "unit": None}, "unit' must be a non-empty string"),
+        ({"value": 1.0, "unit": ""}, "unit' must be a non-empty string"),
+    ],
+)
+def test_convert_to_internal_rejects_invalid_mapping_values(value: dict[str, object], message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        convert_to_internal(value, UnitSpec(unit="MW"))
+
+
+def test_convert_to_internal_accepts_explicit_per_unit_value() -> None:
+    spec = UnitSpec(unit="pu", base="base_power")
+
+    assert convert_to_internal({"value": 0.8, "unit": "pu"}, spec) == 0.8
+
+
+def test_convert_to_internal_rejects_unknown_units() -> None:
+    spec = UnitSpec(unit="pu", base="base_power")
+
+    with pytest.raises(ValueError, match="Unknown unit"):
+        convert_to_internal({"value": 100.0, "unit": "InvalidUnit"}, spec, base_value=100.0, base_unit="MW")
+
+
+def test_convert_to_internal_rejects_zero_base() -> None:
+    spec = UnitSpec(unit="pu", base="base_power")
+
+    with pytest.raises(ValueError, match="non-zero"):
+        convert_to_internal({"value": 100.0, "unit": "MW"}, spec, base_value=0.0, base_unit="MW")
+
+
+def test_convert_to_internal_converts_absolute_units() -> None:
+    assert convert_to_internal({"value": 5000.0, "unit": "kW"}, UnitSpec(unit="MW")) == 5.0
+    assert convert_to_internal({"value": 13800.0, "unit": "V"}, UnitSpec(unit="kV")) == 13.8
+
+
+def test_convert_to_internal_does_not_treat_per_unit_as_a_physical_unit() -> None:
+    with pytest.raises(ValueError, match="declared base"):
+        convert_to_internal({"value": 1.0, "unit": "kg"}, UnitSpec(unit="pu"))
+
+
+def test_convert_to_internal_missing_base_value() -> None:
     spec = UnitSpec(unit="pu", base="base_power")
     value = {"value": 1.0, "unit": "MVA"}
 
     with pytest.raises(ValueError, match=r"Base field 'base_power' is required.*not provided"):
-        _convert_to_internal(value, spec, base_value=None, base_unit="MVA")
+        convert_to_internal(value, spec, base_unit="MVA")
 
 
-def test_convert_to_internal_missing_base_unit():
-    """Test _convert_to_internal raises when base_unit is None but required."""
+def test_convert_to_internal_missing_base_unit() -> None:
     spec = UnitSpec(unit="pu", base="base_power")
     value = {"value": 1.0, "unit": "MVA"}
 
     with pytest.raises(ValueError, match=r"Base unit for field 'base_power' could not be determined"):
-        _convert_to_internal(value, spec, base_value=100.0, base_unit=None)
+        convert_to_internal(value, spec, base_value=100.0)
 
 
-def test_convert_to_internal_with_invalid_unit():
-    """Test _convert_to_internal handles invalid pint units gracefully."""
+def test_convert_to_internal_with_invalid_unit() -> None:
     spec = UnitSpec(unit="pu", base="base_power")
     value = {"value": 100.0, "unit": "InvalidUnit"}
 
-    # Should fall back to simple division
-    result = _convert_to_internal(value, spec, base_value=100.0, base_unit="MVA")
-    assert result == 1.0
+    with pytest.raises(ValueError, match="Unknown unit"):
+        convert_to_internal(value, spec, base_value=100.0, base_unit="MVA")
 
 
-def test_convert_to_internal_with_dimensionality_error():
-    """Test _convert_to_internal handles dimensionality errors gracefully."""
+def test_convert_to_internal_with_dimensionality_error() -> None:
     spec = UnitSpec(unit="pu", base="base_power")
-    value = {"value": 100.0, "unit": "m"}  # Length unit, incompatible with power
+    value = {"value": 100.0, "unit": "m"}
 
-    # Should fall back to simple division
-    result = _convert_to_internal(value, spec, base_value=100.0, base_unit="MVA")
-    assert result == 1.0
+    with pytest.raises(ValueError, match="incompatible"):
+        convert_to_internal(value, spec, base_value=100.0, base_unit="MVA")
 
 
-def test_format_for_display_device_base_no_base_value():
-    """Test _format_for_display in DEVICE_BASE mode when base_value is None."""
+def test_format_for_display_device_base_no_base_value() -> None:
     spec = UnitSpec(unit="pu", base="base_power")
     set_unit_system(UnitSystem.DEVICE_BASE)
 
-    result = _format_for_display(0.8, spec, UnitSystem.DEVICE_BASE)
-    assert result == "0.8 pu"
+    assert format_for_display(0.8, spec, UnitSystem.DEVICE_BASE) == "0.8 pu"
 
 
-def test_format_for_display_natural_units_no_base():
-    """Test _format_for_display in NATURAL_UNITS mode when base_value is None."""
+def test_format_for_display_natural_units_no_base() -> None:
     spec = UnitSpec(unit="pu", base="base_power")
 
-    result = _format_for_display(0.8, spec, UnitSystem.NATURAL_UNITS, base_value=None, base_unit="MVA")
-    assert result == "0.8 pu"
+    assert format_for_display(0.8, spec, UnitSystem.NATURAL_UNITS, base_unit="MVA") == "0.8 pu"
 
 
-def test_format_for_display_system_base_no_base_value():
-    """Test _format_for_display in SYSTEM_BASE mode when base_value is None."""
+def test_format_for_display_system_base_no_base_value() -> None:
     spec = UnitSpec(unit="pu", base="base_power")
 
-    result = _format_for_display(0.8, spec, UnitSystem.SYSTEM_BASE, base_value=None)
-    assert result == "0.8 pu"
+    assert format_for_display(0.8, spec, UnitSystem.SYSTEM_BASE) == "0.8 pu"
 
 
-def test_format_for_display_system_base_no_system_base():
-    """Test _format_for_display in SYSTEM_BASE mode when system_base is None."""
+def test_format_for_display_system_base_no_system_base() -> None:
     spec = UnitSpec(unit="pu", base="base_power")
 
-    result = _format_for_display(
-        0.8, spec, UnitSystem.SYSTEM_BASE, base_value=100.0, base_unit="MVA", system_base=None
+    assert (
+        format_for_display(
+            0.8,
+            spec,
+            UnitSystem.SYSTEM_BASE,
+            base_value=100.0,
+            base_unit="MVA",
+        )
+        == "0.8 pu"
     )
-    assert result == "0.8 pu"
-
-
-def test_is_annotated_with_annotated_type():
-    """Test _is_annotated returns True for Annotated types."""
-    annotated_type = Annotated[float, Unit("MVA")]
-    assert _is_annotated(annotated_type) is True
-
-
-def test_is_annotated_with_plain_type():
-    """Test _is_annotated returns False for plain types."""
-    assert _is_annotated(float) is False
-    assert _is_annotated(int) is False
-    assert _is_annotated(str) is False
-
-
-def test_is_annotated_with_invalid_input():
-    """Test _is_annotated returns False for invalid input."""
-    assert _is_annotated(None) is False
-    assert _is_annotated(123) is False
-    assert _is_annotated("string") is False
-
-
-def test_get_base_unit_from_context_not_dict():
-    """Test _get_base_unit_from_context returns None when context is not dict."""
-    assert _get_base_unit_from_context(None, "base_power") is None
-    assert _get_base_unit_from_context("invalid", "base_power") is None
-    assert _get_base_unit_from_context(123, "base_power") is None
-
-
-def test_get_base_unit_from_context_no_base_units_map():
-    """Test _get_base_unit_from_context returns None when base_units not in context."""
-    context = {"other_key": "value"}
-    assert _get_base_unit_from_context(context, "base_power") is None
-
-
-def test_get_base_unit_from_context_base_units_not_dict():
-    """Test _get_base_unit_from_context returns None when base_units is not dict."""
-    context = {"base_units": "not_a_dict"}
-    assert _get_base_unit_from_context(context, "base_power") is None
-
-
-def test_get_base_unit_from_context_value_not_string():
-    """Test _get_base_unit_from_context returns None when value is not string."""
-    context = {"base_units": {"base_power": 123}}
-    assert _get_base_unit_from_context(context, "base_power") is None
-
-
-def test_get_base_unit_from_subclass_no_owner():
-    """Test _get_base_unit_from_subclass returns None when owner_name is None."""
-    assert _get_base_unit_from_subclass(None, "base_power") is None
-    assert _get_base_unit_from_subclass("", "base_power") is None
-
-
-def test_get_base_unit_from_subclass_not_found():
-    """Test _get_base_unit_from_subclass returns None when class not found."""
-    result = _get_base_unit_from_subclass("NonExistentClass", "base_power")
-    assert result is None
-
-
-def test_get_base_unit_from_subclass_found():
-    """Test _get_base_unit_from_subclass finds unit from subclass."""
-
-    class TestComponent(HasUnits, Component):
-        """Test component with units."""
-
-        base_power: Annotated[float, Unit("MVA")]
-        rating: Annotated[float, Unit("pu", base="base_power")]
-
-    result = _get_base_unit_from_subclass("TestComponent", "base_power")
-    assert result == "MVA"
-
-
-def test_get_base_unit_from_subclass_recursive_search():
-    """Test _get_base_unit_from_subclass searches recursively through inheritance."""
-
-    class Level1Component(HasUnits, Component):
-        """Level 1 component."""
-
-        voltage: Annotated[float, Unit("kV")]
-
-    class Level2Component(Level1Component):
-        """Level 2 component - intermediate."""
-
-        current: Annotated[float, Unit("A")]
-
-    class Level3Component(Level2Component):
-        """Level 3 component - deepest level."""
-
-        base_power: Annotated[float, Unit("MVA")]
-        rating: Annotated[float, Unit("pu", base="base_power")]
-
-    # Search for Level3Component's base_power through the hierarchy
-    result = _get_base_unit_from_subclass("Level3Component", "base_power")
-    assert result == "MVA"

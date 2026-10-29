@@ -35,7 +35,7 @@ from loguru import logger
 from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_serializer
 
-from .utils import get_package_version
+from .utils.version import get_package_version
 
 if TYPE_CHECKING:
     from .system import System
@@ -72,7 +72,7 @@ class SourceProvenance(SupplementalAttribute):
     ]
 
 
-def _coerce_version(value: Any) -> Version:
+def coerce_version(value: Any) -> Version:
     """Accept a Version or PEP 440 string; raise a clear ValueError otherwise."""
     if isinstance(value, Version):
         return value
@@ -80,22 +80,13 @@ def _coerce_version(value: Any) -> Version:
         try:
             return Version(value)
         except InvalidVersion as exc:
-            raise ValueError(f"{value!r} is not a valid PEP 440 version") from exc
-    raise TypeError(f"expected str or packaging.version.Version, got {type(value).__name__}")
+            msg = f"{value!r} is not a valid PEP 440 version"
+            raise ValueError(msg) from exc
+    msg = f"expected str or packaging.version.Version, got {type(value).__name__}"
+    raise TypeError(msg)
 
 
-VersionField = Annotated[Version, BeforeValidator(_coerce_version)]
-
-
-def _preserve_uuid_collision_message(source_component: Component | SupplementalAttribute) -> str:
-    """Return a user-facing message for preserve-source UUID collisions."""
-    return (
-        f"Cannot preserve source component {source_component.label} "
-        f"(UUID={source_component.uuid}): target system already contains a "
-        f"component with that UUID. Target systems used with "
-        f"preserve_source=True should not be pre-populated with components "
-        f"that share UUIDs with untranslated source components."
-    )
+VersionField = Annotated[Version, BeforeValidator(coerce_version)]
 
 
 class ProvenanceInfo(BaseModel):
@@ -113,13 +104,13 @@ class ProvenanceInfo(BaseModel):
     source_system_name: str | None = Field(default=None, description="name of the source system if set")
 
     @field_serializer("r2x_core_version")
-    def _serialize_version(self, value: Version) -> str:
+    def serialize_version(self, value: Version) -> str:
         """Render the version as its PEP 440 string form for JSON output."""
         return str(value)
 
     @field_serializer("source_system_uuid")
-    def _serialize_uuid(self, value: UUID) -> str:
-        """Render the UUID as its canonical hex-with-dashes string for JSON output."""
+    def serialize_uuid(self, value: UUID) -> str:
+        """Render the UUID as a hyphenated string for JSON output."""
         return str(value)
 
 
@@ -144,8 +135,8 @@ class ProvenanceBuilder:
         source_system : System
             The source system being translated from.
         """
-        self._source_system = source_system
-        self._translated_source_uuids: set[UUID] = set()
+        self.source_system = source_system
+        self.translated_source_uuids: set[UUID] = set()
 
     def record_translation(
         self,
@@ -190,7 +181,7 @@ class ProvenanceBuilder:
             # marked by those rules' record_translation calls.
             return
 
-        self._translated_source_uuids.add(source_component.uuid)
+        self.translated_source_uuids.add(source_component.uuid)
 
         provenance = SourceProvenance(
             source_uuid=source_component.uuid,
@@ -222,22 +213,29 @@ class ProvenanceBuilder:
             The target system to preserve into.
         """
         preserved_uuids: set[UUID] = set()
-        for source_component in self._iter_untranslated_source_components():
+        for source_component in self.iter_untranslated_source_components():
             # deepcopy_component uses model_dump() then re-instantiates, so
             # composed sub-components on `copy` are fresh instances that hold
-            # the same uuid as their source counterparts but do not point at
-            # the target-side canonical instance. Reverse translation will
+            # the same UUID as their source counterparts but do not point at
+            # the existing target component instance. Reverse translation will
             # need to re-link composed refs by uuid; the executor's normal
             # auto_add_composed_components path already de-duplicates by uuid
             # so this does not corrupt the target's component graph.
-            copy = self._source_system.deepcopy_component(source_component)
+            copy = self.source_system.deepcopy_component(source_component)
             try:
                 target_system.add_component(copy)
             except ISAlreadyAttached as exc:
-                # Infrasys owns the canonical UUID uniqueness check. Keep the
+                # Infrasys owns UUID uniqueness checks. Keep the
                 # preserve-source-specific message while avoiding a duplicate
                 # preflight lookup for every preserved component.
-                raise ISAlreadyAttached(_preserve_uuid_collision_message(source_component)) from exc
+                msg = (
+                    f"Cannot preserve source component {source_component.label} "
+                    f"(UUID={source_component.uuid}): target system already contains a "
+                    f"component with that UUID. Target systems used with "
+                    f"preserve_source=True should not be pre-populated with components "
+                    f"that share UUIDs with untranslated source components."
+                )
+                raise ISAlreadyAttached(msg) from exc
             provenance = SourceProvenance(
                 source_uuid=source_component.uuid,
                 preserved=True,
@@ -248,7 +246,7 @@ class ProvenanceBuilder:
         if preserved_uuids:
             logger.debug("Preserved {} untranslated source component(s)", len(preserved_uuids))
 
-        self._preserve_source_supplemental_attributes(target_system, preserved_uuids)
+        self.preserve_source_supplemental_attributes(target_system, preserved_uuids)
 
     def finalize(self) -> ProvenanceInfo:
         """Return system-level provenance metadata for the target system.
@@ -263,21 +261,26 @@ class ProvenanceBuilder:
         # deliberately-old marker that a downstream compat check will flag as
         # "produced by an ancient version" rather than silently accept.
         return ProvenanceInfo(
-            r2x_core_version=_coerce_version(get_package_version("r2x_core", fallback="0.0.0")),
-            source_system_uuid=self._source_system.uuid,
-            source_system_name=self._source_system.name,
+            r2x_core_version=coerce_version(get_package_version("r2x_core", fallback="0.0.0")),
+            source_system_uuid=self.source_system.uuid,
+            source_system_name=self.source_system.name,
         )
 
-    def _iter_untranslated_source_components(self) -> Iterator[Component]:
-        """Yield source components no rule consumed during translation."""
-        for component in self._source_system.iter_all_components():
-            if component.uuid not in self._translated_source_uuids:
+    def iter_untranslated_source_components(self) -> Iterator[Component]:
+        """Yield source components not consumed by rules.
+
+        Call after all rules have been applied.
+        """
+        for component in self.source_system.iter_all_components():
+            if component.uuid not in self.translated_source_uuids:
                 yield component
 
-    def _preserve_source_supplemental_attributes(
+    def preserve_source_supplemental_attributes(
         self, target_system: System, preserved_uuids: set[UUID]
     ) -> None:
-        """Copy source SAs touching preserved components into the target.
+        """Copy source SAs whose owners were preserved into the target.
+
+        Call after all rules have been applied and preserved owners are in the target.
 
         For each source SA:
 
@@ -295,12 +298,12 @@ class ProvenanceBuilder:
 
         # get_supplemental_attributes() with no type arg yields nothing (infrasys
         # iterates only requested types); pass the base to iterate all subtypes.
-        for source_sa in self._source_system.get_supplemental_attributes(SupplementalAttribute):
+        for source_sa in self.source_system.get_supplemental_attributes(SupplementalAttribute):
             if isinstance(source_sa, SourceProvenance):
                 # Never carry provenance tags across systems; each translation
                 # produces its own provenance for the target.
                 continue
-            source_owners = self._source_system.get_components_with_supplemental_attribute(source_sa)
+            source_owners = self.source_system.get_components_with_supplemental_attribute(source_sa)
             preserved_owner_uuids = [owner.uuid for owner in source_owners if owner.uuid in preserved_uuids]
             if not preserved_owner_uuids:
                 continue

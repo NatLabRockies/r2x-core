@@ -11,10 +11,11 @@ Raised when data validation fails, such as invalid file formats or missing requi
 ```python doctest
 >>> from r2x_core import ValidationError
 >>> try:
-...     raise ValidationError("Invalid column name: 'missing_column'")
+...     msg = "Invalid column name: 'missing_column'"
+...     raise ValidationError(msg)
 ... except ValidationError as e:
 ...     print(f"Caught validation error: {e}")
-Caught validation error: Invalid column name: 'missing_column'
+# Caught validation error: Invalid column name: 'missing_column'
 ```
 
 ## Component Creation Errors
@@ -26,10 +27,11 @@ Raised when component creation fails, such as missing dependencies or invalid co
 ```python doctest
 >>> from r2x_core import ComponentCreationError
 >>> try:
-...     raise ComponentCreationError("Failed to create component: missing 'name' field")
+...     msg = "Failed to create component: missing 'name' field"
+...     raise ComponentCreationError(msg)
 ... except ComponentCreationError as e:
 ...     print(f"Caught creation error: {e}")
-Caught creation error: Failed to create component: missing 'name' field
+# Caught creation error: Failed to create component: missing 'name' field
 ```
 
 ## Upgrade Errors
@@ -41,10 +43,11 @@ Raised when a system upgrade fails, such as incompatible version transitions or 
 ```python doctest
 >>> from r2x_core import UpgradeError
 >>> try:
-...     raise UpgradeError("Cannot upgrade from v1.0 to v3.0: missing v2.0 intermediate")
+...     msg = "Cannot upgrade from v1.0 to v3.0: missing v2.0 intermediate"
+...     raise UpgradeError(msg)
 ... except UpgradeError as e:
 ...     print(f"Caught upgrade error: {e}")
-Caught upgrade error: Cannot upgrade from v1.0 to v3.0: missing v2.0 intermediate
+# Caught upgrade error: Cannot upgrade from v1.0 to v3.0: missing v2.0 intermediate
 ```
 
 ## CLI Errors
@@ -56,10 +59,11 @@ Raised during CLI plugin execution when command-line operations fail.
 ```python doctest
 >>> from r2x_core import CLIError
 >>> try:
-...     raise CLIError("Plugin execution failed: timeout after 30 seconds")
+...     msg = "Plugin execution failed: timeout after 30 seconds"
+...     raise CLIError(msg)
 ... except CLIError as e:
 ...     print(f"Caught CLI error: {e}")
-Caught CLI error: Plugin execution failed: timeout after 30 seconds
+# Caught CLI error: Plugin execution failed: timeout after 30 seconds
 ```
 
 ## Plugin Errors
@@ -71,10 +75,11 @@ Raised during plugin execution when plugin operations fail, such as missing plug
 ```python doctest
 >>> from r2x_core import PluginError
 >>> try:
-...     raise PluginError("Plugin 'my_plugin' not found in registry")
+...     msg = "Plugin 'my_plugin' not found in registry"
+...     raise PluginError(msg)
 ... except PluginError as e:
 ...     print(f"Caught plugin error: {e}")
-Caught plugin error: Plugin 'my_plugin' not found in registry
+# Caught plugin error: Plugin 'my_plugin' not found in registry
 ```
 
 ## Error Handling Best Practices

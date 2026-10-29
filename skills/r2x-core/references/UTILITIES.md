@@ -1,7 +1,7 @@
 # r2x-core Utilities Reference
 
-Use this when translator code needs common component extraction, safe component
-creation, CSV export, getter helpers, or time-series metadata transfer.
+Use this when translator code needs component extraction, CSV export, getter
+helpers, or time-series metadata transfer.
 
 ## Public utility surface
 
@@ -10,7 +10,6 @@ Common public utilities include:
 
 - `components_to_records(...)`
 - `export_components_to_csv(...)`
-- `create_component(...)`
 - `getter(...)`
 - `transfer_time_series_metadata(...)`
 
@@ -21,8 +20,7 @@ source module intentionally, and mention that in the handoff.
 
 - Reuse utility functions before writing bespoke component loops.
 - Preserve UUID/name identity when extracting and re-creating components.
-- Treat `create_component(...)` as a safer boundary for component construction
-  and error reporting.
+- Construct components with their validated model constructors.
 - Use `getter(...)` for nested/composed values when rule field mapping would be
   too blunt.
 - Use `transfer_time_series_metadata(...)` when translation preserves components
@@ -60,23 +58,6 @@ export_components_to_csv(system, file_path="components.csv")
 Prefer the utility over hand-rolled CSV export so field handling remains
 consistent with r2x-core expectations.
 
-### Create components safely
-
-```python
-from r2x_core import create_component
-
-result = create_component(Generator, name="gen1", p_max=100.0)
-if result.is_err():
-    raise ValueError(result.err())
-generator = result.ok()
-```
-
-Current root export signature is `create_component(component_class, *, skip_none=True,
-skip_validation=False, **field_values)`. It returns
-`Result[T, pydantic.ValidationError]`. The important pattern is to keep
-component construction errors at a single typed boundary instead of scattering
-bare constructors through rules.
-
 ### Getter helpers
 
 Use getter helpers for nested or composed attributes referenced by rules. When a
@@ -87,7 +68,8 @@ when constructing `Rule(...)` directly, pass callable getters.
 
 When source and target systems preserve time-series associations, use
 `transfer_time_series_metadata(...)` instead of manually copying association
-rows. Report counts/errors from the transfer result in the handoff.
+rows. Report the returned `transferred`, `updated`, and `children_remapped`
+counts. Failures raise exceptions rather than appearing in that result.
 
 ## Source modules to verify on drift
 

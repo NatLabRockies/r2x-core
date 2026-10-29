@@ -6,7 +6,10 @@ r2x-core provides data file management, plugin configuration, and system managem
 
 - {py:class}`~r2x_core.System` - Core system container
 - {py:class}`~r2x_core.DataStore` - Data file storage
-- {py:class}`~r2x_core.DataReader` - Data reading utility
+- {py:class}`~r2x_core.DataReader` - Named typed-source loading and composition
+- {py:func}`~r2x_core.build_system` - Configured component and output construction
+- {py:class}`~r2x_core.DecodedSource` - Typed decoded-source contract
+- {py:class}`~r2x_core.SourceProcessor` - Payload-specific processing contract
 - {py:class}`~r2x_core.DataFile` - Data file configuration
 - {py:class}`~r2x_core.FileInfo` - Data file metadata
 - {py:class}`~r2x_core.ReaderConfig` - File reader configuration
@@ -15,8 +18,7 @@ r2x-core provides data file management, plugin configuration, and system managem
 - {py:class}`~r2x_core.PluginConfig` - Plugin configuration
 - {py:class}`~r2x_core.Plugin` - Plugin base class
 - {py:class}`~r2x_core.PluginContext` - Plugin execution context
-- {py:class}`~r2x_core.FileFormat` - File format enum
-- {py:class}`~r2x_core.H5Format` - HDF5 file format enum
+- {py:class}`~r2x_core.TabularProcessor` - Native tabular access and processing contract
 
 ## Rules and Translation
 
@@ -31,7 +33,6 @@ r2x-core provides data file management, plugin configuration, and system managem
 
 - {py:func}`~r2x_core.components_to_records` - Export components as records
 - {py:func}`~r2x_core.export_components_to_csv` - Export components to CSV
-- {py:func}`~r2x_core.create_component` - Create and validate components
 - {py:func}`~r2x_core.getter` - Register getter functions
 - {py:func}`~r2x_core.transfer_time_series_metadata` - Transfer time series metadata
 
@@ -64,6 +65,7 @@ plugins
 versioning
 upgrader
 processors
+table-mapping
 utils
 exceptions
 file-formats

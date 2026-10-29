@@ -20,11 +20,11 @@ A [`Rule`](/r2x-core/references/api/) defines how to convert components from one
 ...     field_map={"name": "name", "kv_rating": "voltage_kv"},
 ... )
 >>> rule.source_type
-'BusComponent'
+# 'BusComponent'
 >>> rule.target_type
-'NodeComponent'
+# 'NodeComponent'
 >>> rule.version
-1
+# 1
 ```
 
 The `version` field supports schema evolution. When source or target formats change, you can create new rule versions while maintaining compatibility with older data.
@@ -44,7 +44,7 @@ When source components may be missing certain fields, the `defaults` parameter p
 ...     defaults={"zone": "unspecified"},
 ... )
 >>> rule.defaults
-{'zone': 'unspecified'}
+# {'zone': 'unspecified'}
 ```
 
 Defaults are applied only when the source component lacks the specified field. If the source has a value, it takes precedence over the default.
@@ -61,7 +61,7 @@ A rule can create a primary component and supplemental attributes from the same 
 ...     field_map={"location_name": "zone"},
 ... )
 >>> output.target_type
-'BusGeographicInfo'
+# 'BusGeographicInfo'
 
 >>> rule = Rule(
 ...     source_type="BusComponent",
@@ -69,11 +69,11 @@ A rule can create a primary component and supplemental attributes from the same 
 ...     version=1,
 ...     field_map={"name": "name", "uuid": "uuid", "kv_rating": "voltage_kv"},
 ...     supplemental_attributes=[
-...         {
-...             "target_type": "BusGeographicInfo",
-...             "field_map": {"location_name": "zone"},
-...             "defaults": {"latitude": 0.0, "longitude": 0.0},
-...         },
+...         SupplementalAttributeRule(
+...             target_type="BusGeographicInfo",
+...             field_map={"location_name": "zone"},
+...             defaults={"latitude": 0.0, "longitude": 0.0},
+...         ),
 ...     ],
 ... )
 ```
@@ -108,111 +108,31 @@ When loading JSON records, use the same shape. Getter names are resolved through
 }
 ```
 
-Construction errors include the rule, source component, and supplemental output type. No primary component is attached when validation of one of its supplemental outputs fails. Multi-target rules cannot declare supplemental outputs, because a shared supplemental UUID cannot be attached atomically to multiple primary components.
+Construction errors include the rule, source component, and supplemental output type. No primary component is attached when validation of one of its supplemental outputs fails. Rules that produce multiple component types cannot declare supplemental outputs because the same supplemental UUID cannot be attached to each primary component at once.
 
 ## Filter Components Before Translation
 
-The [`RuleFilter`](/r2x-core/references/api/) class restricts which components a rule processes. Rather than embedding conditional logic in procedural code, you declare predicates that the rule executor evaluates.
+A rule's filter is a tagged union, not a model to instantiate directly. Use
+`FieldFilter` for a component field and `GetterFilter` for a derived value.
+`AnyOfFilter` and `AllOfFilter` compose child filters. See the
+[Rule Filters guide](/r2x-core/how-tos/create-rule-filters/) for evaluation and
+JSON examples.
 
 ```python doctest
->>> from r2x_core import Rule, RuleFilter
-
->>> # Only translate generators with status "active"
+>>> from r2x_core import FieldFilter, Rule
+>>> active = FieldFilter(field="status", op="eq", values=["active"])
 >>> rule = Rule(
 ...     source_type="Generator",
 ...     target_type="ThermalUnit",
 ...     version=1,
 ...     field_map={"name": "name"},
-...     filter=RuleFilter(field="status", op="eq", values=["active"]),
+...     filter=active,
 ... )
+>>> rule.filter.kind
+# 'field'
 >>> rule.filter.field
-'status'
->>> rule.filter.op
-'eq'
+# 'status'
 ```
-
-Use a field-backed filter when the selection value is already present on the source component. Use a getter-backed filter when the candidate value must be derived from translator context, supplemental attributes, or other source-system lookups. If a filter uses `getter`, call `matches(component, context=...)` with the active `PluginContext`, because the getter-backed path needs that context to evaluate.
-
-```python doctest
->>> from types import SimpleNamespace
->>> from rust_ok import Ok
->>> from r2x_core import RuleFilter
->>> from r2x_core.plugin_config import PluginConfig
->>> from r2x_core.plugin_context import PluginContext
->>>
->>> ctx = PluginContext(config=PluginConfig(models=[]), metadata={"selected_fuel_type": "gas"})
->>> filt = RuleFilter(getter=lambda _src, *, context: Ok(context.metadata["selected_fuel_type"]), op="eq", values=["gas"])
->>> filt.matches(SimpleNamespace(), context=ctx)
-True
-```
-
-Filters are evaluated before translation begins, so components that don't match are skipped entirely. This improves performance when only a subset of components needs translation.
-
-## RuleFilter Operations
-
-The [`RuleFilter`](/r2x-core/references/api/) class supports several comparison operations. String comparisons are case-insensitive by default, which handles the common case of inconsistent capitalization in source data.
-
-```python doctest
->>> from types import SimpleNamespace
->>> from r2x_core import RuleFilter
-
->>> component = SimpleNamespace(name="Alpha", status="ok", count=5)
-
->>> # Equality check (case-insensitive)
->>> eq_filter = RuleFilter(field="name", op="eq", values=["alpha"])
->>> eq_filter.matches(component)
-True
-
->>> # Not equal
->>> neq_filter = RuleFilter(field="status", op="neq", values=["failed"])
->>> neq_filter.matches(component)
-True
-
->>> # In list
->>> in_filter = RuleFilter(field="name", op="in", values=["alpha", "beta"])
->>> in_filter.matches(component)
-True
-
->>> # Greater than or equal
->>> geq_filter = RuleFilter(field="count", op="geq", values=[3])
->>> geq_filter.matches(component)
-True
-```
-
-Numeric comparisons like `geq`, `leq`, `gt`, and `lt` require exactly one value in the `values` list. The filter validates this constraint during construction.
-
-## Handle Missing Fields
-
-The `on_missing` parameter controls filter behavior when a component lacks the filtered field. This is important for handling heterogeneous source data where some components have optional attributes.
-
-```python doctest
->>> from types import SimpleNamespace
->>> from r2x_core import RuleFilter
-
->>> component = SimpleNamespace(name="Test")  # No 'status' field
-
->>> # Include component when field is missing
->>> filter_include = RuleFilter(
-...     field="status",
-...     op="eq",
-...     values=["active"],
-...     on_missing="include",
-... )
->>> filter_include.matches(component)
-True
-
->>> # Exclude component when field is missing (default)
->>> filter_exclude = RuleFilter(
-...     field="status",
-...     op="eq",
-...     values=["active"],
-...     on_missing="exclude",
-... )
->>> filter_exclude.matches(component)
-False
-```
-
-The default `on_missing="exclude"` behavior is conservative, ensuring that components without the required field are not accidentally included.
 
 ## Create Rules from Records
 
@@ -237,12 +157,14 @@ The [`from_records`](/r2x-core/references/api/) class method creates rules from 
 ... ]
 >>> rules = Rule.from_records(records)
 >>> len(rules)
-2
+# 2
 >>> rules[0].source_type
-'Bus'
+# 'Bus'
 ```
 
-The method validates each record and raises :exc:`~pydantic.ValidationError` if required fields are missing or have invalid types.
+The method validates each record and raises
+[Pydantic's `ValidationError`](https://pydantic.dev/docs/validation/latest/api/pydantic-core/pydantic_core/#pydantic_core.ValidationError)
+if required fields are missing or have invalid types.
 
 ## Rules Are Immutable
 
@@ -256,7 +178,7 @@ The method validates each record and raises :exc:`~pydantic.ValidationError` if 
 ...     rule.version = 2
 ... except Exception as e:
 ...     "FrozenInstanceError" in type(e).__name__
-True
+# True
 ```
 
 If you need a modified rule, create a new instance with the changed values. This explicit approach makes changes visible and prevents accidental mutation.
@@ -271,13 +193,13 @@ If you need a modified rule, create a new instance with the changed values. This
 >>> # Single source, multiple targets
 >>> rule = Rule(source_type="Gen", target_type=["Thermal", "Renewable"], version=1)
 >>> rule.get_source_types()
-['Gen']
+# ['Gen']
 >>> rule.get_target_types()
-['Thermal', 'Renewable']
+# ['Thermal', 'Renewable']
 >>> rule.has_multiple_targets()
-True
+# True
 >>> rule.has_multiple_sources()
-False
+# False
 ```
 
 Multiple targets are useful when a single source component should create multiple target components, such as splitting a combined generator into separate thermal and renewable units.
@@ -299,9 +221,9 @@ The [`apply_rules_to_context`](/r2x-core/references/api/) function returns a [`T
 ...     error=None,
 ... )
 >>> result.converted
-10
+# 10
 >>> result.success
-True
+# True
 
 >>> # TranslationResult aggregates all rule results
 >>> translation = TranslationResult(
@@ -314,9 +236,9 @@ True
 ...     time_series_updated=2,
 ... )
 >>> translation.success
-True
+# True
 >>> translation.total_converted
-10
+# 10
 ```
 
 The [`summary`](/r2x-core/references/api/) method prints a formatted table of results, useful for logging and debugging translation workflows.
@@ -339,9 +261,9 @@ It tests the executor with generic components rather than requiring an external 
 >>> result = apply_rules_to_context(context)
 >>> # Expected: one rule successfully converts one generic component.
 >>> result.success, result.total_converted
-(True, 1)
+# (True, 1)
 >>> sorted(item.name for item in target.get_components(Component))
-['Alpha']
+# ['Alpha']
 ```
 
 ## Apply a Single Rule
@@ -359,9 +281,9 @@ Apply one rule at a time using [`apply_single_rule`](/r2x-core/references/api/):
 >>> result = apply_single_rule(rule, context=context)
 >>> # Expected: the single-rule result records one constructed component.
 >>> result.unwrap().converted
-1
+# 1
 >>> sorted(item.name for item in target.get_components(Component))
-['Alpha']
+# ['Alpha']
 ```
 
 ## See Also

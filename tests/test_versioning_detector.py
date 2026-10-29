@@ -5,6 +5,8 @@ import pytest
 
 from r2x_core.versioning import VersionReader
 
+pytestmark = pytest.mark.versioning
+
 
 @pytest.fixture
 def test_folder(tmp_path):

@@ -4,7 +4,7 @@ title: "Managing Datastores"
 
 <span id="managing-datastores"></span>
 
-A [`DataStore`](/r2x-core/references/api/) is a collection of [`DataFile`](/r2x-core/references/api/) objects that can be read together, providing a unified interface for managing multiple data sources.
+A [`DataStore`](/r2x-core/references/api/) manages a collection of validated `DataFile` mapping definitions rooted at an existing directory. It does not read or process those inputs. Use `DataReader` to load named sources or `build_system` to construct configured outputs.
 
 ## Create a DataStore
 
@@ -14,7 +14,7 @@ Use [`DataStore`](/r2x-core/references/api/) to instantiate an empty data store:
 >>> from r2x_core import DataStore
 >>> store = DataStore()
 >>> type(store).__name__
-'DataStore'
+# 'DataStore'
 ```
 
 ## Add Files to a DataStore
@@ -37,7 +37,7 @@ Use the [`add_data`](/r2x-core/references/api/) method to register data files:
 >>> store = DataStore()
 >>> store.add_data(files)
 >>> len(store.list_data())
-2
+# 2
 ```
 
 ## List Available Data Files
@@ -55,14 +55,15 @@ Check which data files are registered in the store:
 >>>
 >>> # Check registered data
 >>> "generators" in store.list_data()
-True
+# True
 >>> sorted(store.list_data())
-['generators', 'loads']
+# ['generators', 'loads']
 ```
 
 ## See Also
 
-- [read data files](/r2x-core/how-tos/read-data-files/) - Read individual data files
+- [Read data files](/r2x-core/how-tos/read-data-files/) - Load named typed sources
+- [Build a parser](/r2x-core/how-tos/build-parsers/) - Construct configured systems
 - [configure data files](/r2x-core/how-tos/configure-data-files/) - Configure data file formats and parsing
 - [`DataStore`](/r2x-core/references/api/) - DataStore API reference
 - [`DataFile`](/r2x-core/references/api/) - DataFile API reference

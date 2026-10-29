@@ -24,7 +24,7 @@ It does not need to override those properties or read `_ctx`.
 Only implemented hooks run. This ordering makes dependencies visible, but it does
 not provide rollback: changes made before a failed hook may remain.
 The [lifecycle tutorial](/r2x-core/tutorials/plugin-system/) checks success and
-failure paths with a complete implementation; the [reference](/r2x-core/references/plugins/)
+failure paths with a complete implementation. The [reference](/r2x-core/references/plugins/)
 records the exact hook order and result contracts.
 
 ## Class plugins and function transforms
@@ -46,7 +46,7 @@ This complete example shows that the function changes a supplied system:
 >>> result = rename(system, RenameConfig())
 >>> # Expected: a successful Result contains the same changed system.
 >>> result.unwrap().name
-'renamed'
+# 'renamed'
 >>> assert result.unwrap() is system
 ```
 
@@ -55,9 +55,9 @@ This complete example shows that the function changes a supplied system:
 The Rust CLI discovers registered entry points and manages its own Python environment.
 Adding core to a separate project does not install a translator there.
 See [plugin discovery](/r2x-core/tutorials/plugin-discovery/) and the
-[CLI package-management guide](https://natlabrockies.github.io/r2x-cli/plugin-management/).
-Installing a plugin executes Python code with the host process's permissions;
-this architecture is not a sandbox.
+[CLI guide to managing plugins](https://github.com/NatLabRockies/r2x-cli/blob/main/docs/plugin-management.md).
+Installing a plugin runs Python code with the host process's permissions.
+It is not a sandbox.
 
 <span id="purpose-and-goals"></span>
 

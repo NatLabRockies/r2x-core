@@ -17,12 +17,22 @@ REQUIRED: dict[str, tuple[str, ...]] = {
         "DataFile",
         "DataStore",
         "DataReader",
+        "InlineTable",
+        "InputColumn",
+        "SourceSelection",
+        "SourceAvailability",
+        "TableMappingRecord",
+        "TableMappingBackend",
         "System",
         "UnitSystem",
         "UpgradeStep",
         "VersionStrategy",
         "apply_rules_to_context",
         "apply_single_rule",
+        "assemble_tables",
+        "assemble_table_records",
+        "build_system",
+        "build_system_from_sources",
         "run_upgrade_step",
     ),
     "plugin_base.py": ("Plugin",),
@@ -30,11 +40,46 @@ REQUIRED: dict[str, tuple[str, ...]] = {
     "plugin_context.py": ("PluginContext",),
     "plugin_expose.py": ("expose_plugin",),
     "rules.py": ("Rule", "RuleFilter"),
+    "models.py": (
+        "TabularProcessing",
+        "JSONProcessing",
+        "ComponentInstruction",
+        "TimeSeriesInstruction",
+        "SupplementalAttributeInstruction",
+        "ParserInstruction",
+    ),
     "rules_executor.py": ("apply_rules_to_context", "apply_single_rule"),
-    "datafile.py": ("DataFile", "FileInfo", "ReaderConfig"),
+    "datafile.py": (
+        "DataFile",
+        "FileInfo",
+        "ReaderConfig",
+        "InputColumn",
+        "InlineTable",
+        "SourceSelection",
+    ),
     "store.py": ("DataStore",),
-    "reader.py": ("DataReader",),
-    "units/__init__.py": ("HasUnits", "HasPerUnit", "UnitSystem"),
+    "reader.py": (
+        "DataReader",
+        "read_data_files",
+        "read_and_assemble_sources",
+        "read_and_assemble_records",
+    ),
+    "ingestion.py": ("build_system", "build_system_from_sources"),
+    "table_mapping.py": (
+        "TableMappingRecord",
+        "TableOperation",
+        "assemble_tables",
+        "assemble_table_records",
+    ),
+    "file_reader.py": (
+        "DecodedSource",
+        "DecodedSources",
+        "TabularSource",
+        "FileReader",
+    ),
+    "tabular_backend.py": ("TableMappingBackend",),
+    "types.py": ("FileProcessing", "FileRequirement", "FileType"),
+    "units/__init__.py": ("HasUnits", "HasPerUnit", "Unit", "UnitSystem"),
     "versioning.py": ("VersionStrategy", "VersionReader"),
 }
 
@@ -44,7 +89,7 @@ def has_symbol(source: str, symbol: str) -> bool:
     escaped = re.escape(symbol)
     definition = re.compile(rf"^\s*(?:class|def)\s+{escaped}\b", re.MULTILINE)
     import_export = re.compile(rf"^\s*from\s+\S+\s+import[^\n]*\b{escaped}\b", re.MULTILINE)
-    assignment = re.compile(rf"^\s*{escaped}\s*=", re.MULTILINE)
+    assignment = re.compile(rf"^\s*{escaped}\s*(?::[^=\n]+)?=", re.MULTILINE)
     all_export = re.compile(rf"[\"']{escaped}[\"']", re.MULTILINE)
     return bool(
         definition.search(source)

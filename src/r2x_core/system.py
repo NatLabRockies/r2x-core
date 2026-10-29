@@ -14,12 +14,9 @@ from pydantic import ValidationError
 
 from . import units
 from .provenance import ProvenanceInfo, SourceProvenance
-from .utils import (
-    filter_kwargs_by_signatures,
-    get_package_version,
-    warn_if_persisted_version_newer_than_installed,
-)
 from .utils.files import get_r2x_cache_path
+from .utils.validation import filter_kwargs_by_signatures
+from .utils.version import get_package_version, warn_if_persisted_version_newer_than_installed
 
 
 class System(InfrasysSystem):
@@ -51,7 +48,6 @@ class System(InfrasysSystem):
     See Also
     --------
     :class:`infrasys.system.System` : Parent class with core system functionality.
-    :class:`BaseParser` : Parser framework for building systems.
     """
 
     def __init__(
@@ -61,23 +57,11 @@ class System(InfrasysSystem):
         name: str | None = None,
         **kwargs: Any,
     ) -> None:
-        """Initialize R2X Core System.
+        """Initialize the system and define Pint's global ``system_base`` unit.
 
-        This method defines the 'system_base' unit in the global Pint registry.
-        If you create multiple System instances, the last one's system_base will
-        be used for all unit conversions. Existing components will detect the
-        change and issue a warning if they access system_base conversions.
-
-        Parameters
-        ----------
-        base_power : float, optional (defaults: 100.0)
-            System base power in MVA for per-unit calculations.
-            Can be provided as first positional argument or as keyword argument.
-        name : str, optional
-            Name of the system. If not provided, a default name will be assigned.
-        **kwargs
-            Additional keyword arguments passed to infrasys.System (e.g., description,
-            auto_add_composed_components).
+        The supplied value replaces that registry definition. Separately,
+        ``HasPerUnit`` components receive this system's base as instance-local
+        state when added to the system.
         """
         merged_kwargs = dict(kwargs)
         if name is not None:
@@ -142,8 +126,8 @@ class System(InfrasysSystem):
             Every component tagged as a rule-produced translation, or every
             component when no provenance tags exist.
         """
-        translated = self._provenance_component_uuids(preserved=False)
-        preserved = self._provenance_component_uuids(preserved=True)
+        translated = self.provenance_component_uuids(preserved=False)
+        preserved = self.provenance_component_uuids(preserved=True)
         if not translated and not preserved:
             yield from self.iter_all_components()
             return
@@ -160,7 +144,7 @@ class System(InfrasysSystem):
         Component
             Every component tagged with ``SourceProvenance(preserved=True)``.
         """
-        preserved = self._provenance_component_uuids(preserved=True)
+        preserved = self.provenance_component_uuids(preserved=True)
         for component in self.iter_all_components():
             if component.uuid in preserved:
                 yield component
@@ -189,7 +173,7 @@ class System(InfrasysSystem):
         )
         return any(tag.preserved for tag in provenance)
 
-    def _provenance_component_uuids(self, *, preserved: bool) -> set[UUID]:
+    def provenance_component_uuids(self, *, preserved: bool) -> set[UUID]:
         """Return component UUIDs carrying provenance tags matching ``preserved``.
 
         Two sqlite scans (one to iterate all ``SourceProvenance`` SAs, one
@@ -207,7 +191,7 @@ class System(InfrasysSystem):
         return result
 
     def add_components(self, *components: Component, **kwargs: Any) -> None:
-        """Add one or more components to the system and set their _system_base.
+        """Add components and bind their system base when they support it.
 
         Parameters
         ----------
@@ -218,22 +202,21 @@ class System(InfrasysSystem):
 
         Notes
         -----
-        If any component is a HasPerUnit model, this method automatically sets
-        the component's _system_base attribute for use in system-base per-unit
-        display mode.
+        HasPerUnit components receive this system's base power for system-base
+        per-unit display mode.
 
         Raises
         ------
         ValueError
-            If a component already has a different _system_base set.
+            If a component already has a different system base.
         """
         for component in components:
             if isinstance(component, units.HasPerUnit):
-                existing_base = component._get_system_base()
+                existing_base = component.system_base
                 if existing_base is not None and existing_base != self.base_power:
-                    comp_name = component.name if hasattr(component, "name") else type(component).__name__
+                    comp_name = component.name
                     msg = (
-                        f"Component '{comp_name}' already has _system_base={existing_base} MVA "
+                        f"Component '{comp_name}' already has system_base={existing_base} MVA "
                         f"but is being added to system with base={self.base_power} MVA. "
                         f"This may indicate the component was previously added to a different system."
                     )
@@ -243,33 +226,31 @@ class System(InfrasysSystem):
 
         for component in components:
             if isinstance(component, units.HasPerUnit):
-                component._system_base = self.base_power
+                component.bind_system_base(self.base_power)
                 logger.trace(
-                    "Set _system_base = {} MVA on component '{}'",
+                    "Set system_base = {} MVA on component '{}'",
                     self.base_power,
-                    component.name if hasattr(component, "name") else type(component).__name__,
+                    component.name,
                 )
 
-    def to_json(  # type: ignore
+    def to_json(
         self,
-        fname: Path | str | None = None,
+        filename: Path | str,
         overwrite: bool = False,
         indent: int | None = None,
         data: Any = None,
-    ) -> bytes | None:
-        """Serialize system to JSON file or return bytes.
+    ) -> None:
+        """Serialize the system to a JSON file.
 
         Parameters
         ----------
-        fname : Path or str, optional
-            Output JSON file path. If None, prints JSON to stdout.
-            Note: When writing to stdout, time series are serialized to a temporary
-            directory that will be cleaned up automatically.
+        filename : Path or str
+            Output JSON file path.
         overwrite : bool, default False
-            If True, overwrite existing file. If False, raise error if file exists.
+            If True, overwrite the file when it exists.
         indent : int, optional
-            JSON indentation level. If None, uses compact format.
-        data : optional
+            JSON indentation level. If None, use compact formatting.
+        data : Any, optional
             Additional data to include in serialization.
 
         Returns
@@ -279,14 +260,23 @@ class System(InfrasysSystem):
         Raises
         ------
         FileExistsError
-            If file exists and overwrite=False.
-
-        See Also
-        --------
-        :meth:`from_json` : Load system from JSON file
+            If the file exists and ``overwrite`` is False.
         """
-        if fname:
-            return super().to_json(fname, overwrite=overwrite, indent=indent, data=data)
+        super().to_json(filename, overwrite=overwrite, indent=indent, data=data)
+
+    def to_json_bytes(self, *, data: Any = None) -> bytes:
+        """Serialize the system and its time-series database to JSON bytes.
+
+        Parameters
+        ----------
+        data : Any, optional
+            Additional data to include in serialization.
+
+        Returns
+        -------
+        bytes
+            Serialized system data.
+        """
         logger.info("Serializing system '{}'", self.name)
 
         cache_folder = get_r2x_cache_path()
@@ -306,37 +296,30 @@ class System(InfrasysSystem):
                 "directory": str(time_series_dir),
             },
         }
-        extra = self.serialize_system_attributes()
-        system_data.update(extra)
+        system_data.update(self.serialize_system_attributes())
 
         if data is None:
             data = system_data
-        else:
-            if "system" not in data:
-                data["system"] = system_data
+        elif "system" not in data:
+            data["system"] = system_data
 
         backup(self._con, time_series_dir / self.DB_FILENAME)
         self._time_series_mgr.serialize(system_data["time_series"], time_series_dir, db_name=self.DB_FILENAME)
-
-        json_bytes = orjson.dumps(data)
-
-        return json_bytes
+        return orjson.dumps(data)
 
     @classmethod
-    def from_json(  # type: ignore
+    def from_json(
         cls,
-        source: Path | str | bytes,
-        /,
-        *,
+        filename: Path | str | bytes,
         upgrade_handler: Callable[..., Any] | None = None,
         **kwargs: Any,
     ) -> "System":
-        """Deserialize system from JSON file.
+        """Deserialize a system from a file or JSON bytes.
 
         Parameters
         ----------
-        source : Path, str, or bytes
-            Input JSON source.
+        filename : Path, str, or bytes
+            Input file path or serialized JSON data.
         upgrade_handler : Callable, optional
             Function to handle data model version upgrades.
         **kwargs
@@ -359,12 +342,12 @@ class System(InfrasysSystem):
         :meth:`to_json` : Serialize system to JSON file.
         :func:`upgrade_data` : Phase 1 upgrades for parser workflow.
         """
-        match source:
+        match filename:
             case Path() | str():
-                system = super().from_json(source, upgrade_handler=upgrade_handler, **kwargs)
+                system = super().from_json(filename, upgrade_handler=upgrade_handler, **kwargs)
             case bytes():
                 logger.debug("Deserializing system from bytes.")
-                json_data = orjson.loads(source.decode("utf-8"))
+                json_data = orjson.loads(filename.decode("utf-8"))
                 ts_info = json_data.get("time_series")
                 if not ts_info:
                     msg = "Data is missing time series information. Check source."
@@ -377,15 +360,18 @@ class System(InfrasysSystem):
                     json_data, ts_info["directory"], upgrade_handler=upgrade_handler, **kwargs
                 )
             case _:
-                msg = f"{type(source)=} for function from_json. Valid types are: Path, str, bytes"
+                msg = f"{type(filename)=} for function from_json. Valid types are: Path, str, bytes"
                 raise NotImplementedError(msg)
+
+        if not isinstance(system, cls):
+            msg = f"Expected {cls.__name__} from deserialization, got {type(system).__name__}"
+            raise TypeError(msg)
 
         for component in system.get_components(Component):
             if isinstance(component, units.HasPerUnit):
-                # NOTE: mypy does not know that we deserialize the system attributes.
-                component._system_base = system.base_power  # type:ignore
+                component.bind_system_base(system.base_power)
 
-        return system  # type: ignore
+        return system
 
     def serialize_system_attributes(self) -> dict[str, Any]:
         """Serialize R2X-specific system attributes.

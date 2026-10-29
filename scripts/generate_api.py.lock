@@ -1119,9 +1119,10 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "h5py-stubs", specifier = ">=0.1.2,<1.0.0" },
-    { name = "prek", specifier = ">=0.4.1,<0.6.0" },
     { name = "pytest", specifier = ">=8.4.2,<10.0.0" },
+    { name = "pytest-benchmark", specifier = ">=5.3.0,<6.0.0" },
     { name = "pytest-coverage", specifier = ">=0.0,<1.0.0" },
+    { name = "pytest-xdist", specifier = ">=3.8.0,<4.0.0" },
     { name = "ruff", specifier = ">=0.13.2,<0.15.0" },
     { name = "ty", specifier = ">=0.0.12,<1.0.0" },
 ]

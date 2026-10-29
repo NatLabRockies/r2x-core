@@ -155,7 +155,7 @@ def test_rule_from_records_processes_string_getters_and_filters():
     """from_records resolves string getter specs and filters."""
     from types import SimpleNamespace
 
-    from rust_ok import Ok
+    from rust_ok import Ok, Result
 
     from r2x_core import GetterFilter, Rule
     from r2x_core.getters import GETTER_REGISTRY, getter
@@ -164,7 +164,7 @@ def test_rule_from_records_processes_string_getters_and_filters():
     if filter_getter_name not in GETTER_REGISTRY:
 
         @getter(name=filter_getter_name)
-        def rule_filter_record_getter(src, *, context):
+        def rule_filter_record_getter(src: object, *, context: object) -> Result[str, ValueError]:
             _ = context
             return Ok("ok")
 

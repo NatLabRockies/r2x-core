@@ -3,7 +3,7 @@
 from tempfile import TemporaryDirectory
 
 import pytest
-from rust_ok import Err, Ok
+from rust_ok import Err, Ok, Result
 
 from r2x_core import Plugin, PluginConfig, PluginContext, System
 from r2x_core.exceptions import PluginError
@@ -643,14 +643,14 @@ def test_lifecycle_order():
     assert LifecycleTracker.call_order == expected
 
 
-def test_run_rejects_plain_hook_result_before_export():
+def test_run_rejects_plain_hook_result_before_export() -> None:
     calls: list[str] = []
 
     class InvalidBuildPlugin(Plugin[SimpleConfig]):
-        def on_build(self):
+        def on_build(self) -> None:
             return None
 
-        def on_export(self):
+        def on_export(self) -> Result[None, ValueError]:
             calls.append("export")
             return Ok(None)
 
@@ -662,11 +662,11 @@ def test_run_rejects_plain_hook_result_before_export():
     assert calls == []
 
 
-def test_run_preserves_exception_from_err_hook():
+def test_run_preserves_exception_from_err_hook() -> None:
     failure = ValueError("invalid build")
 
     class ErrorBuildPlugin(Plugin[SimpleConfig]):
-        def on_build(self):
+        def on_build(self) -> Result[System, ValueError]:
             return Err(failure)
 
     plugin = ErrorBuildPlugin.from_context(PluginContext(config=SimpleConfig()))

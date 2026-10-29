@@ -201,7 +201,7 @@ def test_getter_callable_with_result_type():
     assert result.unwrap() == 42
 
 
-def test_resolve_rule_getters_passes_through_callables():
+def test_resolve_rule_getters_passes_through_callables() -> None:
     """Callables in getter dict remain unchanged."""
     from r2x_core.getters import resolve_rule_getters
 
@@ -215,7 +215,7 @@ def test_resolve_rule_getters_passes_through_callables():
     assert resolved["field"] is compute
 
 
-def test_resolve_rule_getters_resolves_registry_names():
+def test_resolve_rule_getters_resolves_registry_names() -> None:
     """String referencing registered getter resolves to callable."""
     from rust_ok import Ok
 
@@ -236,7 +236,7 @@ def test_resolve_rule_getters_resolves_registry_names():
     assert resolved["field"] is GETTER_REGISTRY[unique_name]
 
 
-def test_resolve_rule_getters_logs_missing_registry_name(caplog):
+def test_resolve_rule_getters_logs_missing_registry_name(caplog: pytest.LogCaptureFixture) -> None:
     """Unregistered getter name emits a warning when falling back to attr lookup."""
     from r2x_core.getters import resolve_rule_getters
 
@@ -247,7 +247,7 @@ def test_resolve_rule_getters_logs_missing_registry_name(caplog):
     assert any("missing_registry_getter" in record.message for record in caplog.records)
 
 
-def test_resolve_rule_getters_builds_attr_getter():
+def test_resolve_rule_getters_builds_attr_getter() -> None:
     """String path not in registry becomes attribute getter."""
     from r2x_core.getters import resolve_rule_getters
 
@@ -265,7 +265,7 @@ def test_resolve_rule_getters_builds_attr_getter():
     assert out.unwrap() == 123
 
 
-def test_resolve_rule_getters_rejects_invalid_types():
+def test_resolve_rule_getters_rejects_invalid_types() -> None:
     """Invalid getter types raise a TypeError result."""
     from r2x_core.getters import resolve_rule_getters
 
@@ -310,7 +310,7 @@ def test_resolve_getter_callable_passthrough():
     assert result.unwrap() is passthrough_getter
 
 
-def test_resolve_getter_rejects_noncallable_nonstring_values():
+def test_resolve_getter_rejects_noncallable_nonstring_values() -> None:
     from r2x_core.getters import resolve_getter
 
     result = resolve_getter(42)  # type: ignore[arg-type]

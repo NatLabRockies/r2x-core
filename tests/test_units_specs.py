@@ -103,7 +103,7 @@ def test_structured_unit_json_schema_describes_serialized_values() -> None:
     assert schema["$defs"]["Limits"]["properties"]["minimum"]["type"] == "number"
 
 
-def test_unitspec_validation_and_serialization_schemas():
+def test_unitspec_validation_and_serialization_schemas() -> None:
     """Advertise scalar or envelope input and scalar output for unit fields."""
 
     class Generator(BaseModel):

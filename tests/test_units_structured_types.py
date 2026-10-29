@@ -68,7 +68,7 @@ def test_structured_type_with_unit_conversion():
     assert gen.ramp_limits.down == 0.08
 
 
-def test_nested_unit_aware_model_uses_its_unit_specs():
+def test_nested_unit_aware_model_uses_its_unit_specs() -> None:
     class UnitAwareLimits(HasUnits, BaseModel):
         power: Annotated[float, Unit("MW")]
         fraction: Annotated[float, Unit("pu", base="power")]

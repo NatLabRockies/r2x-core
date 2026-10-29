@@ -25,7 +25,7 @@ from r2x_core.utils import (
 pytestmark = pytest.mark.rules
 
 
-def test_utils_reports_unknown_lazy_exports():
+def test_utils_reports_unknown_lazy_exports() -> None:
     import r2x_core.utils as utilities
 
     with pytest.raises(AttributeError, match="missing_utility"):
@@ -119,7 +119,7 @@ def test_make_attr_getter_traverses_chain():
     assert result.unwrap() == 99
 
 
-def test_build_component_kwargs_applies_defaults_and_getters(context_example):
+def test_build_component_kwargs_applies_defaults_and_getters(context_example: PluginContext) -> None:
     """Missing attributes fall back to defaults and getters override values."""
 
     class Source:
@@ -169,7 +169,7 @@ def test_field_mapping_reads_a_source_property_once(context_example: PluginConte
     assert next(readings) == 20
 
 
-def test_build_component_kwargs_reports_source_field_typo(context_example):
+def test_build_component_kwargs_reports_source_field_typo(context_example: PluginContext) -> None:
     """Unknown configured source fields produce a direct error."""
 
     class Source:
@@ -187,7 +187,7 @@ def test_build_component_kwargs_reports_source_field_typo(context_example):
     assert str(result.err()) == "Source Source has no attribute 'missing_attr'"
 
 
-def test_build_component_kwargs_missing_attribute_uses_default(context_example):
+def test_build_component_kwargs_missing_attribute_uses_default(context_example: PluginContext) -> None:
     """Missing source attributes use configured defaults when available."""
 
     class Source:
@@ -207,7 +207,7 @@ def test_build_component_kwargs_missing_attribute_uses_default(context_example):
     assert result.unwrap() == {"required": "fallback"}
 
 
-def test_build_component_kwargs_getter_error_without_default(context_example):
+def test_build_component_kwargs_getter_error_without_default(context_example: PluginContext) -> None:
     """Getter failures propagate when no default is defined."""
 
     class Source:
@@ -230,7 +230,7 @@ def test_build_component_kwargs_getter_error_without_default(context_example):
     assert "failed" in str(result.err()).lower()
 
 
-def test_rule_rejects_non_callable_getter_at_construction():
+def test_rule_rejects_non_callable_getter_at_construction() -> None:
     """Getter strings are resolved from records, not direct Rule construction."""
     with pytest.raises(TypeError, match="must be callable"):
         Rule(
@@ -241,7 +241,7 @@ def test_rule_rejects_non_callable_getter_at_construction():
         )
 
 
-def test_rule_rejects_supplemental_attribute_record_dicts():
+def test_rule_rejects_supplemental_attribute_record_dicts() -> None:
     with pytest.raises(TypeError, match="SupplementalAttributeRule instances"):
         Rule(
             source_type="SourceType",
@@ -251,7 +251,7 @@ def test_rule_rejects_supplemental_attribute_record_dicts():
         )
 
 
-def test_supplemental_attribute_rule_rejects_non_callable_getters():
+def test_supplemental_attribute_rule_rejects_non_callable_getters() -> None:
     from r2x_core import SupplementalAttributeRule
 
     with pytest.raises(TypeError, match="must be callable"):
@@ -320,7 +320,7 @@ def test_make_attr_getter_returns_none_when_chain_breaks():
     assert result.unwrap() is None
 
 
-def test_build_component_kwargs_skips_multifield_mappings(context_example):
+def test_build_component_kwargs_skips_multifield_mappings(context_example: PluginContext) -> None:
     """Multi-field mappings in field_map are skipped for direct assignment."""
 
     class Source:
@@ -388,7 +388,7 @@ def test_build_component_kwargs_getter_error_optional(context_example):
     assert result.unwrap() == {}
 
 
-def test_build_component_kwargs_getter_error_uses_default(context_example):
+def test_build_component_kwargs_getter_error_uses_default(context_example: PluginContext) -> None:
     """Getter failures fall back to defaults when defined."""
 
     class Source:
@@ -477,7 +477,7 @@ def test_evaluate_rule_filter_missing_getter_candidate(context_example):
     from r2x_core import GetterFilter
     from r2x_core.utils import evaluate_rule_filter
 
-    def none_getter(source, *, context):
+    def none_getter(source: object, *, context: PluginContext) -> Result[None, ValueError]:
         _ = context
         return Ok(None)
 
@@ -548,7 +548,7 @@ def test_evaluate_rule_filter_getter_failure_raises(context_example):
     class Component:
         name = "plant_alpha"
 
-    def faulty_getter(src, *, context):
+    def faulty_getter(src: object, *, context: PluginContext) -> Result[object, ValueError]:
         _ = context
         return Err(ValueError("boom"))
 
@@ -572,7 +572,7 @@ def test_evaluate_rule_filter_getter_requires_context():
         evaluate_rule_filter(Component(), rule_filter=filt)
 
 
-def test_filter_model_rejects_incomplete_and_unknown_operations():
+def test_filter_model_rejects_incomplete_and_unknown_operations() -> None:
     """Invalid filter states fail during model validation, before evaluation."""
     from pydantic import TypeAdapter, ValidationError
 
@@ -598,7 +598,7 @@ def test_evaluate_rule_filter_geq_non_numeric():
     assert not evaluate_rule_filter(Component(), rule_filter=filt)
 
 
-def test_build_component_kwargs_rejects_getter_without_result(context_example):
+def test_build_component_kwargs_rejects_getter_without_result(context_example: PluginContext) -> None:
     def invalid_getter(source: object, *, context: object) -> int:
         _ = source, context
         return 42

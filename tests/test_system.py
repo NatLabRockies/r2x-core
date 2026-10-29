@@ -125,7 +125,7 @@ def test_to_json_with_fname(fname, tmp_path, example_system):
     assert "name" in content.get("system", content)
 
 
-def test_to_json_bytes_with_no_args(example_system):
+def test_to_json_bytes_with_no_args(example_system: System) -> None:
     import orjson
 
     system = example_system

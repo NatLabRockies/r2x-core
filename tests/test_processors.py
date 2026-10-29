@@ -104,7 +104,7 @@ def test_apply_polars_step_filters_values(
     sample_csv: Path,
     filter_by: dict[str, str | int | list[str]],
     expected_names: list[str],
-):
+) -> None:
     """Filter using scalar, list, and combined predicates."""
     result = apply_polars_step(
         pl.scan_csv(sample_csv), step=FilterColumnsStep(op="filter_columns", filter_by=filter_by)
@@ -114,12 +114,12 @@ def test_apply_polars_step_filters_values(
     assert result["name"].to_list() == expected_names
 
 
-def test_apply_polars_step_rejects_unsupported_step():
+def test_apply_polars_step_rejects_unsupported_step() -> None:
     with pytest.raises(ValueError, match="Unsupported table processing operation: object"):
         apply_polars_step(pl.LazyFrame({"value": [1]}), step=object())
 
 
-def test_apply_polars_step_drop_columns_removes_existing(sample_csv: Path):
+def test_apply_polars_step_drop_columns_removes_existing(sample_csv: Path) -> None:
     """Test that drop_columns removes specified columns."""
     lf = pl.scan_csv(sample_csv)
 
@@ -132,7 +132,7 @@ def test_apply_polars_step_drop_columns_removes_existing(sample_csv: Path):
     assert "age" in result.columns
 
 
-def test_apply_polars_step_rename_columns_renames_existing(sample_csv: Path):
+def test_apply_polars_step_rename_columns_renames_existing(sample_csv: Path) -> None:
     """Test that column_mapping renames columns correctly."""
     lf = pl.scan_csv(sample_csv)
 
@@ -150,7 +150,7 @@ def test_apply_polars_step_rename_columns_renames_existing(sample_csv: Path):
     assert "age" not in result.columns
 
 
-def test_apply_polars_step_cast_schema_casts_columns(sample_csv: Path):
+def test_apply_polars_step_cast_schema_casts_columns(sample_csv: Path) -> None:
     """Test that column_schema casts columns to correct types."""
     lf = pl.scan_csv(sample_csv)
 
@@ -163,7 +163,7 @@ def test_apply_polars_step_cast_schema_casts_columns(sample_csv: Path):
     assert result.schema["retire_year"] == pl.Int32
 
 
-def test_apply_polars_step_cast_schema_unsupported_type_raises(sample_csv: Path):
+def test_apply_polars_step_cast_schema_unsupported_type_raises(sample_csv: Path) -> None:
     """Test that unsupported type strings raise ValueError."""
     lf = pl.scan_csv(sample_csv)
 
@@ -171,7 +171,7 @@ def test_apply_polars_step_cast_schema_unsupported_type_raises(sample_csv: Path)
         apply_polars_step(lf, step=CastColumnsStep(op="cast_columns", column_schema={"age": "invalid_type"}))
 
 
-def test_unpivot_on_stacks_selected_columns():
+def test_unpivot_on_stacks_selected_columns() -> None:
     """Wide-to-long processing uses its explicit unpivot operation."""
     lf = pl.LazyFrame({"2020": [100], "2025": [200], "2030": [300]})
     proc_spec = TabularProcessing(
@@ -274,7 +274,7 @@ def test_json_select_keys(data: JSONValue, keys: frozenset[str], expected: JSONV
 
 
 @pytest.mark.parametrize("value", ["plain string", 42], ids=["string", "integer"])
-def test_json_filter_and_selection_passthrough_non_records(value: JSONValue):
+def test_json_filter_and_selection_passthrough_non_records(value: JSONValue) -> None:
     assert filter_records(value, where={"key": "value"}) == value
     assert select_keys(value, keys=frozenset({"name"})) == value
 
@@ -305,7 +305,7 @@ def test_apply_polars_step_rejects_missing_columns(
     sample_csv: Path,
     step: DropColumnsStep | RenameColumnsStep | SelectColumnsStep | CastColumnsStep | FilterColumnsStep,
     error_pattern: str,
-):
+) -> None:
     """Report the missing field with context for each direct operation."""
     with pytest.raises(ValueError, match=error_pattern):
         apply_polars_step(pl.scan_csv(sample_csv), step=step)
@@ -330,7 +330,7 @@ def test_apply_polars_step_filters_datetime_years(
     values: list[int],
     filter_value: int | list[int],
     expected_rows: list[dict[str, int]],
-):
+) -> None:
     """Filter one or more numeric years and check the exact rows."""
     frame = pl.LazyFrame({column: years, "value": values})
     result = apply_polars_step(
@@ -340,7 +340,7 @@ def test_apply_polars_step_filters_datetime_years(
     assert result.to_dicts() == expected_rows
 
 
-def test_apply_polars_step_select_columns(sample_csv: Path):
+def test_apply_polars_step_select_columns(sample_csv: Path) -> None:
     """Test select_columns."""
     lf = pl.scan_csv(sample_csv)
 
@@ -352,7 +352,7 @@ def test_apply_polars_step_select_columns(sample_csv: Path):
     assert set(result.columns) == {"name", "age"}
 
 
-def test_apply_polars_step_empty_filter(sample_csv: Path):
+def test_apply_polars_step_empty_filter(sample_csv: Path) -> None:
     """Test apply_filters with no filters specified."""
     lf = pl.scan_csv(sample_csv)
     step = FilterColumnsStep(op="filter_columns", filter_by={})
@@ -362,7 +362,7 @@ def test_apply_polars_step_empty_filter(sample_csv: Path):
     assert result.collect().equals(lf.collect())
 
 
-def test_apply_polars_step_drop_columns_all_removed(sample_csv: Path):
+def test_apply_polars_step_drop_columns_all_removed(sample_csv: Path) -> None:
     """Test drop_columns when all columns are removed."""
     lf = pl.scan_csv(sample_csv)
     schema_names = lf.collect_schema().names()
@@ -396,7 +396,7 @@ def test_apply_processing_placeholder_error(sample_csv: Path):
     assert "missing" in str(result.err())
 
 
-def test_apply_processing_substitutes_transformation_values():
+def test_apply_processing_substitutes_transformation_values() -> None:
     """Substitute placeholders in non-filter tabular operations."""
     lf = pl.LazyFrame({"name": ["a", "b"], "amount": [1, 2]})
     proc_spec = TabularProcessing(steps=[SortStep(op="sort", by={"amount": "{direction}"})])
@@ -410,7 +410,7 @@ def test_apply_processing_substitutes_transformation_values():
     assert result.unwrap().collect()["amount"].to_list() == [2, 1]
 
 
-def test_apply_processing_rejects_invalid_substituted_transformation():
+def test_apply_processing_rejects_invalid_substituted_transformation() -> None:
     """Revalidate substituted operation values before running the processor."""
     proc_spec = TabularProcessing(steps=[SortStep(op="sort", by={"amount": "{direction}"})])
     result = apply_polars_processing(
@@ -422,7 +422,7 @@ def test_apply_processing_rejects_invalid_substituted_transformation():
     assert "validation error" in str(result.err()).lower()
 
 
-def test_apply_processing_substitutes_typed_transformation_values():
+def test_apply_processing_substitutes_typed_transformation_values() -> None:
     proc_spec = TabularProcessing(
         steps=[
             LowercaseStep(op="lowercase", lowercase="{enabled}"),
@@ -449,7 +449,7 @@ def test_apply_processing_substitutes_typed_transformation_values():
 def test_apply_processing_revalidates_typed_placeholders(
     step: LowercaseStep | ScaleColumnsStep,
     placeholders: dict[str, bool | float | str],
-):
+) -> None:
     proc_spec = TabularProcessing(steps=[step])
     result = apply_polars_processing(
         pl.LazyFrame({"amount": [2.0]}),
@@ -460,7 +460,7 @@ def test_apply_processing_revalidates_typed_placeholders(
     assert "validation error" in str(result.err()).lower()
 
 
-def test_json_drop_columns_with_list():
+def test_json_drop_columns_with_list() -> None:
     data = [
         {"name": "Alice", "age": 30, "city": "NYC"},
         {"name": "Bob", "age": 25, "city": "LA"},
@@ -472,7 +472,7 @@ def test_json_drop_columns_with_list():
     assert all("name" in item for item in result)
 
 
-def test_tabular_processing_full_pipeline(sample_csv: Path):
+def test_tabular_processing_full_pipeline(sample_csv: Path) -> None:
     lf = pl.scan_csv(sample_csv)
     proc_spec = TabularProcessing(
         steps=[
@@ -488,7 +488,7 @@ def test_tabular_processing_full_pipeline(sample_csv: Path):
     ]
 
 
-def test_json_backend_rejects_incompatible_processing_and_data():
+def test_json_backend_rejects_incompatible_processing_and_data() -> None:
     backend = JSONProcessingBackend()
     data_file = DataFile(name="json-backend", source="frame")
 
@@ -511,7 +511,7 @@ def test_json_backend_rejects_incompatible_processing_and_data():
     assert "requires JSON-compatible data" in str(invalid_data.err())
 
 
-def test_process_json_data_full_pipeline():
+def test_process_json_data_full_pipeline() -> None:
     from r2x_core.json_adapter.processing import process_json_data
 
     data = {
@@ -561,7 +561,7 @@ def test_apply_polars_step_filters_years(
     column: str,
     years: int | list[int],
     expected_rows: list[dict[str, int]],
-):
+) -> None:
     csv_file = tmp_path / "year-filter.csv"
     csv_file.write_text(csv_data)
     result = apply_polars_step(
@@ -597,7 +597,7 @@ def test_substitute_placeholders_unmatched_braces_are_unchanged(value: str) -> N
     assert result.unwrap() is value
 
 
-def test_substitute_placeholders_preserves_nested_values_without_changes():
+def test_substitute_placeholders_preserves_nested_values_without_changes() -> None:
     """Nested values without placeholders retain their data through substitution."""
     value = {"items": ["plain text", 3]}
 
@@ -626,7 +626,7 @@ def test_substitute_placeholders_list_error_propagation():
     assert "missing" in str(result.err())
 
 
-def test_tabular_value_transformations():
+def test_tabular_value_transformations() -> None:
     """Apply replacement, null filling, sorting, and deduplication."""
     frame = pl.LazyFrame({"region": ["West", "West", "East"], "value": [None, 2, 1]})
     proc_spec = TabularProcessing(
@@ -647,7 +647,7 @@ def test_tabular_value_transformations():
     ]
 
 
-def test_tabular_long_to_wide_pivot_count():
+def test_tabular_long_to_wide_pivot_count() -> None:
     frame = pl.LazyFrame(
         {
             "region": ["West", "West", "East"],
@@ -665,7 +665,7 @@ def test_tabular_long_to_wide_pivot_count():
     assert {row["region"]: row["2020"] for row in result.to_dicts()} == {"West": 1, "East": 1}
 
 
-def test_pivot_key_matching_source_column_does_not_aggregate_twice():
+def test_pivot_key_matching_source_column_does_not_aggregate_twice() -> None:
     frame = pl.LazyFrame({"id": ["a", "a"], "year": ["year", "2020"], "value": [1, 2]})
     proc_spec = TabularProcessing(
         steps=[PivotStep(op="pivot", pivot_on="year", group_by=["id"], aggregate_on={"value": "sum"})]
@@ -675,7 +675,7 @@ def test_pivot_key_matching_source_column_does_not_aggregate_twice():
     assert result.to_dicts() == [{"id": "a", "year": 1, "2020": 2}]
 
 
-def test_tabular_long_to_wide_pivot():
+def test_tabular_long_to_wide_pivot() -> None:
     """Pivot long-form rows using grouped value aggregation."""
     frame = pl.LazyFrame(
         {
@@ -691,7 +691,7 @@ def test_tabular_long_to_wide_pivot():
     assert result.to_dicts() == [{"region": "West", "2021": 3, "2020": 3}]
 
 
-def test_unpivot_pipeline_renames_casts_and_filters():
+def test_unpivot_pipeline_renames_casts_and_filters() -> None:
     frame = pl.LazyFrame(
         {
             "region": ["NYISO", "PJM"],
@@ -723,7 +723,7 @@ def test_unpivot_pipeline_renames_casts_and_filters():
     ]
 
 
-def test_tabular_processing_preserves_case_by_default():
+def test_tabular_processing_preserves_case_by_default() -> None:
     frame = pl.LazyFrame({"Technology": ["Gas & FO"]})
 
     preserved = (
@@ -744,7 +744,7 @@ def test_tabular_processing_preserves_case_by_default():
     assert lowered["technology"].to_list() == ["gas & fo"]
 
 
-def test_tabular_numeric_string_cleanup():
+def test_tabular_numeric_string_cleanup() -> None:
     frame = pl.LazyFrame(
         {
             "limit": ["2,450"],
@@ -771,7 +771,7 @@ def test_tabular_numeric_string_cleanup():
     assert result.to_dicts() == [{"limit": 2450.0, "price": 4.99, "share": 1.712, "count": 0.0}]
 
 
-def test_apply_processing_returns_err_for_invalid_transformation():
+def test_apply_processing_returns_err_for_invalid_transformation() -> None:
     result = apply_polars_processing(
         pl.LazyFrame({"a": [1]}),
         proc_spec=TabularProcessing(
@@ -783,7 +783,7 @@ def test_apply_processing_returns_err_for_invalid_transformation():
     assert "filter_columns" in str(result.err())
 
 
-def test_null_pivot_keys_are_rejected():
+def test_null_pivot_keys_are_rejected() -> None:
     result = apply_polars_processing(
         pl.LazyFrame({"id": ["a", "a"], "year": [None, 2020], "value": [1, 2]}),
         proc_spec=TabularProcessing(
@@ -795,7 +795,7 @@ def test_null_pivot_keys_are_rejected():
     assert "null" in str(result.err()).lower()
 
 
-def test_tabular_unpivot_group_aggregate_pipeline():
+def test_tabular_unpivot_group_aggregate_pipeline() -> None:
     """Compose unpivot, grouping, aggregation, sorting, and selection."""
     frame = pl.LazyFrame(
         {
@@ -868,7 +868,7 @@ def test_tabular_processing_rejects_invalid_combinations():
     assert [step.op for step in combined.steps] == ["unpivot_columns", "pivot"]
 
 
-def test_replace_values_does_not_coerce_booleans_to_numeric_columns():
+def test_replace_values_does_not_coerce_booleans_to_numeric_columns() -> None:
     frame = pl.LazyFrame(
         {
             "flag": [True, False],
@@ -886,7 +886,7 @@ def test_replace_values_does_not_coerce_booleans_to_numeric_columns():
     ]
 
 
-def test_replace_values_can_be_limited_to_named_columns():
+def test_replace_values_can_be_limited_to_named_columns() -> None:
     frame = pl.LazyFrame(
         {
             "emission_type": ["co2", "unknown", None],
@@ -920,7 +920,7 @@ def test_replace_values_can_be_limited_to_named_columns():
     ]
 
 
-def test_replace_values_rejects_missing_scoped_columns():
+def test_replace_values_rejects_missing_scoped_columns() -> None:
     with pytest.raises(ValueError, match="replace_values references missing column"):
         apply_polars_step(
             pl.LazyFrame({"value": ["old"]}),
@@ -928,7 +928,7 @@ def test_replace_values_rejects_missing_scoped_columns():
         )
 
 
-def test_replace_values_rejects_duplicate_scoped_columns():
+def test_replace_values_rejects_duplicate_scoped_columns() -> None:
     with pytest.raises(ValueError, match="columns cannot contain duplicates"):
         ReplaceValuesStep(op="replace_values", replace_values={"old": "new"}, columns=["value", "value"])
 
@@ -952,14 +952,14 @@ def test_replace_values_rejects_duplicate_scoped_columns():
 )
 def test_replace_values_rejects_values_that_lose_precision(
     stored: object, dtype: pl.DataType, old: object, new: object
-):
+) -> None:
     frame = pl.DataFrame({"value": pl.Series("value", [stored], dtype=dtype)}).lazy()
     result = apply_polars_step(frame, step=ReplaceValuesStep(op="replace_values", replace_values={old: new}))
 
     assert result.collect()["value"].to_list() == [stored]
 
 
-def test_replace_values_still_matches_float_nan():
+def test_replace_values_still_matches_float_nan() -> None:
     from math import nan
 
     result = apply_polars_step(
@@ -970,7 +970,7 @@ def test_replace_values_still_matches_float_nan():
     assert result.collect()["amount"].to_list() == [0.0]
 
 
-def test_replace_values_does_not_coerce_rationals_to_float_columns():
+def test_replace_values_does_not_coerce_rationals_to_float_columns() -> None:
     from fractions import Fraction
 
     large_rational = Fraction(2**53 + 1, 1)
@@ -982,7 +982,7 @@ def test_replace_values_does_not_coerce_rationals_to_float_columns():
     assert result.collect()["amount"].to_list() == [float(2**53)]
 
 
-def test_replace_values_allows_only_lossless_integer_to_float_widening():
+def test_replace_values_allows_only_lossless_integer_to_float_widening() -> None:
     large_integer = 2**53 + 1
     frame = pl.LazyFrame(
         {
@@ -1014,7 +1014,7 @@ def test_replace_values_allows_only_lossless_integer_to_float_widening():
         pytest.param("old", "new", pl.Enum(["old", "new"]), id="enum"),
     ],
 )
-def test_replace_values_preserves_logical_families(old: object, new: object, dtype: pl.DataType):
+def test_replace_values_preserves_logical_families(old: object, new: object, dtype: pl.DataType) -> None:
     frame = pl.DataFrame(
         {
             "value": pl.Series("value", [old], dtype=dtype),
@@ -1026,7 +1026,7 @@ def test_replace_values_preserves_logical_families(old: object, new: object, dty
     assert result.collect().to_dicts() == [{"value": new, "whole": 1}]
 
 
-def test_tabular_additional_operation_edges():
+def test_tabular_additional_operation_edges() -> None:
     """Cover direct operation calls and explicit operation errors."""
     from datetime import date
 
@@ -1112,7 +1112,7 @@ def test_tabular_additional_operation_edges():
         )
 
 
-def test_empty_tabular_processing_preserves_frame_and_schema():
+def test_empty_tabular_processing_preserves_frame_and_schema() -> None:
     frame = pl.LazyFrame({"label": ["value"]})
     result = apply_polars_processing(frame, proc_spec=TabularProcessing())
 
@@ -1130,7 +1130,7 @@ def test_empty_tabular_processing_preserves_frame_and_schema():
         pytest.param(2020, [datetime(2020, 1, 1)], id="single-year"),
     ],
 )
-def test_pl_build_filter_expr_datetime_years(years: int | list[int], expected: list[datetime]):
+def test_pl_build_filter_expr_datetime_years(years: int | list[int], expected: list[datetime]) -> None:
     """Filter datetime values by a single year or several years."""
     from r2x_core.polars_adapter.value_operations import pl_build_filter_expr
 
@@ -1144,7 +1144,7 @@ def test_pl_build_filter_expr_datetime_years(years: int | list[int], expected: l
     )
 
 
-def test_tabular_processing_reports_non_numeric_scale():
+def test_tabular_processing_reports_non_numeric_scale() -> None:
     result = apply_polars_processing(
         pl.LazyFrame({"value": ["not numeric"]}),
         proc_spec=TabularProcessing(steps=[ScaleColumnsStep(op="scale_columns", scale={"value": 0.01})]),
@@ -1154,7 +1154,7 @@ def test_tabular_processing_reports_non_numeric_scale():
     assert "scale requires numeric columns" in str(result.err())
 
 
-def test_split_columns_creates_named_fields():
+def test_split_columns_creates_named_fields() -> None:
     frame = pl.LazyFrame({"label": ["2030|NYISO", "2035|PJM"], "capacity": [10, 20]})
     step = SplitColumnsStep(
         op="split_columns",
@@ -1170,7 +1170,7 @@ def test_split_columns_creates_named_fields():
     ]
 
 
-def test_split_column_rejects_overwriting_existing_columns():
+def test_split_column_rejects_overwriting_existing_columns() -> None:
     result = apply_polars_processing(
         pl.LazyFrame({"label": ["2030|NYISO"], "year": [2030]}),
         proc_spec=TabularProcessing(

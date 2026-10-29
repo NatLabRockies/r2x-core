@@ -75,7 +75,7 @@ def test_configurable_h5_reader_defaults_to_first_dataset(
         np.testing.assert_array_equal(result[name], values)
 
 
-def test_default_h5_reader_preserves_a_first_group(tmp_path: Path):
+def test_default_h5_reader_preserves_a_first_group(tmp_path: Path) -> None:
     h5_path = tmp_path / "group.h5"
     with h5py.File(h5_path, "w") as output:
         output.create_group("metadata")
@@ -156,7 +156,7 @@ def test_configurable_h5_reader_with_columns_and_datetime(
         np.testing.assert_array_equal(result[name], values)
 
 
-def test_configurable_h5_reader_custom_keys(tmp_path: Path):
+def test_configurable_h5_reader_custom_keys(tmp_path: Path) -> None:
     """Test configurable H5 reader with custom dataset keys."""
     h5_path = tmp_path / "reader.h5"
 
@@ -339,7 +339,7 @@ def test_h5_reader_parses_datetime_inputs(
     np.testing.assert_array_equal(result["datetime"], expected)
 
 
-def test_datetime_parsing_error(tmp_path: Path):
+def test_datetime_parsing_error(tmp_path: Path) -> None:
     """Test datetime parsing error handling (lines 121-123)."""
     h5_path = tmp_path / "reader.h5"
 
@@ -462,7 +462,7 @@ def test_h5_reader_maps_index_names(
         np.testing.assert_array_equal(result[name], values)
 
 
-def test_h5_reader_missing_index_dataset_raises_key_error(tmp_path: Path):
+def test_h5_reader_missing_index_dataset_raises_key_error(tmp_path: Path) -> None:
     """Ensure missing referenced index datasets raise KeyError (line 53)."""
     h5_path = tmp_path / "reader.h5"
 
@@ -534,7 +534,7 @@ def test_h5_reader_reads_columnar_group_datasets(
         np.testing.assert_array_equal(np.asarray(result[name]), np.asarray(value))
 
 
-def test_h5_reader_group_validation_errors(tmp_path: Path):
+def test_h5_reader_group_validation_errors(tmp_path: Path) -> None:
     """Reject missing groups, column metadata, and column datasets."""
     h5_path = tmp_path / "reader.h5"
 
@@ -571,13 +571,13 @@ def test_h5_reader_group_validation_errors(tmp_path: Path):
             )
 
 
-def test_h5_reader_requires_a_list_for_additional_keys(tmp_path):
+def test_h5_reader_requires_a_list_for_additional_keys(tmp_path: Path) -> None:
     h5_path = tmp_path / "additional-keys.h5"
-    with h5py.File(h5_path, "w") as h5_file:
+    with h5py.File(str(h5_path), "w") as h5_file:
         h5_file.create_dataset("data", data=np.array([1.0]))
         h5_file.create_dataset("extra", data=np.array([2.0]))
 
-    with h5py.File(h5_path, "r") as h5_file:
+    with h5py.File(str(h5_path), "r") as h5_file:
         direct_result = configurable_h5_reader(h5_file, data_key="data", additional_keys=["extra"])
         with pytest.raises(ValueError, match="additional_keys"):
             configurable_h5_reader(h5_file, data_key="data", additional_keys=("extra",))
@@ -590,13 +590,13 @@ def test_h5_reader_requires_a_list_for_additional_keys(tmp_path):
     np.testing.assert_array_equal(file_result["extra"], np.array([2.0]))
 
 
-def test_h5_reader_rejects_non_string_column_mapping_key(tmp_path):
+def test_h5_reader_rejects_non_string_column_mapping_key(tmp_path: Path) -> None:
     """Reject malformed mapping keys at the direct reader boundary."""
     h5_path = tmp_path / "data.h5"
-    with h5py.File(h5_path, "w") as h5_file:
+    with h5py.File(str(h5_path), "w") as h5_file:
         h5_file.create_dataset("data", data=np.array([1.0]))
 
-    with h5py.File(h5_path, "r") as h5_file, pytest.raises(ValueError, match="column_name_mapping"):
+    with h5py.File(str(h5_path), "r") as h5_file, pytest.raises(ValueError, match="column_name_mapping"):
         configurable_h5_reader(h5_file, data_key="data", column_name_mapping={1: "value"})
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -291,13 +292,17 @@ def test_time_series_transfer_falls_back_without_db_path(monkeypatch, context_ex
     assert final_count == initial_count
 
 
-def test_time_series_transfer_uses_attach_path(tmp_path, monkeypatch, context_example: PluginContext):
-    """ATTACH-based bulk copy path is exercised when a DB path is available."""
+def test_time_series_transfer_uses_attach_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, context_example: PluginContext
+) -> None:
+    """ATTACH-based bulk copy closes the temporary database connection."""
     apply_rules_to_context(context_example)
+    connections: list[sqlite3.Connection] = []
 
-    def copy_source_to_temp(conn):
+    def copy_source_to_temp(conn: sqlite3.Connection) -> str:
         dst = tmp_path / "src_ts.db"
-        with sqlite3.connect(dst) as dst_con:
+        with closing(sqlite3.connect(dst)) as dst_con, dst_con:
+            connections.append(dst_con)
             conn.backup(dst_con)
         return str(dst)
 
@@ -305,9 +310,15 @@ def test_time_series_transfer_uses_attach_path(tmp_path, monkeypatch, context_ex
     stats = transfer_time_series_metadata(context_example)
 
     assert stats.transferred >= 0
+    assert connections
+    for connection in connections:
+        with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
+            connection.execute("SELECT 1")
 
 
-def test_time_series_transfer_logs_post_remap_cleanup(monkeypatch, context_example: PluginContext, caplog):
+def test_time_series_transfer_logs_post_remap_cleanup(
+    monkeypatch: pytest.MonkeyPatch, context_example: PluginContext, caplog: pytest.LogCaptureFixture
+) -> None:
     """Post-remap dedupe path logs when rows are removed."""
     apply_rules_to_context(context_example)
     source_system = context_example.source_system
@@ -320,7 +331,7 @@ def test_time_series_transfer_logs_post_remap_cleanup(monkeypatch, context_examp
 
     call_counts = {"count": 0}
 
-    def fake_dedup(conn, cols):
+    def fake_dedup(conn: sqlite3.Connection, cols: tuple[str, ...]) -> int:
         call_counts["count"] += 1
         # First call (pre-insert) does nothing, second call (post-update) reports removals.
         return 0 if call_counts["count"] == 1 else 1

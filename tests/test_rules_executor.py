@@ -85,7 +85,9 @@ def attach_outputs(
 ) -> Result[None, ValueError]:
     """Attach outputs to a real target system using executor test context."""
     source = (
-        source_component if source_component is not None else next(source_system.get_components(BusComponent))
+        source_component
+        if source_component is not None
+        else next(iter(source_system.get_components(BusComponent)))
     )
     context = build_context(rules=[], source_system=source_system, target_system=target_system)
     return attach_rule_outputs(outputs, source, context)
@@ -200,7 +202,7 @@ def test_apply_rules_detects_missing_dependency(source_system, target_system):
         apply_rules_to_context(context)
 
 
-def test_apply_rules_without_source_system_skips_provenance_capture():
+def test_apply_rules_without_source_system_skips_provenance_capture() -> None:
     """Source preservation warns and skips capture when no source system exists."""
     rule = Rule(
         source_type="BusComponent",
@@ -232,7 +234,7 @@ def test_apply_single_rule_missing_source_attribute(source_system, target_system
     assert "has no attribute 'missing_attribute'" in str(result.err())
 
 
-def test_apply_single_rule_skips_components_rejected_by_filter():
+def test_apply_single_rule_skips_components_rejected_by_filter() -> None:
     source_system = System(name="executor-source")
     source_system.add_component(BusComponent(name="unselected"))
     target_system = System(name="executor-target")
@@ -279,13 +281,13 @@ def test_apply_single_rule_getter_filter_uses_context(source_system, target_syst
 
 
 @pytest.mark.parametrize("failure_stage", ["filter", "getter", "attachment"])
-def test_apply_single_rule_preserves_originating_error(source_system, failure_stage):
+def test_apply_single_rule_preserves_originating_error(source_system: System, failure_stage: str) -> None:
     """Filter, output-construction, and attachment context retain their cause."""
     from rust_ok import Err
 
     failure = ValueError("translation callback failed")
 
-    def faulty_callback(source: object, *, context: PluginContext):
+    def faulty_callback(source: object, *, context: PluginContext) -> Result[object, ValueError]:
         _ = source, context
         return Err(failure)
 
@@ -352,7 +354,7 @@ def test_apply_single_rule_reports_missing_primary_target_type(source_system, ta
     assert isinstance(result.err().__cause__, TypeError)
 
 
-def test_apply_single_rule_requires_selected_system(source_system):
+def test_apply_single_rule_requires_selected_system(source_system: System) -> None:
     """A rule cannot execute when its selected system is absent."""
     rule = Rule(
         source_type="BusComponent",
@@ -371,7 +373,7 @@ def test_apply_single_rule_requires_selected_system(source_system):
     assert "System 'target' is not set" in str(result.err())
 
 
-def test_apply_single_rule_requires_source_types(source_system, target_system):
+def test_apply_single_rule_requires_source_types(source_system: System, target_system: System) -> None:
     """Rules without source types return a configuration error."""
     rule = Rule(source_type=[], target_type="NodeComponent", version=1)
     result = apply_rule(rule, source_system=source_system, target_system=target_system)
@@ -393,7 +395,7 @@ def test_apply_single_rule_rejects_supplemental_primary_target(context_example):
     assert "primary target" in str(result.err())
 
 
-def test_attach_rule_outputs_rejects_supplemental_primary(source_system):
+def test_attach_rule_outputs_rejects_supplemental_primary(source_system: System) -> None:
     """Supplemental outputs require a primary component."""
     target_system = System(name="executor-target")
     outputs = RuleOutputs(
@@ -408,7 +410,7 @@ def test_attach_rule_outputs_rejects_supplemental_primary(source_system):
     assert list(target_system.iter_all_components()) == []
 
 
-def test_standalone_supplemental_rejection_preserves_owner_and_cause(source_system):
+def test_standalone_supplemental_rejection_preserves_owner_and_cause(source_system: System) -> None:
     """A rejected standalone supplemental does not modify its existing owner."""
     failure = ValueError("supplemental rejected")
 
@@ -418,7 +420,7 @@ def test_standalone_supplemental_rejection_preserves_owner_and_cause(source_syst
         def check_supplemental_attribute_addition(self) -> None:
             raise failure
 
-    source = next(source_system.get_components(BusComponent))
+    source = next(iter(source_system.get_components(BusComponent)))
     owner = BusComponent(name="target owner", uuid=source.uuid)
     target_system = System(name="executor-target")
     target_system.add_component(owner)
@@ -437,7 +439,7 @@ def test_standalone_supplemental_rejection_preserves_owner_and_cause(source_syst
         target_system.get_supplemental_attribute_by_uuid(attribute.uuid)
 
 
-def test_supplemental_rollback_failure_preserves_both_errors(source_system):
+def test_supplemental_rollback_failure_preserves_both_errors(source_system: System) -> None:
     """A callback detaching an earlier output remains visible as cleanup failure."""
     failure = ValueError("later supplemental rejected")
     target_system = System(name="executor-target")
@@ -491,7 +493,7 @@ def test_resolve_component_class_rejects_non_component_type(monkeypatch):
     assert "is not a Component subclass" in str(result.err())
 
 
-def test_apply_single_rule_no_components(monkeypatch):
+def test_apply_single_rule_no_components(monkeypatch: pytest.MonkeyPatch) -> None:
     rule = Rule(source_type="B", target_type="A", version=1, system="target")
     ctx = PluginContext(config=DummyConfig(), target_system=cast(System, object()))
     monkeypatch.setattr(
@@ -503,7 +505,7 @@ def test_apply_single_rule_no_components(monkeypatch):
     assert result.is_ok()
 
 
-def test_attach_rule_outputs_preserves_existing_component_on_uuid_conflict(source_system):
+def test_attach_rule_outputs_preserves_existing_component_on_uuid_conflict(source_system: System) -> None:
     """A duplicate UUID fails without removing the component already stored."""
     target_system = System(name="executor-target")
     existing = BusComponent(name="existing")
@@ -525,8 +527,8 @@ def test_attach_rule_outputs_preserves_existing_component_on_uuid_conflict(sourc
     ids=["expected-value-error", "unexpected-type-error", "unexpected-runtime-error"],
 )
 def test_attach_rule_outputs_rolls_back_after_supplemental_failure(
-    source_system, exception_type, expected_error
-):
+    source_system: System, exception_type: type[Exception], expected_error: bool
+) -> None:
     """Rollback preserves existing state for expected and unexpected failures."""
     failure = exception_type("supplemental attachment rejected")
 
@@ -578,7 +580,7 @@ def test_attach_rule_outputs_rolls_back_after_supplemental_failure(
         target_system.get_supplemental_attribute_by_uuid(first.uuid)
 
 
-def test_apply_single_rule_retains_auto_added_composed_graph(source_system):
+def test_apply_single_rule_retains_auto_added_composed_graph(source_system: System) -> None:
     """Rule execution keeps newly auto-added children and their field references."""
     target_system = System(name="executor-target", auto_add_composed_components=True)
     rule = Rule(
@@ -597,7 +599,7 @@ def test_apply_single_rule_retains_auto_added_composed_graph(source_system):
     result = apply_single_rule(rule, context=context)
 
     assert result.is_ok()
-    primary = next(target_system.get_components(ComposedRuleTarget))
+    primary = next(iter(target_system.get_components(ComposedRuleTarget)))
     child = primary.child
     grandchild = child.children[0]
     assert target_system.get_component_by_uuid(primary.uuid) is primary
@@ -608,7 +610,7 @@ def test_apply_single_rule_retains_auto_added_composed_graph(source_system):
     assert target_system.list_child_components(primary) == [child]
 
 
-def test_attach_rule_outputs_cleans_children_after_primary_check_failure(source_system):
+def test_attach_rule_outputs_cleans_children_after_primary_check_failure(source_system: System) -> None:
     """Children added before a primary callback failure are rolled back too."""
     failure = TypeError("primary component check failed")
 
@@ -631,7 +633,7 @@ def test_attach_rule_outputs_cleans_children_after_primary_check_failure(source_
     assert list(target_system.iter_all_components()) == []
 
 
-def test_attach_rule_outputs_cleans_shared_diamond_graph(source_system):
+def test_attach_rule_outputs_cleans_shared_diamond_graph(source_system: System) -> None:
     """A shared descendant is removed once after all newly attached parents."""
     failure = ValueError("reject after auto-add")
 
@@ -667,7 +669,7 @@ def test_attach_rule_outputs_cleans_shared_diamond_graph(source_system):
     assert list(target_system.iter_all_components()) == []
 
 
-def test_attach_rule_outputs_with_composed_child_requires_auto_add(source_system):
+def test_attach_rule_outputs_with_composed_child_requires_auto_add(source_system: System) -> None:
     """With auto-add disabled, a rejected graph does not mutate the target."""
     target_system = System(name="executor-target", auto_add_composed_components=False)
     existing = ComposedComponent(name="existing")
@@ -687,7 +689,7 @@ def test_attach_rule_outputs_with_composed_child_requires_auto_add(source_system
     assert not target_system.has_component(child)
 
 
-def test_attach_rule_outputs_removes_new_child_of_preexisting_component(source_system):
+def test_attach_rule_outputs_removes_new_child_of_preexisting_component(source_system: System) -> None:
     """A pre-existing graph node does not silently retain its newly added child."""
     target_system = System(name="executor-target", auto_add_composed_components=True)
     existing = ComposedComponent(name="existing")
@@ -723,7 +725,7 @@ def test_attach_rule_outputs_removes_new_child_of_preexisting_component(source_s
         target_system.get_supplemental_attribute_by_uuid(first.uuid)
 
 
-def test_attach_rule_outputs_rejects_stored_uuid_object_collision(source_system):
+def test_attach_rule_outputs_rejects_stored_uuid_object_collision(source_system: System) -> None:
     """A composed reference cannot alias a different object already in the System."""
     target_system = System(name="executor-target", auto_add_composed_components=True)
     existing = ComposedComponent(name="existing")
@@ -760,7 +762,7 @@ def test_attach_rule_outputs_rejects_stored_uuid_object_collision(source_system)
         target_system.get_supplemental_attribute_by_uuid(first.uuid)
 
 
-def test_attach_rule_outputs_rejects_duplicate_uuid_objects_in_graph(source_system):
+def test_attach_rule_outputs_rejects_duplicate_uuid_objects_in_graph(source_system: System) -> None:
     """Distinct proposed components with one UUID are rejected before attachment."""
     target_system = System(name="executor-target", auto_add_composed_components=True)
     first = ComposedComponent(name="first")
@@ -779,7 +781,7 @@ def test_attach_rule_outputs_rejects_duplicate_uuid_objects_in_graph(source_syst
     assert list(target_system.iter_all_components()) == []
 
 
-def test_attach_rule_outputs_rejects_cyclic_composed_graph_before_mutation(source_system):
+def test_attach_rule_outputs_rejects_cyclic_composed_graph_before_mutation(source_system: System) -> None:
     """Cyclic component fields fail before infrasys begins recursive auto-add."""
     from graphlib import CycleError
 
@@ -797,7 +799,7 @@ def test_attach_rule_outputs_rejects_cyclic_composed_graph_before_mutation(sourc
     assert list(target_system.iter_all_components()) == []
 
 
-def test_attach_rule_outputs_rejects_malformed_composed_list_before_mutation(source_system):
+def test_attach_rule_outputs_rejects_malformed_composed_list_before_mutation(source_system: System) -> None:
     """A mixed component list is rejected before partially adding its members."""
     target_system = System(name="executor-target", auto_add_composed_components=True)
     child = ComposedComponent(name="child")
@@ -815,7 +817,9 @@ def test_attach_rule_outputs_rejects_malformed_composed_list_before_mutation(sou
 
 
 @pytest.mark.parametrize("exception_type", [ValueError, TypeError, RuntimeError])
-def test_attach_rule_outputs_preserves_attachment_and_rollback_failures(source_system, exception_type):
+def test_attach_rule_outputs_preserves_attachment_and_rollback_failures(
+    source_system: System, exception_type: type[Exception]
+) -> None:
     rejection = exception_type("supplemental attachment rejected")
     target_system = System(name="executor-target", auto_add_composed_components=True)
     grandchild = ComposedComponent(name="grandchild")
@@ -872,7 +876,9 @@ def test_attach_rule_outputs_preserves_attachment_and_rollback_failures(source_s
         target_system.get_supplemental_attribute_by_uuid(first.uuid)
 
 
-def test_rollback_preserves_replacement_component_and_reports_identity_conflict(source_system):
+def test_rollback_preserves_replacement_component_and_reports_identity_conflict(
+    source_system: System,
+) -> None:
     """A replacement UUID collision is visible without deleting the replacement."""
     target_system = System(name="executor-target", auto_add_composed_components=True)
     leaf = ComposedComponent(name="implicit-leaf")
@@ -914,7 +920,7 @@ def test_rollback_preserves_replacement_component_and_reports_identity_conflict(
         target_system.get_supplemental_attribute_by_uuid(first.uuid)
 
 
-def test_attach_rule_outputs_reraises_component_check_type_error(source_system):
+def test_attach_rule_outputs_reraises_component_check_type_error(source_system: System) -> None:
     target_system = System(name="executor-target")
     primary = TypeErrorBusComponent(name="rejected")
 
@@ -942,7 +948,9 @@ def test_attach_rule_outputs_reraises_component_check_type_error(source_system):
     ],
     ids=["primary", "supplemental"],
 )
-def test_apply_single_rule_exposes_validator_type_errors(source_system, target_type, supplemental_attributes):
+def test_apply_single_rule_exposes_validator_type_errors(
+    source_system: System, target_type: str, supplemental_attributes: list[SupplementalAttributeRule]
+) -> None:
     """Pydantic validator programming errors are not converted into rule Err values."""
     target_system = System(name="executor-target")
     rule = Rule(
@@ -964,7 +972,7 @@ def test_apply_single_rule_exposes_validator_type_errors(source_system, target_t
     assert list(target_system.iter_all_components()) == []
 
 
-def test_supplemental_owner_programming_error_is_not_missing_owner(source_system):
+def test_supplemental_owner_programming_error_is_not_missing_owner(source_system: System) -> None:
     """Only ISNotStored is translated to a missing supplemental owner error."""
     with pytest.raises(AttributeError, match="uuid"):
         attach_outputs(
@@ -975,14 +983,14 @@ def test_supplemental_owner_programming_error_is_not_missing_owner(source_system
         )
 
 
-def test_attach_rule_outputs_requires_target_system(source_system):
+def test_attach_rule_outputs_requires_target_system(source_system: System) -> None:
     """Output attachment fails when the target system is absent."""
     context = PluginContext(
         config=DummyConfig(),
         source_system=source_system,
         target_system=None,
     )
-    bus = next(source_system.get_components(BusComponent))
+    bus = next(iter(source_system.get_components(BusComponent)))
 
     result = attach_rule_outputs(RuleOutputs(primary=BusComponent(name="translated")), bus, context)
 
@@ -990,10 +998,10 @@ def test_attach_rule_outputs_requires_target_system(source_system):
     assert "target_system" in str(result.err())
 
 
-def test_attach_rule_outputs_rejects_supplemental_without_target_owner(source_system):
+def test_attach_rule_outputs_rejects_supplemental_without_target_owner(source_system: System) -> None:
     """A supplemental attribute fails when its owner is absent from the target system."""
     target_system = System(name="executor-target")
-    bus = next(source_system.get_components(BusComponent))
+    bus = next(iter(source_system.get_components(BusComponent)))
     attribute = BusGeographicInfo(
         uuid=bus.uuid,
         latitude=12.3,
@@ -1013,7 +1021,7 @@ def test_attach_rule_outputs_rejects_supplemental_without_target_owner(source_sy
     assert isinstance(root_cause(result.err()), ISNotStored)
 
 
-def test_apply_single_rule_rejects_plain_getter_result_in_system_translation(source_system):
+def test_apply_single_rule_rejects_plain_getter_result_in_system_translation(source_system: System) -> None:
     """A plain getter value cannot silently install the target model default."""
     from fixtures.target_system import StationComponent
 

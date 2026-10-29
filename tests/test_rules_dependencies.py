@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from graphlib import CycleError
+from typing import TypeVar
 
 import pytest
-from rust_ok import Ok
+from rust_ok import Ok, Result
 
 from r2x_core import PluginConfig, PluginContext, Rule, System
 from r2x_core.getters import GETTER_REGISTRY, getter
@@ -32,9 +33,11 @@ def make_rule(
 
 pytestmark = pytest.mark.rules
 
+ValueT = TypeVar("ValueT")
+
 
 @getter(name="get_current_component")
-def get_current_component(ctx, component):
+def get_current_component(ctx: PluginContext, component: ValueT) -> Result[ValueT, ValueError]:
     """Return the current component being processed."""
     return Ok(component)
 
@@ -163,7 +166,7 @@ def test_topological_sort_places_unnamed_rules_first() -> None:
     assert sorted_rules[1] is named_rule
 
 
-def test_get_current_component_getter():
+def test_get_current_component_getter() -> None:
     """The application-defined getter returns the component being processed."""
 
     class ExampleComponent:
@@ -186,7 +189,7 @@ def test_get_current_component_getter():
     assert result.unwrap().name == "test"
 
 
-def test_get_current_component_in_getter_registry():
+def test_get_current_component_in_getter_registry() -> None:
     """The application-defined getter is registered by its configured name."""
     assert GETTER_REGISTRY["get_current_component"] is get_current_component
 
@@ -212,7 +215,7 @@ def test_rule_sort_preserves_stable_named_and_unnamed_positions() -> None:
     )
 
 
-def test_unnamed_rule_depends_on_named_rule_with_equal_rule_value():
+def test_unnamed_rule_depends_on_named_rule_with_equal_rule_value() -> None:
     """Dependencies locate named rules by identity rather than Rule equality."""
     first = make_rule("A", "B", name="first")
     dependency = make_rule("A", "B", name="dependency")

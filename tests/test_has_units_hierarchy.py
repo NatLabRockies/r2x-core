@@ -124,13 +124,13 @@ def test_class_hierarchy_isinstance_generator():
     assert isinstance(gen, HasPerUnit)
 
 
-def test_has_units_system_base_is_none():
+def test_has_units_system_base_is_none() -> None:
     """HasUnits models without system-base support return None."""
     sensor = Sensor(name="TempSensor1", temperature=25.0, pressure=101325.0)
     assert sensor.system_base is None
 
 
-def test_has_per_units_system_base_can_be_set():
+def test_has_per_units_system_base_can_be_set() -> None:
     """Set the system base through the public binding method."""
     gen = Generator(
         name="Gen1",
@@ -186,7 +186,7 @@ def test_mixed_units_conversion():
     assert gen.voltage == 1.05
 
 
-def test_unit_specs_contains_exactly_annotated_fields():
+def test_unit_specs_contains_exactly_annotated_fields() -> None:
     """The class-level registry contains only fields with Unit metadata."""
     assert set(Sensor.unit_specs) == {"temperature", "pressure"}
     assert set(Generator.unit_specs) == {"base_power", "rated_voltage", "rating", "voltage"}
@@ -194,7 +194,7 @@ def test_unit_specs_contains_exactly_annotated_fields():
     assert Generator.unit_specs["base_power"].unit == "MVA"
 
 
-def test_same_named_classes_resolve_their_own_base_units():
+def test_same_named_classes_resolve_their_own_base_units() -> None:
     """Class-name collisions do not affect per-unit conversion."""
 
     def make_generator(base_unit: str) -> type[Component]:
@@ -317,7 +317,7 @@ def test_unit_binding_preserves_multiple_model_validators() -> None:
     assert device.rating == 0.5
 
 
-def test_missing_base_unit_field_raises_at_class_creation():
+def test_missing_base_unit_field_raises_at_class_creation() -> None:
     """Reject a base reference that does not name a unit-annotated field."""
     with pytest.raises(TypeError, match="missing_base"):
 

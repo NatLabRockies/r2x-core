@@ -49,7 +49,7 @@ def test_models_normalize_and_reject_registration_values() -> None:
         PluginConfig(models=42)
 
 
-def test_active_versions_is_instance_data():
+def test_active_versions_is_instance_data() -> None:
     first = PluginConfig()
     second = PluginConfig()
 
@@ -58,7 +58,7 @@ def test_active_versions_is_instance_data():
     assert second.active_versions == {}
 
 
-def test_upgrade_handler_is_excluded_from_json_serialization():
+def test_upgrade_handler_is_excluded_from_json_serialization() -> None:
     def handler(*, store: DataStore, ctx: PluginContext[Any]) -> None:
         return None
 

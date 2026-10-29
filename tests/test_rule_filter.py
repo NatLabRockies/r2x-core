@@ -8,7 +8,7 @@ import pytest
 from fixtures.context import FIXTURE_MODEL_MODULES
 from fixtures.target_system import StationComponent
 from pydantic import TypeAdapter, ValidationError
-from rust_ok import Ok
+from rust_ok import Ok, Result
 
 from r2x_core import (
     AllOfFilter,
@@ -133,7 +133,7 @@ def test_getter_filter_uses_registered_getters_and_context() -> None:
     if getter_name not in GETTER_REGISTRY:
 
         @getter(name=getter_name)
-        def selected_fuel(source: object, *, context: PluginContext):
+        def selected_fuel(source: object, *, context: PluginContext) -> Result[object, ValueError]:
             return Ok(context.metadata["selected_fuel"])
 
     filt = GetterFilter(getter=getter_name, op="eq", values=["GAS"])

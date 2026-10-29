@@ -250,7 +250,7 @@ def test_one_rule_creates_primary_and_multiple_supplemental_attributes():
 
 def test_rule_from_records_resolves_supplemental_getters():
     """Supplemental getter names are resolved when loading declarative records."""
-    from rust_ok import Ok
+    from rust_ok import Ok, Result
 
     from r2x_core.getters import GETTER_REGISTRY, getter
 
@@ -258,7 +258,7 @@ def test_rule_from_records_resolves_supplemental_getters():
     if getter_name not in GETTER_REGISTRY:
 
         @getter(name=getter_name)
-        def supplemental_rule_test_getter(source, *, context):
+        def supplemental_rule_test_getter(source: object, *, context: object) -> Result[str, ValueError]:
             _ = context
             return Ok("north")
 

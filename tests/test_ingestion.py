@@ -551,8 +551,8 @@ def test_reader_rejects_missing_processor_and_unsupported_processing() -> None:
 
 
 @pytest.mark.time_series
-def test_document_time_series_rejects_missing_cells_without_dropping_alignment(tmp_path: Path) -> None:
-    """Fail on absent document cells, while keeping explicitly present null values."""
+def test_document_time_series_rejects_missing_and_null_samples(tmp_path: Path) -> None:
+    """Reject missing and explicitly null samples without dropping their positions."""
     config = PluginConfig(models=("fixtures.ingestion_models",), config_path_override=tmp_path)
     system = System(name="document-series")
     owner = PSSEBus(name="NORTH", number=101, base_kv=230.0)
@@ -587,11 +587,274 @@ def test_document_time_series_rejects_missing_cells_without_dropping_alignment(t
         None,
     )
     assert explicit_null.values("load") == [None, 1.0]
-    expect_ok(attach_time_series(system, instruction, source=explicit_null, config=config))
-    series = system.get_time_series(owner, name="load")
-    assert len(series.data_array) == len(explicit_null.values("timestamp")) == 2
-    assert np.isnan(series.data_array[0])
-    assert series.data_array[1] == 1.0
+    result = attach_time_series(system, instruction, source=explicit_null, config=config)
+    assert is_err(result)
+    assert isinstance(result.err(), ValueError)
+    assert "finite real number" in str(result.err())
+    assert system.list_time_series_metadata(owner, name="load") == []
+
+
+@pytest.mark.parametrize(
+    "invalid_sample",
+    [None, "bad", "1.0", True, float("nan"), float("inf"), float("-inf"), 10**400, [], {}],
+    ids=[
+        "null",
+        "text",
+        "numeric-text",
+        "boolean",
+        "nan",
+        "infinity",
+        "negative-infinity",
+        "oversized-integer",
+        "list",
+        "object",
+    ],
+)
+@pytest.mark.parametrize("grouped", [False, True], ids=["literal-owner", "grouped-owner"])
+@pytest.mark.parametrize("units", [None, "MW"], ids=["without-units", "with-units"])
+@pytest.mark.time_series
+def test_build_system_rejects_invalid_time_series_samples(
+    invalid_sample: object, grouped: bool, units: str | None
+) -> None:
+    """Reject invalid samples before NumPy or the storage backend can coerce them."""
+    from r2x_core import build_system_from_sources
+
+    sources = {
+        "buses": DocumentSource([{"name": "NORTH", "number": 101, "base_kv": 230.0}], None),
+        "profiles": DocumentSource(
+            [{"owner": "NORTH", "load": 1.0}, {"owner": "NORTH", "load": invalid_sample}], None
+        ),
+    }
+    owner = (
+        ComponentOwner(component_type="PSSEBus", name_field="owner")
+        if grouped
+        else ComponentOwner(component_type="PSSEBus", name="NORTH")
+    )
+    instructions = [
+        ComponentInstruction(
+            kind="component",
+            source="buses",
+            component_type="PSSEBus",
+            fields={"name": "name", "number": "number", "base_kv": "base_kv"},
+        ),
+        TimeSeriesInstruction(
+            kind="time_series",
+            source="profiles",
+            name="load",
+            values="load",
+            time_axis=RegularTimeAxis(
+                kind="regular", initial_timestamp="2024-01-01", resolution_seconds=3600
+            ),
+            owners=[owner],
+            units=units,
+        ),
+    ]
+
+    with pytest.raises(ValueError, match=r"Time-series 'load'.*field 'load'.*index 1.*finite real number"):
+        build_system_from_sources(
+            sources,
+            config=PluginConfig(models=("fixtures.ingestion_models",)),
+            instructions=instructions,
+            name="bad",
+        )
+
+
+@pytest.mark.parametrize(
+    "samples",
+    [
+        np.array([1, 2], dtype=np.int32),
+        np.array([1, 2], dtype=np.uint64),
+        np.array([1.25, 2.5], dtype=np.float32),
+        np.array([1.25, 2.5], dtype=np.float64),
+    ],
+    ids=["int32", "uint64", "float32", "float64"],
+)
+@pytest.mark.time_series
+def test_build_system_accepts_numpy_numeric_samples(samples: np.ndarray, tmp_path: Path) -> None:
+    """Accept NumPy numeric samples and preserve them across a system round trip."""
+    from r2x_core import build_system_from_sources
+
+    sources = {
+        "buses": DocumentSource([{"name": "NORTH", "number": 101, "base_kv": 230.0}], None),
+        "profiles": ArraySource({"load": samples}, None),
+    }
+    instructions = [
+        ComponentInstruction(
+            kind="component",
+            source="buses",
+            component_type="PSSEBus",
+            fields={"name": "name", "number": "number", "base_kv": "base_kv"},
+        ),
+        TimeSeriesInstruction(
+            kind="time_series",
+            source="profiles",
+            name="load",
+            values="load",
+            time_axis=RegularTimeAxis(
+                kind="regular", initial_timestamp="2024-01-01", resolution_seconds=3600
+            ),
+            owners=[ComponentOwner(component_type="PSSEBus", name="NORTH")],
+        ),
+    ]
+
+    system = build_system_from_sources(
+        sources,
+        config=PluginConfig(models=("fixtures.ingestion_models",)),
+        instructions=instructions,
+        name="valid",
+    )
+    series = system.get_time_series(system.get_component(PSSEBus, "NORTH"), name="load")
+    np.testing.assert_array_equal(series.data_array, samples)
+
+    filename = tmp_path / "system.json"
+    system.to_json(filename)
+    restored = System.from_json(filename)
+    restored_series = restored.get_time_series(restored.get_component(PSSEBus, "NORTH"), name="load")
+    np.testing.assert_array_equal(restored_series.data_array, samples)
+
+
+@pytest.mark.parametrize(
+    "samples",
+    [
+        np.array([True, False]),
+        np.array([1.0, np.nan]),
+        np.array([1.0, np.inf]),
+        np.array([1 + 2j, 3 + 4j]),
+        np.array(["1.0", "bad"]),
+    ],
+    ids=["bool", "nan", "infinity", "complex", "text"],
+)
+@pytest.mark.time_series
+def test_array_time_series_rejects_invalid_numpy_samples(samples: np.ndarray) -> None:
+    """Reject invalid NumPy scalar types and non-finite array values."""
+    system = System(name="invalid-array-series")
+    owner = PSSEBus(name="NORTH", number=101, base_kv=230.0)
+    system.add_component(owner)
+    instruction = TimeSeriesInstruction(
+        kind="time_series",
+        source="profiles",
+        name="load",
+        values="load",
+        time_axis=RegularTimeAxis(kind="regular", initial_timestamp="2024-01-01", resolution_seconds=3600),
+        owners=[ComponentOwner(component_type="PSSEBus", name="NORTH")],
+    )
+
+    result = attach_time_series(
+        system,
+        instruction,
+        source=ArraySource({"load": samples}, None),
+        config=PluginConfig(models=("fixtures.ingestion_models",)),
+    )
+
+    assert is_err(result)
+    assert isinstance(result.err(), ValueError)
+    assert "finite real number" in str(result.err())
+    assert system.list_time_series_metadata(owner, name="load") == []
+
+
+@pytest.mark.parametrize("invalid_sample", [None, float("nan"), float("inf"), float("-inf")])
+@pytest.mark.time_series
+def test_grouped_polars_time_series_rejects_invalid_samples(invalid_sample: float | None) -> None:
+    """Reject missing and non-finite values in grouped Polars inputs."""
+    system = System(name="invalid-polars-series")
+    owner = PSSEBus(name="NORTH", number=101, base_kv=230.0)
+    system.add_component(owner)
+    instruction = TimeSeriesInstruction(
+        kind="time_series",
+        source="profiles",
+        name="load",
+        values="load",
+        time_axis=RegularTimeAxis(kind="regular", initial_timestamp="2024-01-01", resolution_seconds=3600),
+        owners=[ComponentOwner(component_type="PSSEBus", name_field="owner")],
+    )
+    source = TabularSource(
+        pl.DataFrame({"owner": ["NORTH", "NORTH"], "load": [1.0, invalid_sample]}).lazy(),
+        PolarsTabularBackend(),
+    )
+
+    result = attach_time_series(
+        system, instruction, source=source, config=PluginConfig(models=("fixtures.ingestion_models",))
+    )
+
+    assert is_err(result)
+    assert isinstance(result.err(), ValueError)
+    assert "finite real number" in str(result.err())
+    assert system.list_time_series_metadata(owner, name="load") == []
+
+
+@pytest.mark.parametrize("missing_field", ["owner", "scenario", "load", "timestamp"])
+@pytest.mark.time_series
+def test_grouped_time_series_rejects_missing_row_fields(missing_field: str) -> None:
+    """Keep missing grouped fields distinct from present nulls and report their names."""
+    from r2x_core import build_system_from_sources
+
+    rows: list[dict[str, object]] = [
+        {"owner": "NORTH", "scenario": "base", "load": 1.0, "timestamp": "2024-01-01T00:00:00"},
+        {"owner": "NORTH", "scenario": "base", "load": 2.0, "timestamp": "2024-01-01T01:00:00"},
+    ]
+    rows[0].pop(missing_field)
+    instructions = [
+        ComponentInstruction(
+            kind="component",
+            source="buses",
+            component_type="PSSEBus",
+            fields={"name": "name", "number": "number", "base_kv": "base_kv"},
+        ),
+        TimeSeriesInstruction(
+            kind="time_series",
+            source="profiles",
+            name="load",
+            values="load",
+            time_axis=ColumnTimeAxis(kind="column", column="timestamp", resolution_seconds=3600),
+            owners=[ComponentOwner(component_type="PSSEBus", name_field="owner")],
+            metadata_columns={"scenario": "scenario"},
+        ),
+    ]
+    sources = {
+        "buses": DocumentSource([{"name": "NORTH", "number": 101, "base_kv": 230.0}], None),
+        "profiles": DocumentSource(rows, None),
+    }
+
+    with pytest.raises(ValueError) as error:
+        build_system_from_sources(
+            sources,
+            config=PluginConfig(models=("fixtures.ingestion_models",)),
+            instructions=instructions,
+            name="missing-group-field",
+        )
+    assert f"Source record has no field {missing_field!r}" in str(error.value)
+
+
+@pytest.mark.parametrize(
+    ("owner", "message"),
+    [
+        (ComponentOwner(component_type="UnknownBus", name="NORTH"), "Model type 'UnknownBus'"),
+        (ComponentOwner(component_type="PSSEBus", name="MISSING"), "Missing owner"),
+    ],
+    ids=["unknown-owner-type", "missing-owner"],
+)
+@pytest.mark.time_series
+def test_time_series_rejects_invalid_literal_owner(owner: ComponentOwner, message: str) -> None:
+    """Reject an unknown owner type or an owner not present in the system."""
+    from r2x_core import build_system_from_sources
+
+    instruction = TimeSeriesInstruction(
+        kind="time_series",
+        source="profiles",
+        name="load",
+        values="load",
+        time_axis=RegularTimeAxis(kind="regular", initial_timestamp="2024-01-01", resolution_seconds=3600),
+        owners=[owner],
+    )
+
+    with pytest.raises(ValueError) as error:
+        build_system_from_sources(
+            {"profiles": DocumentSource([{"load": 1.0}, {"load": 2.0}], None)},
+            config=PluginConfig(models=("fixtures.ingestion_models",)),
+            instructions=[instruction],
+            name="invalid-owner",
+        )
+    assert message in str(error.value)
 
 
 def test_custom_decoded_source_uses_its_processing_contract_directly() -> None:
@@ -1179,6 +1442,43 @@ def test_component_builder_validates_fields_models_and_duplicate_names() -> None
     assert "not a Component" in str(wrong_model.err())
 
 
+@pytest.mark.parametrize(
+    ("reference_type", "rows", "message"),
+    [
+        ("UnknownBus", [{"name": "G1", "power": 1.0, "bus_name": "NORTH"}], "Model type 'UnknownBus'"),
+        (
+            "PSSEBus",
+            [{"name": "G1", "power": 1.0}, {"name": "G2", "power": 2.0, "bus_name": "NORTH"}],
+            "Source record has no field 'bus_name'",
+        ),
+        ("PSSEBus", [{"name": "G1", "power": 1.0, "bus_name": "NORTH"}], "Missing reference"),
+    ],
+    ids=["unknown-type", "missing-row-name", "missing-component"],
+)
+def test_build_system_rejects_invalid_component_references(
+    reference_type: str, rows: list[dict[str, object]], message: str
+) -> None:
+    """Report invalid reference types, missing row fields, and missing components."""
+    from r2x_core import build_system_from_sources
+
+    instruction = ComponentInstruction(
+        kind="component",
+        source="generators",
+        component_type="PSSEGenerator",
+        fields={"name": "name", "active_power_mw": "power"},
+        references={"bus": ComponentReference(component_type=reference_type, name_field="bus_name")},
+    )
+
+    with pytest.raises(ValueError) as error:
+        build_system_from_sources(
+            {"generators": DocumentSource(rows, None)},
+            config=PluginConfig(models=("fixtures.ingestion_models",)),
+            instructions=[instruction],
+            name="invalid-reference",
+        )
+    assert message in str(error.value)
+
+
 def test_supplemental_builder_validates_attributes_and_shares_to_selected_owners() -> None:
     """Validate one supplemental model before attaching it to explicit owners."""
     config = PluginConfig(models=("fixtures.ingestion_models",), config_path_override=Path.cwd())
@@ -1219,6 +1519,39 @@ def test_supplemental_builder_validates_attributes_and_shares_to_selected_owners
     assert is_err(invalid_attribute)
     assert isinstance(invalid_attribute.err(), ValidationError)
     assert "region" in str(invalid_attribute.err())
+
+
+@pytest.mark.parametrize(
+    ("rows", "message"),
+    [
+        ([{"area": "west"}], "Source has no field(s): ['region']"),
+        ([{"area": "west"}, {"region": "west"}], "Source record has no field 'region'"),
+        ([{"region": "west"}], "Missing owner"),
+    ],
+    ids=["missing-source-field", "missing-row-field", "missing-owner"],
+)
+def test_build_system_rejects_invalid_supplemental_inputs(
+    rows: list[dict[str, object]], message: str
+) -> None:
+    """Report missing attribute fields and owners through the public builder."""
+    from r2x_core import build_system_from_sources
+
+    instruction = SupplementalAttributeInstruction(
+        kind="supplemental_attribute",
+        source="regions",
+        attribute_type="BusGeo",
+        fields={"region": "region"},
+        owners=[ComponentOwner(component_type="PSSEBus", name="MISSING")],
+    )
+
+    with pytest.raises(ValueError) as error:
+        build_system_from_sources(
+            {"regions": DocumentSource(rows, None)},
+            config=PluginConfig(models=("fixtures.ingestion_models",)),
+            instructions=[instruction],
+            name="invalid-attribute",
+        )
+    assert message in str(error.value)
 
 
 @pytest.mark.parametrize(

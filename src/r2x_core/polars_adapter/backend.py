@@ -75,7 +75,8 @@ def comparison_expression(
         comparison_value = exact_column_expression(other_column, column_names=names)
     else:
         if value is None:
-            return pl.lit(False)
+            msg = f"{operation.capitalize()} comparison value cannot be null; use is_null or is_not_null"
+            raise ValueError(msg)
         dtype = schema[column]
         predicate_value: str | int | float | bool | datetime = value
         if dtype.is_numeric():

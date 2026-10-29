@@ -44,11 +44,15 @@ distinct. Literal and mapped feature names cannot overlap. `context`, `self`, an
 A regular axis uses `initial_timestamp` and a positive
 `resolution_seconds`. A column axis must be strictly increasing and regular.
 Core preserves source order and does not sort or coerce timestamps.
-SingleTimeSeries requires at least two samples. By default, an empty source is
-an error. Set `skip_if_empty=true` for an explicitly optional series that should
-be absent when its source has no rows. Nonempty sources with missing fields,
-invalid axes, unknown owners, or infrasys validation errors still fail before
-that output is attached. Explicit null values are not treated as absent fields.
+SingleTimeSeries requires at least two samples. Every sample must be a finite
+real number in the supported numeric range. Null, boolean, text, NaN, and
+infinite samples are rejected before the series is attached. The error identifies the source, field, and zero-based
+index within the series. Fill or transform missing values before attaching.
+
+By default, an empty source is an error. Set `skip_if_empty=true` for an
+explicitly optional series that should be absent when its source has no rows.
+Nonempty sources with missing fields, invalid axes, unknown owners, or infrasys
+validation errors still fail before that output is attached.
 
 Units are passed as a `ureg.Quantity` when the series is created, so
 `TimeSeriesMetadata.units` records the unit. Other instruction metadata is

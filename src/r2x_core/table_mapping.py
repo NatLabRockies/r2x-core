@@ -19,6 +19,7 @@ from pydantic import (
     TypeAdapter,
     model_validator,
 )
+from pydantic.json_schema import SkipJsonSchema
 from rust_ok import Err, Ok, Result, is_ok
 
 from .datafile import InlineTable, parse_inline_table_rows
@@ -40,6 +41,12 @@ from .tabular_backend import (
 )
 
 TableScalar: TypeAlias = StrictBool | StrictInt | StrictFloat | StrictStr | None
+TableComparisonScalar: TypeAlias = StrictBool | StrictInt | StrictFloat | StrictStr | SkipJsonSchema[None]
+
+
+def omit_comparison_default(schema: dict[str, object]) -> None:
+    """Keep the omitted-operand sentinel out of the public JSON schema."""
+    schema.pop("default", None)
 
 
 class TableLiteral(StrictConfigModel):
@@ -236,7 +243,9 @@ class TableFilterOperation(OmitUnsetNoneConfigModel):
     operation: Literal["filter"]
     column: NonEmptyString
     comparison: TableFilterComparison
-    value: TableScalar | ProcessingPlaceholder = None
+    value: TableComparisonScalar | ProcessingPlaceholder = Field(
+        default=None, json_schema_extra=omit_comparison_default
+    )
     other_column: NonEmptyString | None = None
 
     @model_validator(mode="after")
@@ -254,6 +263,9 @@ class TableFilterOperation(OmitUnsetNoneConfigModel):
         elif has_other_column and self.other_column is None:
             msg = "filter 'other_column' must be omitted when unused, not null"
             raise ValueError(msg)
+        elif has_value and self.value is None:
+            msg = "filter comparison value cannot be null; use is_null or is_not_null"
+            raise ValueError(msg)
         return self
 
 
@@ -263,7 +275,9 @@ class TableChooseOperation(OmitUnsetNoneConfigModel):
     operation: Literal["choose"]
     column: NonEmptyString
     comparison: TableFilterComparison
-    value: TableScalar | ProcessingPlaceholder = None
+    value: TableComparisonScalar | ProcessingPlaceholder = Field(
+        default=None, json_schema_extra=omit_comparison_default
+    )
     other_column: NonEmptyString | None = None
     then: NonEmptyString | TableScalarLiteral
     otherwise: NonEmptyString | TableScalarLiteral
@@ -283,6 +297,9 @@ class TableChooseOperation(OmitUnsetNoneConfigModel):
             raise ValueError(msg)
         elif has_other_column and self.other_column is None:
             msg = "choose 'other_column' must be omitted when unused, not null"
+            raise ValueError(msg)
+        elif has_value and self.value is None:
+            msg = "choose comparison value cannot be null; use is_null or is_not_null"
             raise ValueError(msg)
         return self
 
@@ -879,6 +896,17 @@ def resolve_scalar_binding(
     raise ValueError(msg)
 
 
+def resolve_comparison_binding(
+    value: TableScalar | ProcessingPlaceholder, *, placeholders: Mapping[str, JSONValue]
+) -> str | int | float | bool:
+    """Resolve a binary predicate operand without permitting null."""
+    resolved = resolve_scalar_binding(value, placeholders=placeholders)
+    if resolved is None:
+        msg = "Comparison value cannot be null; use is_null or is_not_null"
+        raise ValueError(msg)
+    return resolved
+
+
 def resolve_value_operand(
     operand: NonEmptyString | TableScalarLiteral, *, placeholders: Mapping[str, JSONValue]
 ) -> TableValueSelection:
@@ -1173,7 +1201,7 @@ def assemble_table_records(
                 )
             elif isinstance(operation, TableFilterOperation):
                 value = (
-                    resolve_scalar_binding(operation.value, placeholders=bindings)
+                    resolve_comparison_binding(operation.value, placeholders=bindings)
                     if "value" in operation.model_fields_set
                     else None
                 )
@@ -1186,7 +1214,7 @@ def assemble_table_records(
                 )
             elif isinstance(operation, TableChooseOperation):
                 value = (
-                    resolve_scalar_binding(operation.value, placeholders=bindings)
+                    resolve_comparison_binding(operation.value, placeholders=bindings)
                     if "value" in operation.model_fields_set
                     else None
                 )

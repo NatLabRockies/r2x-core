@@ -80,9 +80,7 @@ dev = [
   "ty>=0.0.12,<1.0.0",
 ]
 
-docs = [
-  "docstr-coverage>=2.3.2,<3.0.0",
-]
+docs = ["docstr-coverage>=2.3.2,<3.0.0"]
 
 [tool.ty.src]
 include = ["src"]
@@ -90,7 +88,12 @@ include = ["src"]
 [tool.pytest.ini_options]
 pythonpath = ["src", "."]
 testpaths = ["tests"]
-addopts = ["--strict-markers", "--benchmark-skip", "--cov=r2x_core", "--cov-report=term-missing"]
+addopts = [
+  "--strict-markers",
+  "--benchmark-skip",
+  "--cov=r2x_core",
+  "--cov-report=term-missing",
+]
 markers = [
   "core: Shared error, validation, and smoke-test behavior",
   "plugin: Plugin classes, configuration, exposed transforms, and contexts",

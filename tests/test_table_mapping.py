@@ -2305,7 +2305,7 @@ def test_filter_comparisons_support_columns_and_null_predicates(tmp_path: Path) 
 
 
 def test_starts_with_filters_and_chooses_literal_or_column_prefixes(tmp_path: Path) -> None:
-    """Use literal, case-sensitive string prefixes with explicit null and row semantics."""
+    """Use case-sensitive string prefixes and handle null input rows."""
     backend = PolarsTabularBackend()
     schema = {"value": pl.String, "prefix": pl.String}
     source = TabularSource(
@@ -2360,13 +2360,6 @@ def test_starts_with_filters_and_chooses_literal_or_column_prefixes(tmp_path: Pa
             ],
             "columns": {"value": "value"},
         },
-        {
-            "name": "null_filter",
-            "source": "input",
-            "operations": [
-                {"operation": "filter", "column": "value", "comparison": "starts_with", "value": None}
-            ],
-        },
     ]
     mapping_path = tmp_path / "table_mapping.json"
     mapping_path.write_text(json.dumps(records), encoding="utf-8")
@@ -2402,14 +2395,12 @@ def test_starts_with_filters_and_chooses_literal_or_column_prefixes(tmp_path: Pa
         {"value": "a.b"},
         {"value": ""},
     ]
-    assert list(tables["null_filter"].iter_rows()) == []
 
 
 @pytest.mark.parametrize(
     ("values", "operand"),
     [
         pytest.param({"value": [1]}, {"value": 1}, id="numeric-input"),
-        pytest.param({"value": [1]}, {"value": None}, id="numeric-input-null-operand"),
         pytest.param({"value": ["abc"]}, {"value": 1}, id="numeric-literal"),
         pytest.param({"value": ["abc"], "prefix": [1]}, {"other_column": "prefix"}, id="numeric-column"),
     ],
@@ -2417,7 +2408,7 @@ def test_starts_with_filters_and_chooses_literal_or_column_prefixes(tmp_path: Pa
 def test_starts_with_rejects_non_string_operands(
     tmp_path: Path, values: dict[str, list[object]], operand: dict[str, object]
 ) -> None:
-    """A prefix comparison requires string columns and string or null literals."""
+    """A prefix comparison requires string columns and string literals."""
     backend = PolarsTabularBackend()
     source = TabularSource(pl.DataFrame(values).lazy(), backend)
     mapping_path = tmp_path / "table_mapping.json"
@@ -3786,8 +3777,8 @@ def test_sort_direction_preserves_stable_ties_and_nulls_last(tmp_path: Path) -> 
     ]
 
 
-def test_empty_operations_retain_declared_schemas_and_null_filters_drop_rows(tmp_path: Path) -> None:
-    """Keep empty constructors and row operations typed without inventing values."""
+def test_empty_operations_retain_schemas_and_null_filters_select_rows(tmp_path: Path) -> None:
+    """Keep empty operations typed and use unary predicates to select nulls."""
     backend = PolarsTabularBackend()
     empty = TabularSource(
         pl.DataFrame(schema={"group": pl.String, "low": pl.Int64, "high": pl.Float64}).lazy(),
@@ -3836,9 +3827,12 @@ def test_empty_operations_retain_declared_schemas_and_null_filters_drop_rows(tmp
                 {
                     "name": "null_filtered",
                     "source": "input",
-                    "operations": [
-                        {"operation": "filter", "column": "value", "comparison": "equals", "value": None}
-                    ],
+                    "operations": [{"operation": "filter", "column": "value", "comparison": "is_null"}],
+                },
+                {
+                    "name": "non_null_filtered",
+                    "source": "input",
+                    "operations": [{"operation": "filter", "column": "value", "comparison": "is_not_null"}],
                 },
             ]
         ),
@@ -3859,7 +3853,8 @@ def test_empty_operations_retain_declared_schemas_and_null_filters_drop_rows(tmp
     assert tables["empty_rows"].data.collect_schema() == pl.Schema({"when": pl.Datetime("us")})
     assert list(tables["empty_concat"].iter_rows()) == []
     assert tables["empty_concat"].fields() == ["group", "low", "high"]
-    assert list(tables["null_filtered"].iter_rows()) == []
+    assert list(tables["null_filtered"].iter_rows()) == [{"value": None}]
+    assert list(tables["non_null_filtered"].iter_rows()) == [{"value": 1}]
 
 
 @pytest.mark.parametrize(

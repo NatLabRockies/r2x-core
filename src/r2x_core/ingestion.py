@@ -8,6 +8,7 @@ import json
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime, timedelta
 from math import isfinite
+from numbers import Real
 from pathlib import Path
 from typing import TypeAlias, TypeVar
 
@@ -450,6 +451,18 @@ def attach_series(
     if not is_ok(axis_result):
         return Err(axis_result.err())
     initial, resolution = axis_result.value
+    for index, value in enumerate(values):
+        try:
+            valid = isinstance(value, Real) and not isinstance(value, bool) and isfinite(value)
+        except OverflowError:
+            valid = False
+        if not valid:
+            msg = (
+                f"Time-series {instruction.name!r} from source {instruction.source!r}, "
+                f"field {instruction.values!r}, sample at index {index} must be a finite real number "
+                "within the supported numeric range"
+            )
+            return Err(ValueError(msg))
     samples = np.asarray(values)
     data = ureg.Quantity(samples, instruction.units) if instruction.units is not None else samples
     series = SingleTimeSeries.from_array(

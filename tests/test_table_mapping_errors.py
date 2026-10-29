@@ -13,7 +13,14 @@ import pytest
 from pydantic import ValidationError
 from rust_ok import is_err
 
-from r2x_core import DocumentSource, TableMappingRecord, TabularSource, assemble_tables
+from r2x_core import (
+    DocumentSource,
+    TableChooseOperation,
+    TableFilterOperation,
+    TableMappingRecord,
+    TabularSource,
+    assemble_tables,
+)
 from r2x_core.polars_adapter import PolarsTabularBackend
 from r2x_core.table_mapping import load_table_mapping
 
@@ -172,6 +179,92 @@ def test_rejects_ambiguous_operation_configuration(
 
     with pytest.raises(ValidationError, match=re.escape(message)):
         assemble_tables({}, mapping_path=mapping, backend=PolarsTabularBackend())
+
+
+@pytest.mark.parametrize("operation_name", ["filter", "choose"])
+@pytest.mark.parametrize(
+    "comparison",
+    [
+        "equals",
+        "not_equal",
+        "less_than",
+        "greater_than",
+        "less_than_or_equal",
+        "greater_than_or_equal",
+        "starts_with",
+    ],
+)
+def test_binary_predicate_rejects_explicit_null(operation_name: str, comparison: str) -> None:
+    """Direct users to unary predicates instead of silently treating null as false."""
+    operation: dict[str, object] = {
+        "operation": operation_name,
+        "column": "value",
+        "comparison": comparison,
+        "value": None,
+    }
+    if operation_name == "choose":
+        operation.update({"then": {"value": 1}, "otherwise": {"value": 0}, "output": "selected"})
+
+    with pytest.raises(ValidationError, match=r"is_null.*is_not_null"):
+        TableMappingRecord.model_validate({"name": "out", "source": "input", "operations": [operation]})
+
+
+@pytest.mark.parametrize("model", [TableFilterOperation, TableChooseOperation])
+def test_binary_predicate_schema_disallows_null_values(
+    model: type[TableFilterOperation] | type[TableChooseOperation],
+) -> None:
+    """The public validation schema must not advertise rejected null operands."""
+    value_schema = model.model_json_schema()["properties"]["value"]
+
+    assert all(option.get("type") != "null" for option in value_schema["anyOf"])
+    assert "default" not in value_schema
+
+
+@pytest.mark.parametrize("operation_name", ["filter", "choose"])
+@pytest.mark.parametrize("comparison", ["equals", "not_equal"])
+def test_binary_predicate_rejects_null_binding(tmp_path: Path, operation_name: str, comparison: str) -> None:
+    """Null placeholder values cannot silently drop rows or select the otherwise branch."""
+    operation: dict[str, object] = {
+        "operation": operation_name,
+        "column": "value",
+        "comparison": comparison,
+        "value": "{selected}",
+    }
+    if operation_name == "choose":
+        operation.update({"then": {"value": 1}, "otherwise": {"value": 0}, "output": "selected"})
+    mapping = tmp_path / "table_mapping.json"
+    mapping.write_text(
+        json.dumps([{"name": "out", "source": "input", "operations": [operation]}]), encoding="utf-8"
+    )
+    backend = PolarsTabularBackend()
+    source = TabularSource(pl.DataFrame({"value": [None, 1, 2]}).lazy(), backend)
+
+    with pytest.raises(ValueError, match=r"is_null.*is_not_null"):
+        assemble_tables(
+            {"input": source}, mapping_path=mapping, backend=backend, placeholders={"selected": None}
+        )
+
+
+@pytest.mark.parametrize("operation_name", ["filter", "choose"])
+def test_polars_binary_predicate_rejects_null_directly(operation_name: str) -> None:
+    """The public backend enforces the same predicate contract without a mapping."""
+    backend = PolarsTabularBackend()
+    source = TabularSource(pl.DataFrame({"value": [None, 1]}).lazy(), backend)
+
+    with pytest.raises(ValueError, match=r"is_null.*is_not_null"):
+        if operation_name == "filter":
+            backend.filter_rows(source, column="value", comparison="not_equal", value=None)
+        else:
+            backend.choose_column(
+                source,
+                column="value",
+                comparison="not_equal",
+                value=None,
+                other_column=None,
+                then=("value", 1),
+                otherwise=("value", 0),
+                output="selected",
+            )
 
 
 @pytest.mark.parametrize(
@@ -931,31 +1024,31 @@ def test_cross_join_with_no_payload_preserves_internal_shaped_columns(tmp_path: 
         ),
         pytest.param(
             {
-                "name": "filter-null",
+                "name": "filter-binary",
                 "source": "input",
                 "operations": [
-                    {"operation": "filter", "column": "value", "comparison": "equals", "value": None}
+                    {"operation": "filter", "column": "value", "comparison": "equals", "value": 1}
                 ],
             },
-            id="filter-explicit-null",
+            id="filter-binary",
         ),
         pytest.param(
             {
-                "name": "choose-null",
+                "name": "choose-null-branch",
                 "source": "input",
                 "operations": [
                     {
                         "operation": "choose",
                         "column": "value",
                         "comparison": "equals",
-                        "value": None,
+                        "value": 1,
                         "then": {"value": None},
                         "otherwise": {"value": "fallback"},
                         "output": "result",
                     }
                 ],
             },
-            id="choose-explicit-null",
+            id="choose-null-branch",
         ),
         pytest.param(
             {
@@ -997,19 +1090,19 @@ def test_table_mapping_record_dump_roundtrips_omitted_and_null_fields(
     assert restored == parsed
 
 
-def test_table_mapping_dump_preserves_explicit_null_operands() -> None:
-    """A valid explicit null remains distinct from an omitted comparison operand."""
+def test_table_mapping_dump_preserves_valid_explicit_null_values() -> None:
+    """Preserve null choose branches and fills while omitting unary predicate operands."""
     record = TableMappingRecord.model_validate(
         {
             "name": "out",
             "source": "input",
             "operations": [
-                {"operation": "filter", "column": "value", "comparison": "equals", "value": None},
+                {"operation": "filter", "column": "value", "comparison": "is_null"},
                 {
                     "operation": "choose",
                     "column": "value",
                     "comparison": "equals",
-                    "value": None,
+                    "value": 1,
                     "then": {"value": None},
                     "otherwise": {"value": "fallback"},
                     "output": "result",
@@ -1022,9 +1115,10 @@ def test_table_mapping_dump_preserves_explicit_null_operands() -> None:
     dumped = record.model_dump(mode="json")
     restored = TableMappingRecord.model_validate(dumped)
 
-    for operation in dumped["operations"]:
-        assert operation["value"] is None
-    assert all("value" in operation.model_fields_set for operation in restored.operations)
+    assert "value" not in dumped["operations"][0]
+    assert dumped["operations"][1]["then"]["value"] is None
+    assert dumped["operations"][2]["value"] is None
+    assert restored == record
 
 
 @pytest.mark.parametrize(

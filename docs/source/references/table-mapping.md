@@ -414,15 +414,15 @@ the left and pattern payload schema.
 | `value` | Literal scalar or whole-value binding for a binary comparison. |
 | `other_column` | Existing right-side column for a binary comparison instead of `value`. |
 
-Binary comparisons require exactly one of `value` or `other_column`. A literal
-`value: null` is a binary comparison and does not pass for any row. Unary
-`is_null` and `is_not_null` require both fields to be omitted. Binary column
+Binary comparisons require exactly one of `value` or `other_column`. A null
+literal or binding is rejected. To select null or non-null rows, use unary
+`is_null` or `is_not_null` and omit both operand fields. Binary column
 comparisons require identical declared dtypes and do not cast either side.
 
 Only rows for which the comparison is true remain. Null results from binary
 comparisons do not pass. String equality and `starts_with` are case-sensitive.
-`starts_with` requires string columns and a string or null literal. It compares
-literal prefixes, not regular expressions. A list is not an implicit membership
+`starts_with` requires string columns and a string literal. It compares literal
+prefixes, not regular expressions. A list is not an implicit membership
 test. Missing columns and incompatible comparison types are
 errors. Filtering does not lowercase, convert, or fill input values. Sequential
 filter operations express conjunction without an expression tree.
@@ -445,10 +445,10 @@ one predicate and two operands, not nested conditions or calculations.
 | `otherwise` | A bare column name or an object containing scalar `value`, selected otherwise. |
 | `output` | New output-column name. |
 
-Binary predicates require exactly one of `value` or `other_column`. Unary
-`is_null` and `is_not_null` omit both. A null predicate result selects
-`otherwise`. Column comparisons require identical dtypes. Literal predicates use
-the same type rules as `filter`.
+Binary predicates require exactly one of `value` or `other_column`, and reject
+null literals or bindings. Unary `is_null` and `is_not_null` omit both operand
+fields. Null comparison results select `otherwise`. Column comparisons require
+identical dtypes. Literal predicates use the same type rules as `filter`.
 
 A bare string in `then` or `otherwise` names a column. An object of the form
 `{"value": ...}` supplies a scalar literal or whole-value binding, including

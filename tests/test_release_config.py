@@ -7,6 +7,13 @@ from pathlib import Path
 import pytest
 
 
+def test_release_please_promotes_pre_major_breaking_changes_to_major_version() -> None:
+    root = Path(__file__).resolve().parents[1]
+    config = json.loads((root / ".release-please-config.json").read_text(encoding="utf-8"))
+
+    assert config["packages"]["."]["bump-minor-pre-major"] is False
+
+
 @pytest.mark.parametrize("lockfile", ["uv.lock", "scripts/generate_api.py.lock"])
 def test_release_updates_the_project_version_in_each_lockfile(lockfile: str) -> None:
     root = Path(__file__).resolve().parents[1]

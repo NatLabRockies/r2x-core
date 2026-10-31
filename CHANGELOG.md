@@ -1,5 +1,62 @@
 # Changelog
 
+## [1.0.0](https://github.com/NatLabRockies/r2x-core/compare/v0.9.0...v1.0.0) (2026-10-31)
+
+
+### ⚠ BREAKING CHANGES
+
+* polars is an optional extra; install r2x-core[polars] to use the built-in tabular reader and backend. ReaderConfig no longer has header_rows or header_separator; pass them in reader.kwargs. ReaderConfig and FileInfo forbid unknown fields. TabularTransformResult, JSONFileReader, and JSONProcessingBackend are no longer root exports (import from r2x_core.result and r2x_core.json_adapter). The h5_readers module export is replaced by H5Reader and H5PyFileReader.
+
+### Features
+
+* adapter seams, Polars-backed tabular processing, and declared-contract refactor ([#167](https://github.com/NatLabRockies/r2x-core/issues/167)) ([c60c80e](https://github.com/NatLabRockies/r2x-core/commit/c60c80e3f5c00205645f3909f374428cbaf19910))
+
+
+### Bug Fixes
+
+* **reader:** correct dynamic keyword argument types ([#160](https://github.com/NatLabRockies/r2x-core/issues/160)) ([5838101](https://github.com/NatLabRockies/r2x-core/commit/58381018b816860a2fb5f771a2822624b5790875))
+* **release:** promote breaking changes to 1.0 ([#172](https://github.com/NatLabRockies/r2x-core/issues/172)) ([d090584](https://github.com/NatLabRockies/r2x-core/commit/d090584fb69d642a0f745bef3491a70c3780d261))
+* **rules:** scope component type cache to configured modules ([#156](https://github.com/NatLabRockies/r2x-core/issues/156)) ([dce3fd9](https://github.com/NatLabRockies/r2x-core/commit/dce3fd9ca46e946c97a914ede1d31d45a2aa052a))
+* **system:** validate unit bases before adding components ([#155](https://github.com/NatLabRockies/r2x-core/issues/155)) ([a173e63](https://github.com/NatLabRockies/r2x-core/commit/a173e63ff7f8959029d162033bc023506f5757d1))
+* **time-series:** avoid SQL variable limit during metadata transfer ([#141](https://github.com/NatLabRockies/r2x-core/issues/141)) ([622343a](https://github.com/NatLabRockies/r2x-core/commit/622343ad1f2bd54bb1273907595b5189a04c5f6d))
+* **types:** define recursive JSON values with scalar leaves ([#161](https://github.com/NatLabRockies/r2x-core/issues/161)) ([2553d92](https://github.com/NatLabRockies/r2x-core/commit/2553d928463bd8692b6b19754e9e050f0b641e9f))
+* **upgrade:** preserve expected failure causes ([#154](https://github.com/NatLabRockies/r2x-core/issues/154)) ([ac83300](https://github.com/NatLabRockies/r2x-core/commit/ac83300a0baa7740609405256b6a0aeff9acb011))
+
+
+### Performance
+
+* **export:** stream component records to CSV ([#157](https://github.com/NatLabRockies/r2x-core/issues/157)) ([e21fc40](https://github.com/NatLabRockies/r2x-core/commit/e21fc40a1c0bde6d5b92d09f2b8a7c43c9e347f5))
+* **imports:** defer HDF5 module loading ([#159](https://github.com/NatLabRockies/r2x-core/issues/159)) ([a97071b](https://github.com/NatLabRockies/r2x-core/commit/a97071b0bc0196d99a0f15752cf990df181ee793))
+* **versioning:** index git commit positions ([#153](https://github.com/NatLabRockies/r2x-core/issues/153)) ([c155d71](https://github.com/NatLabRockies/r2x-core/commit/c155d715f095ec7b12cb8027e3410cdef1d67be5))
+
+
+### Refactoring
+
+* **processors:** standardize tabular transform results ([#152](https://github.com/NatLabRockies/r2x-core/issues/152)) ([af6d24f](https://github.com/NatLabRockies/r2x-core/commit/af6d24f096ee2be0cee1e44a00eea59c3a1fd820))
+* **utils:** remove obsolete compatibility aliases ([#158](https://github.com/NatLabRockies/r2x-core/issues/158)) ([0215957](https://github.com/NatLabRockies/r2x-core/commit/0215957676f7b3b7665d15a0f034f51c4f92450f))
+
+
+### Documentation
+
+* migrate guides and API reference to Astro Starlight ([#139](https://github.com/NatLabRockies/r2x-core/issues/139)) ([d185fe5](https://github.com/NatLabRockies/r2x-core/commit/d185fe5c6f29a6971f4514afc0bba3b0d6b2699a))
+
+
+### CI/CD
+
+* align checks with ty, Ruff, and prek ([#162](https://github.com/NatLabRockies/r2x-core/issues/162)) ([fbaaec0](https://github.com/NatLabRockies/r2x-core/commit/fbaaec0b878104ea4ccc5187bacc7305af42b4ad))
+
+
+### Build
+
+* **deps-dev:** bump prek from 0.4.5 to 0.5.2 ([#130](https://github.com/NatLabRockies/r2x-core/issues/130)) ([3d835c7](https://github.com/NatLabRockies/r2x-core/commit/3d835c7dc9177aeb9a8aacabf23c2c0e1c139989))
+* **deps:** bump actions/checkout from 7.0.0 to 7.0.1 ([#117](https://github.com/NatLabRockies/r2x-core/issues/117)) ([2a9286f](https://github.com/NatLabRockies/r2x-core/commit/2a9286f31401438b05617d8157c3c00853f365bc))
+* **deps:** bump actions/labeler from 6.2.0 to 7.0.0 ([#118](https://github.com/NatLabRockies/r2x-core/issues/118)) ([f107604](https://github.com/NatLabRockies/r2x-core/commit/f107604b73885fe849aafb915f2488d77f44de67))
+* **deps:** bump actions/setup-python from 6.3.0 to 7.0.0 ([#119](https://github.com/NatLabRockies/r2x-core/issues/119)) ([fbb3dcf](https://github.com/NatLabRockies/r2x-core/commit/fbb3dcf983efc131271723d34b642b4560866526))
+* **deps:** bump actions/setup-python from 7.0.0 to 7.1.0 ([#170](https://github.com/NatLabRockies/r2x-core/issues/170)) ([d5684ce](https://github.com/NatLabRockies/r2x-core/commit/d5684ce96ac2c390b421d1cdff258e5330bd85c4))
+* **deps:** bump astral-sh/setup-uv from 10.3.0 to 10.3.3 ([#168](https://github.com/NatLabRockies/r2x-core/issues/168)) ([c529e2c](https://github.com/NatLabRockies/r2x-core/commit/c529e2c162c0ea77c7b3024f131b3678da7b497a))
+* **deps:** bump astral-sh/setup-uv from 8.3.2 to 10.3.0 ([#138](https://github.com/NatLabRockies/r2x-core/issues/138)) ([1ef8596](https://github.com/NatLabRockies/r2x-core/commit/1ef85969f74a35a7c1878aea61cad5102db4d4cb))
+* **deps:** bump pypa/gh-action-pypi-publish from 1.14.2 to 1.14.3 ([#169](https://github.com/NatLabRockies/r2x-core/issues/169)) ([44c8011](https://github.com/NatLabRockies/r2x-core/commit/44c8011bd90023af553ccd074e2bc35a70129e5b))
+
 ## [0.9.0](https://github.com/NatLabRockies/r2x-core/compare/v0.8.0...v0.9.0) (2026-10-01)
 
 

@@ -1,11 +1,14 @@
+[tools]
+"aqua:j178/prek" = "0.5.2"
+
 [tasks.default]
 description = "List available tasks"
 run = "mise tasks ls"
 
 [tasks.setup]
-description = "Install all locked dependency groups"
+description = "Install mise tools and all locked Python dependency groups"
 alias = "sync"
-run = "uv sync --all-groups --locked"
+run = ["mise install", "uv sync --all-groups --locked"]
 
 [tasks.lock]
 description = "Update uv.lock"
@@ -13,7 +16,7 @@ run = "uv lock"
 
 [tasks.hooks-install]
 description = "Install git hooks"
-run = "uv run --locked prek install"
+run = "prek install"
 
 [tasks.format]
 description = "Format Python code with Ruff"
@@ -35,6 +38,14 @@ run = "uv run --locked docstr-coverage src --badge docs/source/_static --percent
 description = "Run tests with coverage"
 run = "uv run --locked pytest -q --cov-report=term-missing:skip-covered"
 
+[tasks.bench]
+description = "Run and save opt-in pytest workflow benchmarks"
+run = "uv run --locked pytest tests/bench -m bench --benchmark-only --no-cov --benchmark-autosave --benchmark-group-by=fullname"
+
+[tasks.bench-compare]
+description = "Compare workflow benchmarks with the latest saved run"
+run = "uv run --locked pytest tests/bench -m bench --benchmark-only --no-cov --benchmark-compare --benchmark-group-by=fullname"
+
 [tasks.docs]
 description = "Build Astro documentation and API contracts"
 dir = "docs"
@@ -42,7 +53,7 @@ run = "npm run build"
 
 [tasks.hooks]
 description = "Run all pre-commit hooks"
-run = "uv run --locked prek run --all-files --stage pre-commit --show-diff-on-failure"
+run = "prek run --all-files --stage pre-commit --show-diff-on-failure"
 
 [tasks.verify]
 description = "Run hooks, docstring coverage, and tests"

@@ -2,106 +2,78 @@
 
 from __future__ import annotations
 
-from rust_ok import Ok
+from graphlib import CycleError
+from typing import TypeVar
 
-from r2x_core.getters import getter
+import pytest
+from rust_ok import Ok, Result
+
+from r2x_core import PluginConfig, PluginContext, Rule, System
+from r2x_core.getters import GETTER_REGISTRY, getter
+from r2x_core.rules_executor import sort_rules_by_dependencies
 
 
-# Test helper getter (example of application-defined getter)
+def make_rule(
+    source_type: str,
+    target_type: str,
+    *,
+    name: str | None = None,
+    depends_on: list[str] | None = None,
+) -> Rule:
+    """Build a rule with the shared test mapping fields."""
+    return Rule(
+        source_type=source_type,
+        target_type=target_type,
+        version=1,
+        field_map={"f": "f"},
+        name=name,
+        depends_on=depends_on,
+    )
+
+
+pytestmark = pytest.mark.rules
+
+ValueT = TypeVar("ValueT")
+
+
 @getter(name="get_current_component")
-def get_current_component(ctx, component):
-    """Return the current component being processed.
-
-    Example getter that applications can define to pass the current
-    component being iterated over to a target field.
-    """
+def get_current_component(ctx: PluginContext, component: ValueT) -> Result[ValueT, ValueError]:
+    """Return the current component being processed."""
     return Ok(component)
 
 
-def test_rule_with_name_field():
-    """Rule can have an optional name field."""
-    from r2x_core import Rule
+@pytest.mark.parametrize(
+    ("name", "depends_on"),
+    [
+        pytest.param("test_rule", None, id="name"),
+        pytest.param("rule_b", ["rule_a"], id="dependency"),
+    ],
+)
+def test_rule_preserves_optional_name_and_dependencies(name: str, depends_on: list[str] | None) -> None:
+    rule = make_rule("A", "B", name=name, depends_on=depends_on)
 
-    rule = Rule(
-        source_type="A",
-        target_type="B",
-        version=1,
-        field_map={"f": "f"},
-        name="test_rule",
-    )
-
-    assert rule.name == "test_rule"
-
-
-def test_rule_with_depends_on_field():
-    """Rule can have an optional depends_on field."""
-    from r2x_core import Rule
-
-    rule = Rule(
-        source_type="A",
-        target_type="B",
-        version=1,
-        field_map={"f": "f"},
-        name="rule_b",
-        depends_on=["rule_a"],
-    )
-
-    assert rule.depends_on == ["rule_a"]
+    assert rule.name == name
+    assert rule.depends_on == depends_on
 
 
-def test_rule_with_system_field_default():
-    """Rule system field defaults to 'source'."""
-    from r2x_core import Rule
-
-    rule = Rule(
-        source_type="A",
-        target_type="B",
-        version=1,
-        field_map={"f": "f"},
-    )
+def test_rule_system_field_defaults_to_source() -> None:
+    rule = Rule(source_type="A", target_type="B", version=1, field_map={"f": "f"})
 
     assert rule.system == "source"
 
 
-def test_rule_with_system_field_target():
-    """Rule can specify system='target'."""
-    from r2x_core import Rule
-
-    rule = Rule(
-        source_type="A",
-        target_type="B",
-        version=1,
-        field_map={"f": "f"},
-        system="target",
-    )
+def test_rule_system_field_can_select_target() -> None:
+    rule = Rule(source_type="A", target_type="B", version=1, field_map={"f": "f"}, system="target")
 
     assert rule.system == "target"
 
 
-def test_topological_sort_simple_dependency():
+def test_topological_sort_simple_dependency() -> None:
     """Rules are sorted by dependencies."""
-    from r2x_core import Rule
-    from r2x_core.rules_executor import sort_rules_by_dependencies
+    rule_a = make_rule("A", "B", name="rule_a")
+    rule_b = make_rule("B", "C", name="rule_b", depends_on=["rule_a"])
 
-    rule_a = Rule(
-        source_type="A",
-        target_type="B",
-        version=1,
-        field_map={"f": "f"},
-        name="rule_a",
-    )
-
-    rule_b = Rule(
-        source_type="B",
-        target_type="C",
-        version=1,
-        field_map={"f": "f"},
-        name="rule_b",
-        depends_on=["rule_a"],
-    )
-
-    rules = [rule_b, rule_a]  # Intentionally out of order
-    result = sort_rules_by_dependencies(rules)
+    result = sort_rules_by_dependencies([rule_b, rule_a])
 
     assert result.is_ok()
     sorted_rules = result.unwrap()
@@ -109,29 +81,12 @@ def test_topological_sort_simple_dependency():
     assert sorted_rules[1].name == "rule_b"
 
 
-def test_topological_sort_unnamed_rules_follow_dependencies():
+def test_topological_sort_unnamed_rules_follow_dependencies() -> None:
     """Unnamed rules respect dependencies on named rules."""
-    from r2x_core import Rule
-    from r2x_core.rules_executor import sort_rules_by_dependencies
+    rule_a = make_rule("A", "B", name="rule_a")
+    unnamed_rule = make_rule("B", "C", depends_on=["rule_a"])
 
-    rule_a = Rule(
-        source_type="A",
-        target_type="B",
-        version=1,
-        field_map={"f": "f"},
-        name="rule_a",
-    )
-
-    unnamed_rule = Rule(
-        source_type="B",
-        target_type="C",
-        version=1,
-        field_map={"f": "f"},
-        depends_on=["rule_a"],
-    )
-
-    rules = [unnamed_rule, rule_a]
-    result = sort_rules_by_dependencies(rules)
+    result = sort_rules_by_dependencies([unnamed_rule, rule_a])
 
     assert result.is_ok()
     sorted_rules = result.unwrap()
@@ -139,218 +94,137 @@ def test_topological_sort_unnamed_rules_follow_dependencies():
     assert sorted_rules[1] is unnamed_rule
 
 
-def test_topological_sort_complex_dependencies():
-    """Rules are sorted with complex dependency graph."""
-    from r2x_core import Rule
-    from r2x_core.rules_executor import sort_rules_by_dependencies
+def test_topological_sort_complex_dependencies() -> None:
+    """Rules are sorted with a complex dependency graph."""
+    rule_a = make_rule("A", "B", name="rule_a")
+    rule_b = make_rule("B", "C", name="rule_b", depends_on=["rule_a"])
+    rule_c = make_rule("C", "D", name="rule_c", depends_on=["rule_a"])
+    rule_d = make_rule("D", "E", name="rule_d", depends_on=["rule_b", "rule_c"])
 
-    rule_a = Rule(
-        source_type="A",
-        target_type="B",
-        version=1,
-        field_map={"f": "f"},
-        name="rule_a",
-    )
-
-    rule_b = Rule(
-        source_type="B",
-        target_type="C",
-        version=1,
-        field_map={"f": "f"},
-        name="rule_b",
-        depends_on=["rule_a"],
-    )
-
-    rule_c = Rule(
-        source_type="C",
-        target_type="D",
-        version=1,
-        field_map={"f": "f"},
-        name="rule_c",
-        depends_on=["rule_a"],
-    )
-
-    rule_d = Rule(
-        source_type="D",
-        target_type="E",
-        version=1,
-        field_map={"f": "f"},
-        name="rule_d",
-        depends_on=["rule_b", "rule_c"],
-    )
-
-    rules = [rule_d, rule_c, rule_b, rule_a]  # Intentionally out of order
-    result = sort_rules_by_dependencies(rules)
+    result = sort_rules_by_dependencies([rule_d, rule_c, rule_b, rule_a])
 
     assert result.is_ok()
     sorted_rules = result.unwrap()
-
-    # rule_a must come first
     assert sorted_rules[0].name == "rule_a"
-    # rule_b and rule_c must come after rule_a but before rule_d
-    names = [r.name for r in sorted_rules]
+    names = [rule.name for rule in sorted_rules]
     assert names.index("rule_b") < names.index("rule_d")
     assert names.index("rule_c") < names.index("rule_d")
 
 
-def test_topological_sort_circular_dependency():
-    """Circular dependencies are detected."""
-    from r2x_core import Rule
-    from r2x_core.rules_executor import sort_rules_by_dependencies
+def test_topological_sort_reports_cycle_without_unrelated_rules() -> None:
+    """Cycle errors identify only the cycle and retain the graphlib cause."""
+    rule_a = make_rule("A", "B", name="rule_a", depends_on=["rule_b"])
+    rule_b = make_rule("B", "C", name="rule_b", depends_on=["rule_a"])
+    unrelated = make_rule("C", "D", name="unrelated")
 
-    rule_a = Rule(
-        source_type="A",
-        target_type="B",
-        version=1,
-        field_map={"f": "f"},
-        name="rule_a",
-        depends_on=["rule_b"],
-    )
-
-    rule_b = Rule(
-        source_type="B",
-        target_type="C",
-        version=1,
-        field_map={"f": "f"},
-        name="rule_b",
-        depends_on=["rule_a"],
-    )
-
-    rules = [rule_a, rule_b]
-    result = sort_rules_by_dependencies(rules)
+    result = sort_rules_by_dependencies([rule_a, rule_b, unrelated])
 
     assert result.is_err()
     assert "Circular dependencies" in str(result.err())
+    assert "rule_a" in str(result.err())
+    assert "rule_b" in str(result.err())
+    assert "unrelated" not in str(result.err())
+    assert isinstance(result.err().__cause__, CycleError)
 
 
-def test_topological_sort_unknown_dependency():
-    """Unknown dependencies are detected."""
-    from r2x_core import Rule
-    from r2x_core.rules_executor import sort_rules_by_dependencies
+@pytest.mark.parametrize(
+    ("name", "dependency"),
+    [
+        pytest.param("named", "unknown_rule", id="named"),
+        pytest.param(None, "missing_named_rule", id="unnamed"),
+    ],
+)
+def test_topological_sort_rejects_unknown_dependencies(name: str | None, dependency: str) -> None:
+    rule = make_rule("A", "B", name=name, depends_on=[dependency])
 
-    rule_a = Rule(
-        source_type="A",
-        target_type="B",
-        version=1,
-        field_map={"f": "f"},
-        name="rule_a",
-        depends_on=["unknown_rule"],
-    )
-
-    rules = [rule_a]
-    result = sort_rules_by_dependencies(rules)
-
-    assert result.is_err()
-    assert "unknown rule" in str(result.err()).lower()
-
-
-def test_topological_sort_unnamed_unknown_dependency():
-    """Unnamed rules with unknown dependencies are rejected."""
-    from r2x_core import Rule
-    from r2x_core.rules_executor import sort_rules_by_dependencies
-
-    unnamed_rule = Rule(
-        source_type="A",
-        target_type="B",
-        version=1,
-        field_map={"f": "f"},
-        depends_on=["missing_named_rule"],
-    )
-
-    result = sort_rules_by_dependencies([unnamed_rule])
+    result = sort_rules_by_dependencies([rule])
 
     assert result.is_err()
     assert "unknown rule" in str(result.err()).lower()
 
 
-def test_topological_sort_duplicate_names():
-    """Duplicate rule names are detected."""
-    from r2x_core import Rule
-    from r2x_core.rules_executor import sort_rules_by_dependencies
+def test_topological_sort_rejects_duplicate_names() -> None:
+    rule_a = make_rule("A", "B", name="duplicate")
+    rule_b = make_rule("C", "D", name="duplicate")
 
-    rule_a = Rule(
-        source_type="A",
-        target_type="B",
-        version=1,
-        field_map={"f": "f"},
-        name="duplicate",
-    )
-
-    rule_b = Rule(
-        source_type="C",
-        target_type="D",
-        version=1,
-        field_map={"f": "f"},
-        name="duplicate",
-    )
-
-    rules = [rule_a, rule_b]
-    result = sort_rules_by_dependencies(rules)
+    result = sort_rules_by_dependencies([rule_a, rule_b])
 
     assert result.is_err()
     assert "Duplicate rule name" in str(result.err())
 
 
-def test_topological_sort_unnamed_rules():
-    """Unnamed rules are placed at the beginning."""
-    from r2x_core import Rule
-    from r2x_core.rules_executor import sort_rules_by_dependencies
+def test_topological_sort_places_unnamed_rules_first() -> None:
+    """Unnamed rules without dependencies are placed before named rules."""
+    unnamed_rule = make_rule("A", "B")
+    named_rule = make_rule("C", "D", name="named")
 
-    unnamed_rule = Rule(
-        source_type="A",
-        target_type="B",
-        version=1,
-        field_map={"f": "f"},
-    )
-
-    named_rule = Rule(
-        source_type="C",
-        target_type="D",
-        version=1,
-        field_map={"f": "f"},
-        name="named",
-    )
-
-    rules = [named_rule, unnamed_rule]
-    result = sort_rules_by_dependencies(rules)
+    result = sort_rules_by_dependencies([named_rule, unnamed_rule])
 
     assert result.is_ok()
     sorted_rules = result.unwrap()
-    # Unnamed rule should come first
-    assert sorted_rules[0].name is None
-    assert sorted_rules[1].name == "named"
+    assert sorted_rules[0] is unnamed_rule
+    assert sorted_rules[1] is named_rule
 
 
-def test_get_current_component_getter():
-    """get_current_component (application-defined) returns the component being processed."""
-    from r2x_core import PluginConfig, PluginContext, System
+def test_get_current_component_getter() -> None:
+    """The application-defined getter returns the component being processed."""
 
-    class MockComponent:
-        def __init__(self, name):
+    class ExampleComponent:
+        def __init__(self, name: str) -> None:
             self.name = name
 
-    component = MockComponent("test")
-    source_system = System(name="source")
-    target_system = System(name="target")
-    config = PluginConfig(models=())
-    ctx = PluginContext(
-        source_system=source_system,
-        target_system=target_system,
-        config=config,
+    component = ExampleComponent("test")
+    context = PluginContext(
+        source_system=System(name="source"),
+        target_system=System(name="target"),
+        config=PluginConfig(models=()),
         rules=(),
         store=None,
     )
 
-    # Use the application-defined getter from this module
-    result = get_current_component(ctx, component)
+    result = get_current_component(context, component)
 
     assert result.is_ok()
-    assert result.unwrap() == component
+    assert result.unwrap() is component
     assert result.unwrap().name == "test"
 
 
-def test_get_current_component_in_getter_registry():
-    """get_current_component is registered in GETTER_REGISTRY."""
-    from r2x_core.getters import GETTER_REGISTRY
+def test_get_current_component_in_getter_registry() -> None:
+    """The application-defined getter is registered by its configured name."""
+    assert GETTER_REGISTRY["get_current_component"] is get_current_component
 
-    assert "get_current_component" in GETTER_REGISTRY
+
+def test_rule_sort_preserves_stable_named_and_unnamed_positions() -> None:
+    """Keep named topological order and place unnamed rules at their defined positions."""
+    first = make_rule("A", "B", name="first")
+    dependent = make_rule("B", "C", name="dependent", depends_on=["first"])
+    unrelated = make_rule("C", "D", name="unrelated")
+    independent = make_rule("D", "E")
+    after_dependencies = make_rule("E", "F", depends_on=["first", "dependent"])
+
+    result = sort_rules_by_dependencies([unrelated, dependent, after_dependencies, first, independent])
+
+    assert result.is_ok()
+    assert all(
+        actual is expected
+        for actual, expected in zip(
+            result.unwrap(),
+            [independent, unrelated, first, dependent, after_dependencies],
+            strict=True,
+        )
+    )
+
+
+def test_unnamed_rule_depends_on_named_rule_with_equal_rule_value() -> None:
+    """Dependencies locate named rules by identity rather than Rule equality."""
+    first = make_rule("A", "B", name="first")
+    dependency = make_rule("A", "B", name="dependency")
+    unnamed = make_rule("B", "C", depends_on=["dependency"])
+
+    result = sort_rules_by_dependencies([first, dependency, unnamed])
+
+    assert result.is_ok()
+    sorted_rules = result.unwrap()
+    assert sorted_rules[0] is first
+    assert sorted_rules[1] is dependency
+    assert sorted_rules[2] is unnamed

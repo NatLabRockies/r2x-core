@@ -8,7 +8,7 @@ title: "Installation"
 Current package metadata supports Python 3.11 through 3.14 (`>=3.11,<3.15`).
 Check the [PyPI package page](https://pypi.org/project/r2x-core/) when choosing a released version.
 
-Start with [Prerequisites and environment](/r2x-core/getting-started/environment/) if you need a fresh project.
+Start with [Prerequisites and environment](/r2x-core/getting-started/environment/) if you need a fresh project. Use `uv add r2x-core` for a project managed by uv. In a standard Python environment, activate its virtual environment and use `python -m pip install r2x-core`.
 
 <span id="python-version-support"></span>
 <span id="installation-options"></span>
@@ -24,7 +24,7 @@ python -m pip install r2x-core
 python -c "import r2x_core; print(r2x_core.__version__)"
 ```
 
-The import check prints the installed version from that environment.
+The import check prints the installed version from that environment. Polars is a runtime dependency for the tabular reader and processor included with r2x-core. It loads only when those features are used. For an uncommon format, applications can register a `FileReader` paired with a `SourceProcessor` or `TabularProcessor`.
 
 ## Add to a uv project
 
@@ -37,7 +37,7 @@ uv add r2x-core
 uv run python -c "import r2x_core; print(r2x_core.__version__)"
 ```
 
-If you do not yet have a project, run `uv init --bare` in an empty directory first.
+If you do not yet have a project, run `uv init --bare` in an empty directory first. `uv add r2x-core` provides the Polars reader and processor by default. Applications can register a custom `FileReader` and typed processor for an uncommon format.
 
 <span id="upgrading-options"></span>
 
@@ -61,7 +61,7 @@ For a pip environment, use `python -m pip install --upgrade r2x-core` and repeat
 
 Install [r2x-cli](https://github.com/NatLabRockies/r2x-cli#quick-start) separately to run translator packages.
 `r2x-core` itself has no plugin entry point to run.
-The CLI manages its own Python environment; adding a package to a uv project does not install it there.
+The CLI manages its own Python environment. Adding a package to a uv project does not install it there.
 See [getting started](/r2x-core/tutorials/getting-started/) for direct library usage.
 
 <span id="verify-installation"></span>

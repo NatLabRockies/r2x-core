@@ -1,3 +1,8 @@
+import pytest
+
+pytestmark = pytest.mark.rules
+
+
 def test_rule_equality_by_metadata():
     """Rules are equal if they have same source_type, target_type, and version."""
     from r2x_core import Rule

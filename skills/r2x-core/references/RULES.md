@@ -12,7 +12,8 @@ rules.
 - `Rule` is a frozen dataclass keyed by `source_type`, `target_type`, and
   `version`.
 - `Rule.filter: RuleFilter | None`
-- `RuleFilter` composes with nested `any_of` / `all_of` filters.
+- `RuleFilter` is a discriminated union of `FieldFilter`, `GetterFilter`,
+  `AnyOfFilter`, and `AllOfFilter`.
 
 ## Do
 
@@ -28,7 +29,8 @@ rules.
 
 - Do not call `apply_rules_to_context(context, rules)`.
 - Do not call `apply_single_rule(context, rule)`.
-- Do not use `RuleFilter(lambda ...)` or operator overloads like `&`, `|`, `~`.
+- Do not instantiate the `RuleFilter` type alias. Use a concrete filter model.
+- Do not use operator overloads like `&`, `|`, or `~`.
 - Do not rely on multi-source rules; split them or write explicit custom logic.
 - Do not pass string getters directly to `Rule(...)`; they are preprocessed by
   `Rule.from_records(...)`.
@@ -84,35 +86,33 @@ Return contracts:
 - `apply_rules_to_context(...)` returns `TranslationResult` with per-rule
   `RuleResult` records and aggregate stats/summary fields in current source.
 
-## RuleFilter
+## Rule filters
 
-`RuleFilter` is declarative and casefolds string comparisons by default in
-current source.
+`RuleFilter` is a type alias for a tagged union, not a constructor. Use the
+concrete models:
 
 ```python
-from r2x_core import RuleFilter
+from r2x_core import AllOfFilter, FieldFilter
 
-selected = RuleFilter(
-    all_of=[
-        RuleFilter(field="status", op="eq", values=["active"]),
-        RuleFilter(field="zone", op="startswith", values=["west"]),
+selected = AllOfFilter(
+    filters=[
+        FieldFilter(field="status", op="eq", values=["active"]),
+        FieldFilter(field="zone", op="startswith", values=["west"]),
     ]
 )
 ```
 
-Supported filter fields and operators in current source:
+`GetterFilter` compares a registered or callable getter result. Composition
+uses `AnyOfFilter(filters=[...])` or `AllOfFilter(filters=[...])`. All leaf
+filters require a non-empty `values` list. String comparisons are casefolded by
+default; `casefold` and `on_missing` configure that behavior.
 
-- leaf filters: `field`, `op`, `values`, optional `prefixes`, `casefold`, and
-  `on_missing`
-- composition: nested `any_of` or nested `all_of`, but not both on the same
-  filter
-- operators: `eq`, `neq`, `in`, `not_in`, `geq`, `startswith`,
-  `not_startswith`, `endswith`
-- missing-field policy: `on_missing="include" | "exclude"`
+Operators are `eq`, `neq`, `in`, `not_in`, `geq`, `startswith`,
+`not_startswith`, and `endswith`. `geq` requires exactly one value. Prefix and
+suffix operators use string values in `values`.
 
-Use `RuleFilter.matches(component)` when you need to evaluate one component in
-ad hoc diagnostics. Verify `r2x_core.rules.RuleFilter` before adding a new op
-to a package.
+Use a concrete filter's `.matches(component, context=...)` method for
+ad hoc diagnostics. Getter-backed filters require the active context.
 
 ## Field mapping and getters
 
@@ -168,7 +168,7 @@ Guidance:
 
 - Rule applied to zero records:
   - Confirm `context.source_system` contains the source component type.
-  - Inspect `RuleFilter` composition and casefold behavior.
+  - Inspect concrete filter composition and casefold behavior.
 - Output system is empty:
   - Confirm `context.target_system` is set; rules do not populate
     `context.system`.

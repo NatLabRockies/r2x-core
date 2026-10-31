@@ -18,7 +18,7 @@ Define a `PluginConfig` subclass:
 ...     year: int
 >>> config = MyPluginConfig(input_folder=Path("/data"), year=2030)
 >>> config.year
-2030
+# 2030
 ```
 
 ## Plugin Implementation
@@ -39,7 +39,7 @@ Extend `Plugin` and implement lifecycle hooks:
 >>> plugin = MyPlugin.from_context(ctx)
 >>> result = plugin.run()
 >>> result.system.name
-'result'
+# 'result'
 ```
 
 ## Entry Point Registration
@@ -51,9 +51,10 @@ Register plugins in `pyproject.toml` for automatic discovery:
 my-parser = "my_package.plugins:MyPlugin"
 ```
 
-The group declares the runtime role; the entry name is the CLI reference.
+The group declares the runtime role. The entry name is the CLI reference.
 For function transforms use `r2x.transforms` and an `@expose_plugin` function accepting `System` and typed configuration.
-The [CLI worked example](https://github.com/NatLabRockies/r2x-cli/tree/main/docs/examples/first-pipeline) installs and executes both forms.
+For package installation and pipeline execution, use the [r2x-cli Getting Started guide](https://github.com/NatLabRockies/r2x-cli/blob/main/docs/getting-started.md).
+[Plugin Management](https://github.com/NatLabRockies/r2x-cli/blob/main/docs/plugin-management.md) covers finding plugins through entry points and managing them.
 
 ## See Also
 

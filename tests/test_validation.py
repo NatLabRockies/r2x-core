@@ -1,7 +1,6 @@
 """Tests for validation utility functions."""
 
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -10,6 +9,8 @@ from r2x_core.utils.validation import (
     validate_file_extension,
     validate_glob_pattern,
 )
+
+pytestmark = pytest.mark.core
 
 
 class TestFilterKwargsFor:
@@ -128,104 +129,26 @@ class TestValidateGlobPattern:
 
 
 class TestValidateFileExtension:
-    """Tests for validate_file_extension function."""
+    """Tests for supported path extensions."""
 
-    def test_validate_file_extension_valid_csv(self):
-        """Test validate_file_extension with valid .csv extension."""
-        path = Path("data.csv")
-        info = MagicMock()
-        result = validate_file_extension(path, info=info)
-        assert result == path
+    @pytest.mark.parametrize("extension", [".csv", ".tsv", ".h5", ".hdf5", ".json", ".xml", ".parquet"])
+    def test_supported_extensions(self, extension: str) -> None:
+        path = Path(f"data{extension}")
 
-    def test_validate_file_extension_valid_h5(self):
-        """Test validate_file_extension with valid .h5 extension."""
-        path = Path("data.h5")
-        info = MagicMock()
-        result = validate_file_extension(path, info=info)
-        assert result == path
+        assert validate_file_extension(path) is path
 
-    def test_validate_file_extension_valid_hdf5(self):
-        """Test validate_file_extension with valid .hdf5 extension."""
-        path = Path("data.hdf5")
-        info = MagicMock()
-        result = validate_file_extension(path, info=info)
-        assert result == path
+    @pytest.mark.parametrize("extension", [".CSV", ".CsV"])
+    def test_uppercase_extensions(self, extension: str) -> None:
+        path = Path(f"data{extension}")
 
-    def test_validate_file_extension_valid_json(self):
-        """Test validate_file_extension with valid .json extension."""
-        path = Path("data.json")
-        info = MagicMock()
-        result = validate_file_extension(path, info=info)
-        assert result == path
+        assert validate_file_extension(path) is path
 
-    def test_validate_file_extension_valid_xml(self):
-        """Test validate_file_extension with valid .xml extension."""
-        path = Path("data.xml")
-        info = MagicMock()
-        result = validate_file_extension(path, info=info)
-        assert result == path
+    @pytest.mark.parametrize("extension", [".txt", ".pdf", ".xyz", ""])
+    def test_unsupported_extensions(self, extension: str) -> None:
+        path = Path(f"data{extension}")
 
-    def test_validate_file_extension_valid_tsv(self):
-        """Test validate_file_extension with valid .tsv extension."""
-        path = Path("data.tsv")
-        info = MagicMock()
-        result = validate_file_extension(path, info=info)
-        assert result == path
+        with pytest.raises(ValueError, match="Unsupported file extension"):
+            validate_file_extension(path)
 
-    def test_validate_file_extension_valid_parquet(self):
-        """Test validate_file_extension with valid .parquet extension."""
-        path = Path("data.parquet")
-        info = MagicMock()
-        result = validate_file_extension(path, info=info)
-        assert result == path
-
-    def test_validate_file_extension_uppercase_extension(self):
-        """Test validate_file_extension with uppercase extension converts to lowercase."""
-        path = Path("data.CSV")
-        info = MagicMock()
-        result = validate_file_extension(path, info=info)
-        assert result == path
-
-    def test_validate_file_extension_invalid_extension(self):
-        """Test validate_file_extension with invalid extension raises KeyError."""
-        path = Path("data.txt")
-        info = MagicMock()
-        with pytest.raises(KeyError, match="not found on `EXTENSION_MAPPING`"):
-            validate_file_extension(path, info=info)
-
-    def test_validate_file_extension_unsupported_format(self):
-        """Test validate_file_extension with unsupported file format raises KeyError."""
-        path = Path("data.pdf")
-        info = MagicMock()
-        with pytest.raises(KeyError, match="not found on `EXTENSION_MAPPING`"):
-            validate_file_extension(path, info=info)
-
-    def test_validate_file_extension_message_contains_mapping_keys(self):
-        """Test validate_file_extension error message contains supported formats."""
-        path = Path("data.xyz")
-        info = MagicMock()
-        with pytest.raises(KeyError) as exc_info:
-            validate_file_extension(path, info=info)
-        error_msg = str(exc_info.value)
-        assert "EXTENSION_MAPPING" in error_msg
-        assert "FileFormat" in error_msg
-
-    def test_validate_file_extension_none_info_assertion(self):
-        """Test validate_file_extension with None info raises ValueError."""
-        path = Path("data.csv")
-        with pytest.raises(ValueError, match="Pydantic validation context is missing"):
-            validate_file_extension(path, info=None)  # type: ignore[arg-type]
-
-    def test_validate_file_extension_path_with_directory(self):
-        """Test validate_file_extension with path containing directories."""
-        path = Path("some/directory/data.csv")
-        info = MagicMock()
-        result = validate_file_extension(path, info=info)
-        assert result == path
-
-    def test_validate_file_extension_mixed_case(self):
-        """Test validate_file_extension with mixed case extension."""
-        path = Path("data.CsV")
-        info = MagicMock()
-        result = validate_file_extension(path, info=info)
-        assert result == path
+    def test_none_path(self) -> None:
+        assert validate_file_extension(None) is None

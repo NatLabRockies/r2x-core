@@ -14,11 +14,11 @@ Choose a versioning strategy based on your needs:
 >>> from r2x_core import SemanticVersioningStrategy, GitVersioningStrategy, VersionStrategy
 >>> semantic = SemanticVersioningStrategy()
 >>> type(semantic).__name__
-'SemanticVersioningStrategy'
+# 'SemanticVersioningStrategy'
 >>> commits = ["abc123", "def456", "ghi789"]
 >>> git = GitVersioningStrategy(commits)
 >>> type(git).__name__
-'GitVersioningStrategy'
+# 'GitVersioningStrategy'
 ```
 
 ## Upgrade Types
@@ -28,9 +28,9 @@ Define what you want to upgrade:
 ```python doctest
 >>> from r2x_core import UpgradeType
 >>> print(UpgradeType.FILE)
-UpgradeType.FILE
+# UpgradeType.FILE
 >>> print(UpgradeType.SYSTEM)
-UpgradeType.SYSTEM
+# UpgradeType.SYSTEM
 ```
 
 ## Basic Upgrade Step
@@ -54,9 +54,9 @@ Create an upgrade step to transform data:
 >>> data = {"version": "1.0.0", "old_name": "test"}
 >>> result = run_upgrade_step(data, step=step)
 >>> result.unwrap()["version"]
-'2.0.0'
+# '2.0.0'
 >>> result.unwrap()["new_name"]
-'test'
+# 'test'
 ```
 
 ## Best Practices
@@ -71,9 +71,9 @@ Always return a copy and handle missing fields:
 >>> original = {"old": "value"}
 >>> result = safe_upgrade(original)
 >>> result["new_field"]
-'default'
+# 'default'
 >>> original
-{'old': 'value'}
+# {'old': 'value'}
 ```
 
 ## See Also

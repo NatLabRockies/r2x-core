@@ -26,6 +26,9 @@ class SimpleComponent(HasPerUnit, Component):
     active_power: Annotated[float, Unit("pu", base="base_power")]
 
 
+pytestmark = pytest.mark.units
+
+
 def test_create_with_pu_values():
     """Test creating component with plain pu values."""
     gen = Generator(

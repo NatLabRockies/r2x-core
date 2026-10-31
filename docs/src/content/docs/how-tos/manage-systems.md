@@ -16,7 +16,7 @@ A [`System`](/r2x-core/references/api/) represents a power system model containi
 >>> system.add_component(Component(name="comp2"))
 >>> records = components_to_records(system)
 >>> len(records)
-2
+# 2
 ```
 
 ## Filter Components By Type
@@ -36,7 +36,7 @@ A [`System`](/r2x-core/references/api/) represents a power system model containi
 ...     filter_func=lambda c: isinstance(c, Generator)
 ... )
 >>> len(gen_records)
-1
+# 1
 ```
 
 ## Select Specific Fields
@@ -55,7 +55,7 @@ A [`System`](/r2x-core/references/api/) represents a power system model containi
 ...     fields=["name", "voltage"]
 ... )
 >>> len(records[0])
-2
+# 2
 ```
 
 ## Export Components To CSV
@@ -71,22 +71,25 @@ A [`System`](/r2x-core/references/api/) represents a power system model containi
 ...     path = Path(tmpdir) / "output.csv"
 ...     export_components_to_csv(system, file_path=path)
 ...     path.exists()
-True
+# True
 ```
 
-## Create Components with Validation
+## Validate a component manually
 
-Safely create components with automatic validation error handling:
+For a small edit in memory, validate the model before adding it. For file
+ingestion, prefer `build_system` and configured component instructions so the
+application does not own a construction loop.
 
 ```python doctest
->>> from r2x_core import create_component
 >>> from infrasys import Component
->>> result = create_component(Component, name="MyComponent")
->>> result.is_ok()
-True
->>> comp = result.unwrap()
->>> comp.name
-'MyComponent'
+>>> from r2x_core import System
+>>> class Bus(Component):
+...     base_kv: float
+>>> bus = Bus.model_validate({"name": "north", "base_kv": 230.0})
+>>> system = System(name="manual-edit")
+>>> system.add_component(bus)
+>>> system.get_component(Bus, "north").base_kv
+# 230.0
 ```
 
 ## See Also
@@ -95,4 +98,4 @@ True
 - [build parsers](/r2x-core/how-tos/build-parsers/) - Create custom system parsers
 - [build exporters](/r2x-core/how-tos/build-exporters/) - Export system data to files
 - [`System`](/r2x-core/references/api/) - System API reference
-- [`_component`](/r2x-core/references/api/) - Component utilities
+- [Build a parser](/r2x-core/how-tos/build-parsers/) - Build components from configured sources

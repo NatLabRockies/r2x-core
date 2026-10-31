@@ -14,27 +14,8 @@ sidebar:
 - [plugin utilities](/r2x-core/tutorials/plugin-utilities/)
 
 
-## Learning Path
+## Start here
 
-These tutorials are designed to help you learn r2x-core from the ground up. They are learning-oriented and take you through building real, working examples.
+Begin with [Getting started](/r2x-core/tutorials/getting-started/) to build a small system from CSV files. Then read [Working with units](/r2x-core/tutorials/working-with-units/) to see how unit fields are converted and displayed.
 
-### Getting Started
-
-Start here if you're new to r2x-core:
-
-- **[Getting Started with r2x-core](/r2x-core/tutorials/getting-started/)** - Build your first power system model translator from scratch. Learn the core concepts by creating a complete working example.
-
-### Working with Units
-
-Once you understand the basics, learn how to handle physical units and per-unit normalization:
-
-- **[Working with Units](/r2x-core/tutorials/working-with-units/)** - Master the unit handling system by building components with automatic unit conversion, multiple display modes, and system-wide per-unit normalization.
-
-## What's the Difference?
-
-If you're wondering whether to use a tutorial or a how-to guide:
-
-- **Tutorials** are for learning. They're step-by-step lessons that teach you concepts while building something concrete.
-- **[How-To Guides](/r2x-core/how-tos/)** are for doing. They're task-focused recipes that assume you already understand the basics.
-
-Start with the tutorial above, then move to the how-to guides when you're ready to work on specific tasks.
+The other tutorials cover plugins, plugin context, discovery, and utility functions. Use the [how to guides](/r2x-core/how-tos/) when you need steps for a specific task.

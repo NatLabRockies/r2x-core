@@ -2,89 +2,96 @@
 title: "Configuring Data Settings"
 ---
 
-<span id="configuring-data-settings"></span>
+## Configuring data settings
 
-Define data source configurations as JSON to manage file paths, units, filtering rules, and metadata. Use [`from_json`](/r2x-core/references/api/) to load configurations into a [`DataStore`](/r2x-core/references/api/).
+`file_mapping.json` is an array of `DataFile` records. Metadata is nested under
+`info`, reader selection and options under `reader`, and processing uses a
+tagged `proc_spec` with ordered steps.
 
-## Define Data Configuration in JSON
-
-Create a JSON configuration file that describes multiple data files with their properties and processing rules:
-
-```python doctest
->>> import json
->>> config = [
-...     {
-...         "name": "generators",
-...         "relative_fpath": "gen_data.csv",
-...         "description": "Generator capacity data",
-...         "units": "MW"
-...     },
-...     {
-...         "name": "loads",
-...         "relative_fpath": "load_data.csv",
-...         "description": "Load profiles",
-...         "filter_by": {"year": 2030}
-...     }
-... ]
->>> # Verify configuration structure
->>> config[0]["name"]
-'generators'
->>> config[1]["relative_fpath"]
-'load_data.csv'
->>> len(config)
-2
+```json
+[
+  {
+    "name": "generators",
+    "relative_fpath": "gen_data.csv",
+    "proc_spec": {
+      "kind": "tabular",
+      "steps": [
+        {"op": "filter_columns", "filter_by": {"status": "active"}}
+      ]
+    }
+  },
+  {
+    "name": "profiles",
+    "relative_fpath": "load.h5",
+    "reader": {
+      "format": "hdf5",
+      "options": {"data_key": "data", "columns_key": "columns"}
+    },
+    "info": {"file_type": "time_series", "requirement": "optional"}
+  }
+]
 ```
 
-## Load Configuration into a DataStore
+`file_type` describes content semantics. It does not restrict the physical
+format or whether an output instruction can use the decoded source.
+`requirement` is `required` by default. An explicit `reader.format` selects a
+symbolic registration. Readers included with core and readers supplied by
+applications check their own options.
 
-Load a JSON configuration file to create a [`DataStore`](/r2x-core/references/api/) with all file definitions:
+### Load a mapping
+
+`DataStore` manages validated mapping configuration. Use `load_file_mapping`
+to read JSON. Use `DataReader` for source loading or `build_system` for
+configured construction and attachment.
 
 ```python doctest
 >>> from pathlib import Path
->>> from r2x_core import DataStore
->>> import json
->>> import tempfile
->>>
->>> # Create a temporary config file for demonstration
->>> with tempfile.TemporaryDirectory() as tmpdir:
-...     # Create sample CSV files
-...     gen_path = Path(tmpdir) / "gen_data.csv"
-...     _ = gen_path.write_text("name,capacity\nGen1,100\nGen2,200\n")
-...     load_path = Path(tmpdir) / "load_data.csv"
-...     _ = load_path.write_text("zone,load\nZone1,50\nZone2,75\n")
-...
-...     config = [
-...         {"name": "generators", "fpath": str(gen_path)},
-...         {"name": "loads", "fpath": str(load_path)}
-...     ]
-...     config_path = Path(tmpdir) / "data_config.json"
-...     with open(config_path, "w") as f:
-...         json.dump(config, f)
-...
-...     # Load the configuration
-...     store = DataStore.from_json(str(config_path), path=tmpdir)
-...     files = store.list_data()
-...     print("Configured files:", len(files))
-...     print("Generator data configured:", "generators" in files)
-Configured files: 2
-Generator data configured: True
+>>> from tempfile import TemporaryDirectory
+>>> from r2x_core import DataFile, DataStore
+>>> with TemporaryDirectory() as directory:
+...     root = Path(directory)
+...     mapping = root / "file_mapping.json"
+...     _ = mapping.write_text(
+...         '[{"name":"generators","relative_fpath":"generators.csv"}]',
+...         encoding="utf-8",
+...     )
+...     store = DataStore(root)
+...     store.load_file_mapping(mapping)
+...     store.list_data()
+# ['generators']
 ```
 
-## Configuration File Format
+A record accepts exactly one path source: `fpath`, `relative_fpath`, or `glob`.
+A glob must contain a wildcard and resolve to one file at read time. Placeholder
+substitution and path availability are checked when files are read.
 
-A configuration JSON file should be an array of objects, each representing a [`DataFile`](/r2x-core/references/api/) with properties such as:
+Physical inputs may declare native columns, optional output renames, and a
+strict `required` boolean (default `true`). These records provide the typed
+schema for a missing optional input and distinguish a missing optional column
+inside a present file:
 
-- **name**: Unique identifier for the data source
-- **fpath**: Relative path to the data file
-- **description**: Human-readable description of the data
-- **units**: Unit of measurement if applicable
-- **is_timeseries**: Boolean indicating if data contains time-varying values
-- **filter_by**: Dictionary of column-value pairs for filtering rows
+```json
+{
+  "name": "optional_profile",
+  "relative_fpath": "profile.csv",
+  "info": {"requirement": "optional"},
+  "columns": [
+    {"name": "year", "dtype": "int64"},
+    {"name": "value", "dtype": "float64", "rename": "load_mw", "required": false}
+  ]
+}
+```
 
-## See Also
+Missing required names in a present file are errors. A missing `required: false`
+column becomes a typed null field without changing the file's rows. Present
+columns are cast strictly and renamed before configured processing. Floating-
+point columns declared as `int64` are rejected rather than truncated. Supported
+types are `bool`, `int64`, `float64`, `string`, and `datetime`. Other columns in
+a present table remain available with the types returned by the reader. If this optional
+input file is missing, core retains its declared typed schema while marking the
+source absent. Without `columns`, a missing optional file remains omitted.
+Neither absence case creates rows.
 
-- [manage datastores](/r2x-core/how-tos/manage-datastores/) - Manage data file collections
-- [read data files](/r2x-core/how-tos/read-data-files/) - Read configured data files
-- [process file data](/r2x-core/how-tos/process-file-data/) - Apply transformations during reading
-- [`DataStore`](/r2x-core/references/api/) - DataStore API reference
-- [`DataFile`](/r2x-core/references/api/) - DataFile API reference
+See [Read data files](/r2x-core/how-tos/read-data-files/),
+[Build a parser](/r2x-core/how-tos/build-parsers/), and the
+[processor reference](/r2x-core/references/processors/).

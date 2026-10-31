@@ -12,8 +12,8 @@
   "name": "r2x-core-docs",
   "private": true,
   "scripts": {
-    "build": "uv run python test_generate_api.py && uv run python test_tutorial.py && uv run python generate_api.py && astro build && uv run python generate_api.py --redirects && uv run python test_legacy_fragments.py",
-    "dev": "uv run python generate_api.py && astro dev",
+    "build": "cd .. && uv run --locked --no-sync python -m unittest discover -s tests -p test_docs_generate_api.py && uv run --locked --no-sync python -m unittest discover -s tests -p test_docs_tutorial.py && uv run --locked --script scripts/generate_api.py && cd docs && astro build && cd .. && uv run --locked --no-sync python scripts/generate_api.py --redirects && uv run --locked --no-sync python -m unittest discover -s tests -p test_docs_legacy_fragments.py",
+    "dev": "cd .. && uv run --locked --script scripts/generate_api.py && cd docs && astro dev",
     "preview": "astro preview"
   },
   "type": "module"

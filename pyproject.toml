@@ -1,6 +1,15 @@
+[build-system]
+requires = ["uv_build>=0.13.6,<0.14.0"]
+build-backend = "uv_build"
+
 [project]
 name = "r2x-core"
 version = "0.9.0"
+description = "Shared Python infrastructure for power-system model translators"
+readme = "README.md"
+requires-python = ">=3.11,<3.15"
+license = "BSD-3-Clause"
+license-files = ["LICENSE.txt"]
 authors = [
   { name = "pesap", email = "pesap@users.noreply.github.com" },
   { name = "kodiobika", email = "kodiobika@users.noreply.github.com" },
@@ -12,15 +21,10 @@ authors = [
 ]
 maintainers = [
   { name = "pesap", email = "pesap@users.noreply.github.com" },
-  { name = "Kinshuk Panda", email = "7632244+k1nshuk@users.noreply.github.com" },
   { name = "mcllerena", email = "mcllerena@users.noreply.github.com" },
   { name = "jarry7", email = "27745389+jarry7@users.noreply.github.com" },
   { name = "kodiobika", email = "kodiobika@users.noreply.github.com" },
 ]
-description = "Extensible framework for building power system model translators with plugin architecture"
-readme = "README.md"
-license = { file = "LICENSE.txt" }
-requires-python = ">=3.11,<3.15"
 keywords = [
   "power-systems",
   "energy-modeling",
@@ -32,21 +36,19 @@ keywords = [
   "plugin-architecture",
 ]
 classifiers = [
-  "Development Status :: 5 - Production/Stable",
+  "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
   "Intended Audience :: Science/Research",
-  "License :: OSI Approved :: BSD License",
   "Natural Language :: English",
   "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.14",
-  "Topic :: File Formats :: JSON",
   "Topic :: Scientific/Engineering",
   "Topic :: Scientific/Engineering :: Information Analysis",
   "Topic :: Scientific/Engineering :: Interface Engine/Protocol Translator",
-  "Topic :: Software Development :: Build Tools",
   "Topic :: Software Development :: Libraries :: Python Modules",
   "Typing :: Typed",
 ]
@@ -55,7 +57,7 @@ dependencies = [
   "infrasys>=1.0.0,<2.0.0",
   "loguru>=0.7.3,<0.8.0",
   "packaging>=24.0,<26.0",
-  "polars>=1.33.1,<2.0.0",
+  "polars>=1.44.1,<2.0.0",
   "pydantic>=2.11.9,<3.0.0",
   "rust-ok>=0.3.0,<1.0.0",
 ]
@@ -70,37 +72,46 @@ Changelog = "https://natlabrockies.github.io/r2x-core/CHANGELOG.html"
 [dependency-groups]
 dev = [
   "h5py-stubs>=0.1.2,<1.0.0",
-  "prek>=0.4.1,<0.6.0",
   "pytest>=8.4.2,<10.0.0",
+  "pytest-benchmark>=5.3.0,<6.0.0",
   "pytest-coverage>=0.0,<1.0.0",
+  "pytest-xdist>=3.8.0,<4.0.0",
   "ruff>=0.13.2,<0.15.0",
   "ty>=0.0.12,<1.0.0",
 ]
 
-docs = [
-  "autodoc-pydantic>=2.0.0,<3.0.0",
-  "docstr-coverage>=2.3.2,<3.0.0",
-  "furo>=2025.9.25,<2026.0.0",
-  "ghp-import>=2.1.0,<3.0.0",
-  "myst-parser>=3.0.0,<5.0.0",
-  "sphinx>=7.2.0,<8.0.0",
-  "sphinx-copybutton>=0.5.2,<1.0.0",
-  "sphinx-reports>=0.1.0,<1.0.0",
-  "sphinx-tabs>=3.4.5,<4.0.0",
-  "sphinxcontrib-mermaid>=2.0.0,<3.0.0",
-]
-
-[build-system]
-requires = ["uv_build>=0.8.22,<0.10.0"]
-build-backend = "uv_build"
+docs = ["docstr-coverage>=2.3.2,<3.0.0"]
 
 [tool.ty.src]
 include = ["src"]
 
 [tool.pytest.ini_options]
-pythonpath = ["src", "docs"]
+pythonpath = ["src", "."]
 testpaths = ["tests"]
-addopts = ["--cov=r2x_core", "--cov-report=term-missing"]
+addopts = [
+  "--strict-markers",
+  "--benchmark-skip",
+  "--cov=r2x_core",
+  "--cov-report=term-missing",
+]
+markers = [
+  "core: Shared error, validation, and smoke-test behavior",
+  "plugin: Plugin classes, configuration, exposed transforms, and contexts",
+  "rules: Rule models, filters, getters, and execution",
+  "readers: DataFile configuration and file decoding",
+  "processing: JSON and tabular data transformations",
+  "ingestion: Source assembly and system construction from input data",
+  "table_mapping: Table-mapping schemas and execution",
+  "units: Unit specifications, conversion, and per-unit models",
+  "time_series: Time-series ingestion, translation, and persistence",
+  "system: System and component construction, serialization, and storage",
+  "versioning: Version detection and upgrade behavior",
+  "logging: Logging configuration and output",
+  "docs: Documentation examples, coverage, and link checks",
+  "polars: tests exercising Polars-backed table decoding or processing",
+  "doc_coverage: Public API documentation coverage checks",
+  "bench: Opt-in workflow benchmarks, run with `mise run bench`",
+]
 
 [tool.ruff]
 line-length = 110
@@ -110,6 +121,7 @@ extend-exclude = [".venv", "venv", "build", "dist", "*.egg-info"]
 select = [
   "D",    # pyddoc
   "E",    # pycodestyle errors
+  "EM",   # flake8-errmsg
   "W",    # pycodestyle warnings
   "F",    # pyflakes
   "I",    # isort
@@ -149,14 +161,6 @@ section-order = [
 # Cyclomatic complexity threshold
 max-complexity = 10
 
-[tool.coverage.run]
-omit = [
-  "src/r2x_core/parser.py",
-  "src/r2x_core/exporter.py",
-  "src/r2x_core/upgrader.py",
-  "src/r2x_core/context.py",
-]
-
 [tool.coverage.report]
 exclude_lines = [
   "pragma: no cover",
@@ -169,4 +173,4 @@ exclude_lines = [
   "@abstract",
 ]
 precision = 2
-fail_under = 97
+fail_under = 98

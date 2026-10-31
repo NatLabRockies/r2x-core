@@ -1,392 +1,236 @@
 # r2x-core Data Files and DataStore Reference
 
-Use this when the task is about declaring files, loading files, processing
-payloads, or wiring a translator's input data through `DataFile`, `DataReader`,
-and `DataStore`.
+Use this for `DataFile`, file readers, `DataReader`, `DataStore`, processing
+specs, optional inputs, HDF5, and typed source loading. For parser construction,
+read [INGESTION.md](./INGESTION.md). For named-table assembly, read
+[TABLE_MAPPING.md](./TABLE_MAPPING.md).
 
-## Contracts (source-verified)
+## Contents
 
-- `DataFile(name, *, fpath=None, relative_fpath=None, glob=None, info=None, reader=None, proc_spec=None)`
-- `DataFile` must set exactly one path source: `fpath`, `relative_fpath`, or
-  `glob`.
-- `FileInfo(description=None, is_input=True, is_optional=False, is_timeseries=False, units=None)`
-- `ReaderConfig(kwargs: dict[str, Any] = ..., function: Callable[..., Any] | None = None, header_rows: int = 1, header_separator: str = "|")`
-- `TabularProcessing(...)` preserves case by default and executes lazy reshape,
-  split, replacement, string cleaning, rename, cast, scale, null filling,
-  filtering, aggregation, deduplication, sorting, and selection operations.
-- `JSONProcessing(...)` supports key mapping, key selection/drop, filtering, and
-  value replacement specs.
-- `DataReader.read_data_file(data_file, *, folder_path, placeholders=None) -> Any`
-- `DataReader.get_supported_file_types() -> list[str]`
-- `DataStore(path=None, *, reader=None, upgrade_handler=None)`
-- `DataStore.add_data(data_files: Sequence[DataFile], *, overwrite=False) -> None`
-- `DataStore.read_data(name, *, placeholders=None) -> Any`
-- `DataStore.from_json(json_fpath, *, path=None, upgrade_handler=None) -> DataStore`
-- `DataStore.load_file(fpath, *, name=None, proc_spec=None) -> Any`
+- [Contracts](#contracts)
+- [Configure and load files](#configure-and-load-files)
+- [Reader and processing options](#reader-and-processing-options)
+- [Derived and optional sources](#derived-and-optional-sources)
+- [Failure playbook](#failure-playbook)
+- [Source modules](#source-modules)
 
-## Do
+## Contracts
 
-- Treat `DataFile` as the contract for where a file is and how to read/process
-  it.
-- Use `relative_fpath` for files resolved under a `DataStore(path=...)` root.
-- Use `fpath` for already-resolved absolute or explicit paths.
-- Use `glob` only when one matching file is expected.
-- Put parser options in `ReaderConfig(kwargs=...)`.
-- Put declarative transformations in `proc_spec`, not in ad-hoc plugin code.
-- Use `FileInfo` for metadata, optional files, time-series hints, and units.
-- Pass a sequence to `DataStore.add_data([...])`, even for one file.
-- Use `DataReader` directly for low-level reads and `DataStore` for translator
-  workflows with multiple named inputs.
-- Use `DataStore.load_file(...)` for a one-off file read.
+These signatures and fields are verified against the current source:
 
-## Don't
+- `DataFile` accepts one physical path (`fpath`, `relative_fpath`, or `glob`),
+  or one derived source mode (`source`, `source_selection`, or `inline_table`).
+  It also accepts `columns`, `required_when`, `info`, `reader`, and `proc_spec`.
+- `FileInfo(description=None, file_type=FileType.STATIC,
+  requirement=FileRequirement.REQUIRED, units=None)` describes semantics and
+  availability, not the physical format.
+- `ReaderConfig(format=None, options={}, columns=())` selects a symbolic reader
+  and its JSON-compatible options. `columns` is read-time metadata populated
+  internally from `DataFile.columns`; do not set it on `DataFile.reader`.
+- `DataStore(path=None)` holds file-mapping configuration. Its path must be an
+  existing directory. Use `add_data(sequence, *, overwrite=False)`,
+  `load_file_mapping(Path)`, `to_json(fpath, **model_dump_kwargs)`,
+  `list_data()`, and `store[name]` for mapping operations.
+- `DataReader(*, file_readers=None, step_handlers=None)` loads files. Its
+  `read_data_files(data_files, *, folder_path, placeholders=None,
+  initial_sources=None)` returns `DecodedSources`, a name-to-`DecodedSource`
+  mapping.
+- A reader implements `FileReader.read_file(format_name, /, *, file_path,
+  reader_config) -> DecodedSources`.
+- `TabularProcessing` and `JSONProcessing` contain ordered `steps`, each tagged
+  with `op`. This is not the table-mapping `operations` schema.
 
-- Do not pass `DataFile(reader_config=..., processing=..., file_info=...)`;
-  current fields are `reader`, `proc_spec`, and `info`.
-- Do not call `DataStore.add_data(file_a, file_b)`; pass a sequence.
-- Do not assume `DataStore.path` exists; use `store.folder`.
-- Do not rely on `DataStore` caching loaded payloads. It caches `DataFile`
-  configurations; reads go through `DataReader`.
-- Do not bypass `DataStore` inside plugins just to call pandas/polars directly.
-  Configure the `DataFile` instead.
+`DataStore` does not have `read_data`, `load_file`, or `from_json`. It does not
+read physical inputs. `DataReader.read_data_file(...)` and
+`DataReader.get_supported_file_types()` are not APIs in this checkout.
 
-## Basic DataFile
+## Configure and load files
 
 ```python
 from pathlib import Path
 
-from r2x_core import DataFile, FileInfo
+from r2x_core import DataFile, DataReader, DataStore, FileInfo, FileRequirement, FileType
 
-file_spec = DataFile(
-    name="generators",
-    fpath=Path("/data/reeds/generators.csv"),
-    info=FileInfo(
-        description="Generator capacity data",
-        is_input=True,
-        units="MW",
+store = DataStore(path="/data/reeds")
+store.add_data([
+    DataFile(
+        name="generators",
+        relative_fpath="inputs_case/gen.csv",
+        info=FileInfo(description="Generator capacity", units="MW"),
+    ),
+    DataFile(
+        name="profiles",
+        relative_fpath="inputs_case/load.h5",
+        info=FileInfo(file_type=FileType.TIME_SERIES, requirement=FileRequirement.OPTIONAL),
+    ),
+])
+sources = DataReader().read_data_files(store.data_files.values(), folder_path=store.folder)
+generators = sources["generators"]
+```
+
+Relative `fpath` and `relative_fpath` values resolve against the `folder_path`
+passed to `DataReader`; `DataStore.folder` is a convenient base when using a
+store. Absolute `fpath` values remain absolute. A `glob` must contain a wildcard
+and match exactly one file. Common extensions infer `csv`, `tsv`, `hdf5`,
+`parquet`, `json`, or `xml`. Use `reader.format` for a custom format or
+`hdf5_array`, which is not inferred from an extension.
+
+Load or save a JSON array of `DataFile` records through the mapping API:
+
+```python
+from pathlib import Path
+from r2x_core import DataStore
+
+store = DataStore(path="/data/reeds")
+store.load_file_mapping(Path("config/file_mapping.json"))
+store.to_json("config/file_mapping.json")
+```
+
+A `DataStore` caches mapping records, not decoded data. Duplicate names are
+rejected unless `overwrite=True`. `DataReader` returns typed `DecodedSource`
+values such as `TabularSource`, `DocumentSource`, or `ArraySource`; inspect
+`.data` for the native payload and use source methods for fields, rows, values,
+and processing.
+
+## Reader and processing options
+
+Put reader options in `ReaderConfig.options`, not `kwargs`. For CSV/TSV, the
+built-in reader supports `header_rows` and `header_separator` in addition to
+Polars scan options. HDF5 uses the same `options` field:
+
+```python
+from r2x_core import DataFile, ReaderConfig
+
+profile = DataFile(
+    name="profiles",
+    relative_fpath="profiles.h5",
+    reader=ReaderConfig(
+        format="hdf5",
+        options={"data_key": "data", "columns_key": "columns"},
     ),
 )
 ```
 
-`DataFile.file_type` is computed from the path extension. Supported extensions
-come from `DataReader.get_supported_file_types()`.
+The HDF5 reader also accepts `group_key`, `columns_as_datasets`,
+`index_names_key`, `datetime_key`, `datetime_column_name`, `strip_timezone`,
+`index_key`, `additional_keys`, `decode_bytes`, and `column_name_mapping`.
+Options are strictly validated; consult `h5py_adapter/readers.py` and its tests
+before using less common layouts. Use `hdf5_array` for native array output.
+
+Declare physical input columns with `DataFile.columns`, not
+`ReaderConfig.columns`:
 
 ```python
-from r2x_core import DataReader
+from r2x_core import DataFile, InputColumn
 
-reader = DataReader()
-assert ".csv" in reader.get_supported_file_types()
-```
-
-## DataStore with relative paths
-
-```python
-from r2x_core import DataFile, DataStore
-
-store = DataStore(path="/data/reeds")
-store.add_data([
-    DataFile(name="generators", relative_fpath="gen.csv"),
-    DataFile(name="loads", relative_fpath="load.parquet"),
-])
-
-assert store.folder.name == "reeds"
-assert store.list_data() == ["generators", "loads"]
-generators = store.read_data("generators")
-```
-
-`relative_fpath` resolves against `store.folder` at read time. If the path is
-missing and the file is not optional, `read_data(...)` raises.
-
-## One-off reads
-
-For quick scripts or tests, use `DataStore.load_file(...)`:
-
-```python
-from r2x_core import DataStore, TabularProcessing
-
-data = DataStore.load_file(
-    "/data/reeds/gen.csv",
-    proc_spec=TabularProcessing(drop_columns=["scratch_column"]),
+file_spec = DataFile(
+    name="generators",
+    relative_fpath="generators.csv",
+    columns=[
+        InputColumn(name="generator_id", dtype="int64", rename="id"),
+        InputColumn(name="capacity", dtype="float64", required=False),
+    ],
 )
 ```
 
-Use a full `DataStore` when the translator has multiple named files, optional
-inputs, placeholders, or an upgrade handler.
+Supported native column types are `bool`, `int64`, `float64`, `string`, and
+`datetime`. Declared columns are cast before `proc_spec` runs. Missing required
+columns fail; missing optional columns become typed null columns. Declarations
+also provide the known schema for an absent optional file.
 
-## DataReader direct reads
-
-```python
-from pathlib import Path
-
-from r2x_core import DataFile, DataReader
-
-reader = DataReader()
-data_file = DataFile(name="generators", relative_fpath="generators.csv")
-df = reader.read_data_file(data_file, folder_path=Path("/data/reeds"))
-```
-
-Use this for low-level tests of a single `DataFile`. Prefer `DataStore` inside
-translator code.
-
-## ReaderConfig
-
-Use `ReaderConfig` for parser kwargs or a custom reader function.
-
-```python
-from r2x_core import DataFile, ReaderConfig
-
-csv_file = DataFile(
-    name="pipe_csv",
-    relative_fpath="pipe.csv",
-    reader=ReaderConfig(kwargs={"separator": "|"}),
-)
-
-profile_file = DataFile(
-    name="profiles",
-    relative_fpath="profiles.csv",
-    reader=ReaderConfig(header_rows=2, header_separator="|"),
-)
-```
-
-The built-in CSV/TSV reader joins the configured number of header rows. Header
-options do not apply to custom reader functions or other file formats.
-
-Custom functions receive the resolved path plus any kwargs:
-
-```python
-from pathlib import Path
-from typing import Any
-
-from r2x_core import DataFile, ReaderConfig
-
-
-def read_special(path: Path, *, scale: float) -> dict[str, Any]:
-    return {"path": path, "scale": scale}
-
-special = DataFile(
-    name="special",
-    relative_fpath="special.dat",
-    reader=ReaderConfig(function=read_special, kwargs={"scale": 100.0}),
-)
-```
-
-## TabularProcessing
-
-Use `TabularProcessing` to transform CSV, TSV, Parquet, Excel-like, or HDF5
-payloads after reading.
+Use `TabularProcessing(steps=[...])` for ordered tabular transformations and
+`JSONProcessing(steps=[...])` for JSON transformations. Every step uses a
+strict tagged schema. For example:
 
 ```python
 from r2x_core import DataFile, TabularProcessing
 
-processing = TabularProcessing(
-    filter_by={"region": "north"},
-    column_mapping={"old_name": "new_name"},
-    drop_columns=["unused"],
-    column_schema={"capacity": "float"},
-)
-
-data_file = DataFile(
+processed = DataFile(
     name="north_generators",
     relative_fpath="generators.csv",
-    proc_spec=processing,
+    proc_spec=TabularProcessing(steps=[
+        {"op": "filter_columns", "filter_by": {"region": "north"}},
+        {"op": "rename_columns", "column_mapping": {"old_name": "name"}},
+        {"op": "drop_columns", "drop_columns": ["scratch"]},
+    ]),
 )
 ```
 
-Input case is preserved by default. Set `lowercase=True` to lowercase column
-names and string values before processing.
+Tabular steps include filters, projections, joins/concats, casts, replacements,
+scaling, aggregation, sorting, uniqueness, unpivoting, matching, and registered
+custom handlers. JSON steps include `rename_keys`, `drop_keys`, `filter`,
+`replace_values`, and `select_keys`. Check the model schema or
+[process-file-data docs](https://natlabrockies.github.io/r2x-core/how-tos/process-file-data/)
+for exact arguments and validation.
 
-With `unpivot_on`, operations run after optional lowercasing and dropping in
-this order: unpivot, split, replace, strip, rename, cast, scale, fill, filter,
-aggregate, distinct, sort, and select. Without `unpivot_on`, split, rename,
-replace, strip, cast, scale, fill, and filter run before optional `pivot_on`;
-aggregation, distinct, sort, and select follow. `pivot_on` requires an existing
-input column and performs a long-to-wide pivot. Use `unpivot_on` for
-wide-to-long processing. Referenced columns and aggregation functions are
-validated with explicit errors. The pandas-style `set_index`, `reset_index`,
-and `rename_index` options are unsupported and rejected.
+## Derived and optional sources
 
-Use `strip_chars` to remove literal characters from formatted numeric strings,
-`column_schema` to cast them, and `scale` for conversion factors. Use
-`split_column` to split a column into named fields. For CSV/TSV files,
-`ReaderConfig(header_rows=2, header_separator="|")` combines two header rows.
-
-## JSONProcessing
+A `DataFile` may refer to one earlier source, select among earlier sources, or
+own a typed inline table. Do not combine these modes with a physical path or
+with one another:
 
 ```python
-from r2x_core import DataFile, JSONProcessing
+from r2x_core import DataFile, InlineTable, SourceSelection
 
-json_file = DataFile(
-    name="metadata",
-    relative_fpath="metadata.json",
-    proc_spec=JSONProcessing(
-        key_mapping={"old_key": "new_key"},
-        select_keys=["new_key", "scenario"],
+fallback = DataFile(
+    name="defaults",
+    inline_table=InlineTable.model_validate({
+        "schema": {"year": "int64", "technology": "string"},
+        "rows": [{"year": 2030, "technology": "wind"}],
+    }),
+)
+selected = DataFile(
+    name="costs",
+    source_selection=SourceSelection(
+        mode="first_nonempty", sources=["market_costs", "defaults"]
     ),
 )
 ```
 
-Common fields: `key_mapping`, `rename_index`, `drop_keys`, `filter_by`,
-`replace_values`, `select_keys`. Do not use `drop_columns` for JSON configs;
-the public field is `drop_keys`.
+`first_present` selects the first present source even if it has no rows.
+`first_nonempty` skips absent and empty sources. Declare candidates before the
+selector. `source` refers to one earlier named source. `inline_table` declares a
+strict raw schema and rows before `proc_spec` runs. Whole-value placeholders
+preserve their JSON type; embedded placeholders in strings become text. Missing
+placeholder names raise `ValueError`.
 
-## HDF5 files
+For optional physical inputs, `FileInfo(requirement=FileRequirement.OPTIONAL)`
+allows a missing file or configured HDF5 group. Without declared `columns`, an
+absent optional input is omitted from the returned mapping. With declared
+columns, it is returned as an empty typed `TabularSource` marked
+`SourceAvailability.ABSENT`. A present-empty source is distinct from an absent
+one. Malformed present input is not silently skipped.
 
-HDF5 files are detected from `.h5` / `.hdf5`. Configure the dataset/layout with
-`ReaderConfig(kwargs=...)`.
-
-```python
-from r2x_core import DataFile, ReaderConfig
-
-h5_file = DataFile(
-    name="load_profiles",
-    relative_fpath="profiles.h5",
-    reader=ReaderConfig(kwargs={"data_key": "load_profiles"}),
-)
-```
-
-Useful HDF5 kwargs from current docs/source include `data_key`, `columns_key`,
-`index_key`, `datetime_key`, `datetime_column_name`, `strip_timezone`,
-`additional_keys`, and `decode_bytes`. If no `data_key` is set, current readers
-may fall back to the first dataset. Verify exact accepted kwargs against
-`r2x_core.file_readers`, `r2x_core.h5_readers`, and project fixture tests. Do
-not poke raw HDF5 datasets inside plugin code if a `DataFile` reader config can
-express it.
-
-## Optional files
-
-```python
-from r2x_core import DataFile, FileInfo
-
-optional = DataFile(
-    name="optional_overrides",
-    relative_fpath="overrides.csv",
-    info=FileInfo(is_optional=True, description="Optional override file"),
-)
-```
-
-When read through `DataReader` / `DataStore`, missing optional files return
-`None` instead of raising. Required missing files raise `FileNotFoundError`.
-
-## Glob patterns
-
-```python
-from r2x_core import DataFile
-
-file_spec = DataFile(name="scenario", glob="scenario_*.csv")
-```
-
-A glob must include enough extension information to detect file type. Runtime
-resolution expects exactly one match; no matches or multiple matches are errors.
-
-## Custom transformations
-
-`DataReader.register_custom_transformation(...)` delegates to the processing
-pipeline. Source currently calls transforms as:
-
-```python
-def transform(data, *, data_file, proc_spec):
-    ...
-```
-
-Verify the callable signature against `r2x_core.processors.apply_processing`
-before registering custom transformations; reader docstrings may lag this
-internal call shape.
-
-## Placeholders in paths and processing specs
-
-`DataReader.read_data_file(..., placeholders=...)` and
-`DataStore.read_data(..., placeholders=...)` substitute placeholders in path
-sources and processing values. Whole-value placeholders preserve their type;
-embedded placeholders in strings become text. Unknown names return an error.
-
-```python
-file_spec = DataFile(
-    name="scenario_loads",
-    relative_fpath="{scenario}_loads.csv",
-)
-store.read_data("scenario_loads", placeholders={"scenario": "Reference"})
-```
-
-Keep placeholders at read boundaries; do not format file mappings in plugin
-internals.
-
-## JSON mapping files
-
-`DataStore.from_json(...)` loads a JSON array of `DataFile` records.
-
-```json
-[
-  {
-    "name": "generators",
-    "fpath": "gen_data.csv",
-    "info": { "description": "Generator capacity data", "units": "MW" }
-  },
-  {
-    "name": "loads",
-    "fpath": "load_data.csv",
-    "proc_spec": { "filter_by": { "year": 2030 } }
-  }
-]
-```
-
-Each record must define exactly one path source. `fpath` and `relative_fpath`
-records resolve against the store folder; `glob` patterns pass through for
-resolution at read time. All three path sources accept placeholders.
-
-## Serialization
-
-Persist a configured store with `to_json(...)`:
-
-```python
-store.to_json("file_mapping.json")
-loaded = DataStore.from_json("file_mapping.json", path=store.folder)
-```
-
-Use `mode="json"` defaults from `DataStore.to_json(...)`; avoid hand-written
-JSON unless you need a stable external config artifact.
+`required_when` applies only to optional physical files. It names an earlier
+tabular source plus a typed expression predicate; the file is required when any
+row matches. Do not use `required_when` to mask malformed present data.
 
 ## Failure playbook
 
-- `DataFile` validation says path sources are invalid:
-  - Ensure exactly one of `fpath`, `relative_fpath`, or `glob` is set.
-- `read_data(name)` raises `KeyError`:
-  - Check `store.list_data()` and spelling.
-- File not found:
-  - Inspect `store.folder` and the configured `DataFile` path source.
-  - For optional files, confirm `info=FileInfo(is_optional=True)`.
-- File type cannot be determined:
-  - Ensure the filename or glob has a supported extension.
-  - Check `DataReader().get_supported_file_types()`.
-- Processing returns zero rows unexpectedly:
-  - Case is preserved unless `lowercase=True`; check filter values against the
-    input and configured casing.
-- Processing fails:
-  - Validate `proc_spec` field names against `TabularProcessing` or
-    `JSONProcessing`.
-  - Check the documented tabular operation order and referenced columns.
-  - Pass required `placeholders` at read time. Placeholders can parameterize
-    filter and tabular transformation values.
-- JSON mapping load fails:
-  - Confirm the mapping file is a JSON array.
-  - Confirm each record defines exactly one of `fpath`, `relative_fpath`, or
-    `glob`.
+- **Path source validation fails:** set exactly one physical path or one derived
+  source mode. Do not set `reader.format` or `reader.options` on a derived source.
+- **File type cannot be inferred:** check the filename extension or set
+  `reader.format` to a registered symbolic reader name.
+- **Glob resolution fails:** include a wildcard and ensure exactly one file
+  matches under `folder_path`.
+- **Optional input appears missing downstream:** check whether `DataFile.columns`
+  is declared. Without it, an absent optional input has no returned source.
+- **Processing fails:** check the `proc_spec.kind`, each step's `op` and field
+  names, the current columns, and any placeholders.
+- **HDF5 reader rejects an option:** verify the exact `H5PyReaderOptions` schema;
+  unknown options and wrong types are errors.
+- **Mapping load fails:** use a JSON array of valid `DataFile` records and call
+  `store.load_file_mapping(Path(...))`.
 
-## Source modules and docs to verify on drift
+## Source modules
 
-- `r2x_core.datafile`: `DataFile`, `FileInfo`, `ReaderConfig`, processing specs.
-- `r2x_core.reader`: `DataReader`, read pipeline, supported formats.
-- `r2x_core.processors`: transformation order and placeholder substitution.
-- `r2x_core.store`: `DataStore`, JSON mappings, one-off loads.
-- `r2x_core.utils._datafile`: path/glob resolution.
-- Docs: `how-tos/configure-data-files.html`, `how-tos/read-data-files.html`,
-  `how-tos/configure-data-settings.html`.
-
-## Output expectations
-
-- Registered `DataFile` names and path source (`fpath`, `relative_fpath`, or
-  `glob`).
-- Resolved `DataStore.folder` and relevant file paths.
-- Reader configuration per file, including custom functions or kwargs.
-- Processing specs applied (`TabularProcessing` / `JSONProcessing`).
-- Optional/glob/placeholder behavior if used.
-- HDF5 layout details when relevant.
+- `r2x_core.datafile`: `DataFile`, `FileInfo`, `ReaderConfig`, inline/selected
+  sources, and native columns.
+- `r2x_core.types` and `r2x_core.models`: processing discriminators and steps.
+- `r2x_core.reader`: ordered source loading and reader selection.
+- `r2x_core.file_reader`: reader protocol and typed source representations.
+- `r2x_core.store`: mapping configuration and JSON serialization.
+- `r2x_core.processors`: placeholder substitution.
+- `r2x_core.utils.files`: path and glob resolution.
+- `r2x_core.h5py_adapter.readers` and `r2x_core.polars_adapter.readers`: built-in
+  HDF5, CSV/TSV, and Parquet reader options.

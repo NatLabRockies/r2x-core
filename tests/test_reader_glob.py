@@ -1,302 +1,144 @@
+"""Resolve configured paths and globs through named source loading."""
+
+from pathlib import Path
+from xml.etree import ElementTree
+
 import pytest
 
-from r2x_core.datafile import DataFile, FileInfo, validate_glob_pattern
+from r2x_core.datafile import DataFile, FileInfo, ReaderConfig
+from r2x_core.file_reader import DecodedSources, DocumentSource, FileReader
 from r2x_core.reader import DataReader
+from r2x_core.types import FileRequirement, FileType
+from r2x_core.utils.validation import validate_glob_pattern
+
+pytestmark = pytest.mark.readers
 
 
 @pytest.fixture
-def data_reader():
+def data_reader() -> DataReader:
     return DataReader()
 
 
-@pytest.fixture
-def single_xml_dir(tmp_path):
-    test_dir = tmp_path / "single_xml"
-    test_dir.mkdir()
-    xml_file = test_dir / "model.xml"
-    xml_file.write_text("<root><data>test</data></root>")
-    return test_dir
+def xml_files(folder: Path, names: tuple[str, ...]) -> None:
+    folder.mkdir(parents=True, exist_ok=True)
+    for name in names:
+        (folder / name).write_text(f"<root><data>{name}</data></root>", encoding="utf-8")
 
 
-@pytest.fixture
-def multi_xml_dir(tmp_path):
-    test_dir = tmp_path / "multi_xml"
-    test_dir.mkdir()
-    for i in range(3):
-        xml_file = test_dir / f"model_{i}.xml"
-        xml_file.write_text(f"<root><data>test{i}</data></root>")
-    return test_dir
+def load(data_reader: DataReader, item: DataFile, folder: Path) -> object | None:
+    """Load one configured name, returning None for skipped optional inputs."""
+    return data_reader.read_data_files([item], folder_path=folder).get(item.name)
 
 
-@pytest.fixture
-def empty_dir(tmp_path):
-    test_dir = tmp_path / "empty"
-    test_dir.mkdir()
-    return test_dir
+def test_glob_single_match_returns_native_document(data_reader: DataReader, tmp_path: Path) -> None:
+    xml_files(tmp_path, ("model.xml",))
+    source = load(data_reader, DataFile(name="model", glob="*.xml"), tmp_path)
+    assert isinstance(source, DocumentSource)
+    assert isinstance(source.data, ElementTree.Element)
+    assert source.data.tag == "root"
 
 
-@pytest.fixture
-def mixed_files_dir(tmp_path):
-    test_dir = tmp_path / "mixed"
-    test_dir.mkdir()
-    (test_dir / "data.xml").write_text("<root></root>")
-    (test_dir / "data.csv").write_text("a,b,c\n1,2,3\n")
-    (test_dir / "data.json").write_text('{"key": "value"}')
-    return test_dir
+def test_glob_multiple_matches_report_names(data_reader: DataReader, tmp_path: Path) -> None:
+    xml_files(tmp_path, ("model_0.xml", "model_1.xml", "model_2.xml"))
+    with pytest.raises(ValueError, match="Multiple files matched") as error:
+        load(data_reader, DataFile(name="models", glob="*.xml"), tmp_path)
+    assert all(name in str(error.value) for name in ("model_0.xml", "model_1.xml", "model_2.xml"))
 
 
-@pytest.fixture
-def nested_dir(tmp_path):
-    test_dir = tmp_path / "nested"
-    test_dir.mkdir()
-    (test_dir / "top.xml").write_text("<root>top</root>")
-
-    sub_dir = test_dir / "subdir"
-    sub_dir.mkdir()
-    (sub_dir / "nested.xml").write_text("<root>nested</root>")
-
-    return test_dir
-
-
-def test_glob_single_match(data_reader, single_xml_dir):
-    data_file = DataFile(name="test_xml", glob="*.xml")
-
-    result = data_reader.read_data_file(data_file, folder_path=single_xml_dir)
-
-    assert result is not None
-
-
-def test_glob_multiple_matches_raises_error(data_reader, multi_xml_dir):
-    data_file = DataFile(name="test_xml", glob="*.xml")
-
-    with pytest.raises(ValueError, match="Multiple files matched"):
-        data_reader.read_data_file(data_file, folder_path=multi_xml_dir)
-
-
-def test_glob_no_matches_raises_error(data_reader, empty_dir):
-    data_file = DataFile(name="test_xml", glob="*.xml")
-
+def test_glob_no_match_is_required_or_optional(data_reader: DataReader, tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match="No files found"):
-        data_reader.read_data_file(data_file, folder_path=empty_dir)
+        load(data_reader, DataFile(name="required", glob="*.xml"), tmp_path)
+    optional = DataFile(name="optional", glob="*.xml", info=FileInfo(requirement=FileRequirement.OPTIONAL))
+    assert load(data_reader, optional, tmp_path) is None
 
 
-def test_glob_specific_extension(data_reader, mixed_files_dir):
-    data_file = DataFile(name="test_csv", glob="*.csv")
-
-    result = data_reader.read_data_file(data_file, folder_path=mixed_files_dir)
-
-    assert result is not None
-    collected = result.collect()
-    assert len(collected) == 1
-
-
-def test_glob_with_prefix(data_reader, multi_xml_dir):
-    (multi_xml_dir / "special_model.xml").write_text("<root>special</root>")
-    data_file = DataFile(name="test_xml", glob="special_*.xml")
-
-    result = data_reader.read_data_file(data_file, folder_path=multi_xml_dir)
-
-    assert result is not None
-
-
-def test_glob_non_recursive(data_reader, nested_dir):
-    data_file = DataFile(name="test_xml", glob="*.xml")
-
-    result = data_reader.read_data_file(data_file, folder_path=nested_dir)
-
-    assert result is not None
-
-
-def test_glob_recursive_pattern(data_reader, nested_dir):
-    data_file = DataFile(name="test_xml", glob="**/*.xml")
-
+def test_glob_selectors_and_recursive_matches(data_reader: DataReader, tmp_path: Path) -> None:
+    xml_files(tmp_path, ("special_0.xml", "ordinary.xml"))
+    selected = load(data_reader, DataFile(name="special", glob="special_*.xml"), tmp_path)
+    assert isinstance(selected, DocumentSource)
+    assert selected.data.tag == "root"
+    subdir = tmp_path / "subdir"
+    xml_files(subdir, ("nested.xml",))
     with pytest.raises(ValueError, match="Multiple files matched"):
-        data_reader.read_data_file(data_file, folder_path=nested_dir)
+        load(data_reader, DataFile(name="all", glob="**/*.xml"), tmp_path)
 
 
-def test_glob_ignores_directories(tmp_path, data_reader):
-    test_dir = tmp_path / "test"
-    test_dir.mkdir()
-    xml_dir = test_dir / "model.xml"
-    xml_dir.mkdir()
-
-    data_file = DataFile(name="test_xml", glob="*.xml")
-
-    with pytest.raises(FileNotFoundError, match="No files found"):
-        data_reader.read_data_file(data_file, folder_path=test_dir)
-
-
-def test_glob_optional_file_not_found(data_reader, empty_dir):
-    data_file = DataFile(name="test_xml", glob="*.xml", info=FileInfo(is_optional=True))
-
-    assert data_reader.read_data_file(data_file, folder_path=empty_dir) is None
-
-
-def test_glob_character_wildcard(data_reader, tmp_path):
-    test_dir = tmp_path / "test"
-    test_dir.mkdir()
-    (test_dir / "file_a.xml").write_text("<root>a</root>")
-    (test_dir / "file_b.xml").write_text("<root>b</root>")
-    (test_dir / "file_ab.xml").write_text("<root>ab</root>")
-
-    data_file = DataFile(name="test_xml", glob="file_?.xml")
-
+def test_glob_ignores_directories_and_accepts_character_patterns(
+    data_reader: DataReader, tmp_path: Path
+) -> None:
+    (tmp_path / "model.xml").mkdir()
+    with pytest.raises(FileNotFoundError):
+        load(data_reader, DataFile(name="directory", glob="*.xml"), tmp_path)
+    xml_files(tmp_path, ("file_a.xml", "file_b.xml", "file_ab.xml"))
     with pytest.raises(ValueError, match="Multiple files matched"):
-        data_reader.read_data_file(data_file, folder_path=test_dir)
+        load(data_reader, DataFile(name="char", glob="file_?.xml"), tmp_path)
 
 
-def test_glob_error_message_includes_suggestions(data_reader, empty_dir):
-    data_file = DataFile(name="test_xml", glob="*.xml")
+def test_glob_format_is_inferred_but_timeseries_purpose_is_independent() -> None:
+    item = DataFile(name="xml-series", glob="*.xml", info=FileInfo(file_type=FileType.TIME_SERIES))
+    assert item.format_name == "xml"
 
-    with pytest.raises(FileNotFoundError) as exc_info:
-        data_reader.read_data_file(data_file, folder_path=empty_dir)
-
-    error_msg = str(exc_info.value)
-    assert "No files found" in error_msg
+    with pytest.raises(ValueError, match=r"configure reader\.format"):
+        _ = DataFile(name="no-extension", glob="*").format_name
 
 
-def test_glob_multiple_matches_lists_files(data_reader, multi_xml_dir):
-    data_file = DataFile(name="test_xml", glob="*.xml")
-
-    with pytest.raises(ValueError) as exc_info:
-        data_reader.read_data_file(data_file, folder_path=multi_xml_dir)
-
-    error_msg = str(exc_info.value)
-    assert "model_0.xml" in error_msg
-    assert "model_1.xml" in error_msg
-    assert "model_2.xml" in error_msg
-
-
-def test_glob_with_reader_function(data_reader, single_xml_dir):
-    from r2x_core.datafile import ReaderConfig
-
-    def custom_reader(path):
-        return path.read_text()
-
-    data_file = DataFile(
-        name="test_xml", glob="*.xml", reader=ReaderConfig(function=custom_reader, kwargs={})
-    )
-
-    result = data_reader.read_data_file(data_file, folder_path=single_xml_dir)
-
-    assert isinstance(result, str)
-    assert "<root>" in result
-
-
-def test_glob_file_type_inferred_correctly(single_xml_dir):
-    data_file = DataFile(name="test_xml", glob="*.xml")
-
-    assert data_file.file_type is not None
-    assert "xml" in str(type(data_file.file_type)).lower()
-
-
-def test_glob_with_json_file(data_reader, tmp_path):
-    test_dir = tmp_path / "test"
-    test_dir.mkdir()
-    json_file = test_dir / "data.json"
-    json_file.write_text('{"key": "value", "num": 42}')
-
-    data_file = DataFile(name="test_json", glob="*.json")
-
-    result = data_reader.read_data_file(data_file, folder_path=test_dir)
-
-    assert result is not None
-    assert result["key"] == "value"
-    assert result["num"] == 42
-
-
-def test_glob_with_csv_file(data_reader, tmp_path):
-    test_dir = tmp_path / "test"
-    test_dir.mkdir()
-    csv_file = test_dir / "data.csv"
-    csv_file.write_text("a,b,c\n1,2,3\n4,5,6\n")
-
-    data_file = DataFile(name="test_csv", glob="*.csv")
-
-    result = data_reader.read_data_file(data_file, folder_path=test_dir)
-
-    assert result is not None
-    collected = result.collect()
-    assert len(collected) == 2
-
-
-def test_glob_validation_empty_pattern():
-    """Test that empty glob patterns raise ValueError."""
-    with pytest.raises(ValueError, match="Glob pattern cannot be empty"):
-        DataFile(name="test", glob="")
-
-
-def test_glob_validation_whitespace_only():
-    """Test that whitespace-only glob patterns raise ValueError."""
-    with pytest.raises(ValueError, match="Glob pattern cannot be empty"):
-        DataFile(name="test", glob="   ")
-
-
-def test_glob_validation_invalid_characters():
-    """Test that glob patterns with invalid characters raise ValueError."""
+def test_glob_validation_rejects_invalid_configuration() -> None:
+    for value in ("", "   "):
+        with pytest.raises(ValueError, match="Glob pattern cannot be empty"):
+            DataFile(name="invalid", glob=value)
     with pytest.raises(ValueError, match="invalid characters"):
-        DataFile(name="test", glob="file\x00.xml")
-
-
-def test_glob_validation_no_wildcards():
-    """Test that patterns without wildcards raise ValueError."""
+        DataFile(name="invalid", glob="file\x00*.xml")
     with pytest.raises(ValueError, match="does not contain glob wildcards"):
-        DataFile(name="test", glob="exact_filename.xml")
+        DataFile(name="invalid", glob="exact.xml")
+    assert validate_glob_pattern(None) is None
 
 
-def test_glob_without_extension_raises():
-    """Test that glob patterns without extensions raise ValueError."""
+def test_physical_path_modes_are_resolved_at_read_time(data_reader: DataReader, tmp_path: Path) -> None:
+    (tmp_path / "relative.json").write_text('{"value":1}', encoding="utf-8")
+    absolute = tmp_path / "absolute.json"
+    absolute.write_text('{"value":2}', encoding="utf-8")
+    (tmp_path / "selected.json").write_text('{"value":3}', encoding="utf-8")
+    (tmp_path / "selected.json.copy").write_text('{"value":4}', encoding="utf-8")
+    files = [
+        DataFile(name="relative", relative_fpath="relative.json"),
+        DataFile(name="absolute", fpath=absolute),
+        DataFile(name="glob", glob="selected.json*", reader=ReaderConfig(format="json")),
+    ]
+    with pytest.raises(ValueError, match="Multiple files matched"):
+        data_reader.read_data_files(files, folder_path=tmp_path)
 
-    data_file = DataFile(name="test", glob="*")
-    with pytest.raises(ValueError, match="Cannot determine file type from glob pattern"):
-        _ = data_file.file_type
-
-
-def test_glob_timeseries_validation():
-    """Test that glob patterns validate timeseries support."""
-
-    data_file = DataFile(name="test", glob="*.xml", info=FileInfo(is_timeseries=True))
-    with pytest.raises(ValueError, match="does not support time series"):
-        _ = data_file.file_type
-
-
-def test_glob_required_file_not_found(data_reader, empty_dir):
-    """Test that missing required files raise FileNotFoundError."""
-    data_file = DataFile(name="test", glob="*.xml", info=FileInfo(is_optional=False))
-
-    with pytest.raises(FileNotFoundError, match="No files found matching pattern"):
-        data_reader.read_data_file(data_file, folder_path=empty_dir)
+    result = data_reader.read_data_files(files[:2], folder_path=tmp_path)
+    assert result["relative"].data == {"value": 1}
+    assert result["absolute"].data == {"value": 2}
 
 
-def test_glob_model_validator_both_fpath_and_glob(tmp_path):
-    """Test that specifying both fpath and glob raises ValueError."""
+def test_application_reader_handles_new_extension(data_reader: DataReader, tmp_path: Path) -> None:
+    path = tmp_path / "input.uncommon"
+    path.write_text("native document", encoding="utf-8")
 
-    test_file = tmp_path / "file.xml"
-    test_file.write_text("<root/>")
-    with pytest.raises(ValueError):
-        DataFile(name="test", fpath=test_file, glob="*.xml")
+    class PlainTextReader(FileReader):
+        def read_file(
+            self,
+            format_name: str,
+            /,
+            *,
+            file_path: Path,
+            reader_config: ReaderConfig,
+        ) -> DecodedSources:
+            assert format_name == "plain_text"
+            return {"data": DocumentSource(file_path.read_text(encoding="utf-8"), None)}
 
-
-def test_glob_model_validator_neither_fpath_nor_glob():
-    """Test that specifying neither fpath nor glob raises ValueError."""
-    with pytest.raises(ValueError):
-        DataFile(name="test")
-
-
-def test_file_type_with_fpath(tmp_path):
-    """Test that file_type property works with fpath."""
-    xml_file = tmp_path / "model.xml"
-    xml_file.write_text("<root/>")
-
-    data_file = DataFile(name="test", fpath=xml_file)
-
-    file_type = data_file.file_type
-    assert file_type is not None
-    assert "xml" in str(type(file_type)).lower()
+    reader = DataReader(file_readers={"plain_text": PlainTextReader()})
+    item = DataFile(
+        name="document",
+        fpath=path,
+        reader=ReaderConfig(format="plain_text"),
+    )
+    assert load(reader, item, tmp_path).data == "native document"
 
 
-def test_validate_glob_pattern_none():
-    """Test that glob validator handles None correctly."""
-
-    result = validate_glob_pattern(None)
-    assert result is None
+def test_datafile_requires_one_physical_input_mode() -> None:
+    with pytest.raises(ValueError, match="exactly one"):
+        DataFile(name="neither")
+    with pytest.raises(ValueError, match="exactly one"):
+        DataFile(name="both", fpath=Path("file.xml"), glob="*.xml")

@@ -11,6 +11,9 @@ if TYPE_CHECKING:
     from r2x_core import PluginContext
 
 
+pytestmark = pytest.mark.rules
+
+
 def test_convert_rule_single_component(context_example: PluginContext):
     """convert_rule applies a rule to all matching source components."""
     from fixtures.target_system import CircuitComponent, NodeComponent, StationComponent

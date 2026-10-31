@@ -13,7 +13,7 @@ A syntactically valid mapping does not establish scientific equivalence.
 
 `source_type` and `target_type` identify component classes, and `field_map`
 associates source field names with target field names. Filters restrict the
-source population; defaults supply configured fallback values.
+source population. Defaults supply configured fallback values.
 Use the [rule guides](/r2x-core/how-tos/define-rule-mappings/) for their precise syntax.
 
 ## A minimal complete translation
@@ -33,9 +33,9 @@ name rather than pretending to translate a real model's electrical fields.
 >>> result = apply_single_rule(rule, context=context)
 >>> # Expected: one matched source component becomes one named target component.
 >>> result.unwrap().converted
-1
+# 1
 >>> sorted(component.name for component in target.get_components(Component))
-['Alpha']
+# ['Alpha']
 ```
 
 ## Resolve types within a model configuration
@@ -43,7 +43,7 @@ name rather than pretending to translate a real model's electrical fields.
 The executor resolves named classes through the configured `models` modules.
 Keeping resolution scoped to those modules prevents a class from another model
 configuration being selected merely because its name matches.
-Missing classes, fields and incompatible values need a specific correction;
+Missing classes, fields, and incompatible values need a specific correction.
 they are not repaired by changing a type name in serialized metadata.
 
 ## Keep unit conversion and validation visible

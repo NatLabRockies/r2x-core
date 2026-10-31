@@ -7,7 +7,7 @@ title: "Export component records and filter keyword arguments"
 <span id="export_components_to_csv"></span>
 
 The helpers in `r2x_core.utils` work with ordinary systems, paths and callables.
-This tutorial creates its own components and temporary output; it needs no model
+This tutorial creates its own components and temporary output. It needs no model
 dataset. Use the exact public module imports below on current main.
 
 ## Select and rename record fields
@@ -26,10 +26,10 @@ deterministic and limits an export to the intended contract.
 >>> records = components_to_records(system, fields=["name", "capacity_mw"], key_mapping={"capacity_mw": "capacity"})
 >>> # Expected: selected fields are retained and the output key is renamed.
 >>> records
-[{'name': 'Alpha', 'capacity': 100.0}]
+# [{'name': 'Alpha', 'capacity': 100.0}]
 >>> selected = components_to_records(system, fields=["name"], filter_func=lambda component: component.capacity_mw > 200)
 >>> selected
-[]
+# []
 ```
 
 ## Write and check a CSV
@@ -53,12 +53,12 @@ is removed after the check, so no persistent user files are modified.
 ...         rows = list(csv.DictReader(stream))
 >>> # Expected: the file contains the exported component name.
 >>> rows
-[{'name': 'Alpha'}]
+# [{'name': 'Alpha'}]
 ```
 
 ## Filter arguments for a known callable
 
-`filter_kwargs_for` filters keys by a callable's accepted parameters; it does not
+`filter_kwargs_for` filters keys by a callable's accepted parameters. It does not
 validate values or implement a model transformation.
 
 ```python doctest
@@ -68,9 +68,9 @@ validate values or implement a model transformation.
 >>> options = filter_kwargs_for(scale, kwargs={"factor": 3.0, "unused": "ignored"})
 >>> # Expected: unknown keys are removed before calling the function.
 >>> options
-{'factor': 3.0}
+# {'factor': 3.0}
 >>> scale(4.0, **options)
-12.0
+# 12.0
 ```
 
 See [Utilities](/r2x-core/references/utils/) for exact signatures and
@@ -82,8 +82,6 @@ system metadata and companion storage. A CSV record export is a different bounda
 <span id="component-data-extraction"></span>
 
 <span id="component-creation"></span>
-
-<span id="create_component"></span>
 
 <span id="getter-decorator"></span>
 

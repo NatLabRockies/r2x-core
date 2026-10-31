@@ -6,18 +6,15 @@ import inspect
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from importlib import import_module
 from typing import TYPE_CHECKING, Annotated, Any
 
 from loguru import logger
-from pydantic import BaseModel, PrivateAttr, ValidationError
-from pydantic_core import ErrorDetails
+from pydantic import BaseModel
 from rust_ok import Err, Ok, Result
 
 from ..exceptions import UpgradeError
 from ..plugin_context import PluginContext
-from ..versioning import VersionStrategy
-from .validation import filter_kwargs_for
+from ..versioning import UpgradeHandler, VersionStrategy
 
 if TYPE_CHECKING:
     from ..plugin_config import PluginConfig
@@ -48,7 +45,6 @@ class UpgradeStep(BaseModel):
     priority: int = 100
     min_version: str | None = None
     max_version: str | None = None
-    _sig: inspect.Signature | None = PrivateAttr(None)
 
 
 def shall_we_upgrade(
@@ -90,10 +86,7 @@ def run_upgrade_step(
     cause. Unexpected programming errors propagate to the caller.
     """
     logger.debug("Applying upgrade step: {}", step.name)
-    sig = step._sig
-    if sig is None:
-        sig = inspect.signature(step.func)
-        object.__setattr__(step, "_sig", sig)
+    sig = inspect.signature(step.func)
 
     accepts_context = "upgrader_context" in sig.parameters or any(
         p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
@@ -112,79 +105,29 @@ def run_upgrade_step(
 # ── Coordinator ─────────────────────────────────────────────────────
 
 
-def _resolve_upgrade_handler(plugin_config: PluginConfig) -> Callable[..., Any] | None:
-    """Resolve an upgrade handler based on plugin config conventions."""
-    handler = getattr(plugin_config, "upgrade_handler", None)
-    if callable(handler):
-        return handler
-
-    getter = getattr(plugin_config, "get_upgrade_handler", None)
-    if callable(getter):
-        handler = getter()
-        if callable(handler):
-            return handler
-
-    module_name = plugin_config.__class__.__module__
-    root_package = module_name.split(".")[0]
-    short_name = root_package.removeprefix("r2x_")
-
-    for candidate in (f"{root_package}.upgrader", f"{root_package}.upgrade"):
-        try:
-            module = import_module(candidate)
-        except ModuleNotFoundError:
-            continue
-
-        handler = getattr(module, f"run_{short_name}_upgrades", None)
-        if callable(handler):
-            return handler
-
-        handler = getattr(module, "run_upgrades", None)
-        if callable(handler):
-            return handler
-
-    return None
-
-
-def _is_missing_file_error(error: ErrorDetails) -> bool:
-    """Return True if an error indicates missing input files."""
-    ctx = error.get("ctx") or {}
-    if ctx.get("exc_type") == "FileNotFoundError":
-        return True
-
-    message = str(ctx.get("error") or error.get("input") or "")
-    missing_markers = (
-        "Missing required file",
-        "No files found matching pattern",
-        "does not exist",
-    )
-    return any(marker in message for marker in missing_markers)
-
-
 @dataclass
 class UpgradeCoordinator:
     """Coordinate upgrade execution for a DataStore instance."""
 
     plugin_config: PluginConfig | None = None
-    handler: Callable[..., Any] | None = None
+    handler: UpgradeHandler | None = None
     ran: bool = False
 
+    def __post_init__(self) -> None:
+        """Require plugin configuration whenever a handler is provided directly."""
+        if self.handler is not None and self.plugin_config is None:
+            msg = "plugin_config is required when an upgrade handler is provided"
+            raise ValueError(msg)
+
     def resolve(self) -> None:
-        """Resolve an upgrade handler from the plugin config if needed."""
-        if self.handler is None and self.plugin_config is not None:
-            self.handler = _resolve_upgrade_handler(self.plugin_config)
+        """Resolve the configured handler from the plugin config if needed."""
+        if self.handler is None:
+            self.handler = self.plugin_config.upgrade_handler if self.plugin_config is not None else None
 
     @property
     def can_run(self) -> bool:
         """Return True when upgrades are configured and not yet executed."""
         return self.handler is not None and not self.ran
-
-    def should_attempt(self, exc: ValidationError) -> bool:
-        """Return True if validation errors indicate missing files."""
-        self.resolve()
-        if not self.can_run:
-            return False
-
-        return any(_is_missing_file_error(err) for err in exc.errors())
 
     def run(self, *, store: DataStore, reason: str) -> None:
         """Run the upgrade handler and mark upgrades as completed."""
@@ -194,23 +137,14 @@ class UpgradeCoordinator:
 
         logger.info("Running upgrade handler for DataStore (reason: {})", reason)
 
-        ctx: PluginContext[PluginConfig] | None = None
-        if self.plugin_config is not None:
-            ctx = PluginContext(config=self.plugin_config, store=store)
+        if self.plugin_config is None:
+            msg = "plugin_config is required to run an upgrade handler"
+            raise ValueError(msg)
 
-        kwargs: dict[str, Any] = {
-            "store": store,
-            "ctx": ctx,
-            "config": self.plugin_config,
-            "plugin_config": self.plugin_config,
-            "path": store.folder,
-            "folder": store.folder,
-        }
-
-        handler_kwargs = filter_kwargs_for(self.handler, kwargs=kwargs)
-        result: Any
+        ctx = PluginContext(config=self.plugin_config, store=store)
+        result: Result[None, str] | None
         try:
-            result = self.handler(**handler_kwargs)
+            result = self.handler(store=store, ctx=ctx)
         except (UpgradeError, OSError, ValueError) as exc:
             msg = f"Upgrade handler failed: {exc}"
             raise UpgradeError(msg) from exc
@@ -221,5 +155,12 @@ class UpgradeCoordinator:
                 raise error
             msg = str(error)
             raise UpgradeError(msg)
+        if isinstance(result, Ok):
+            if result.value is not None:
+                msg = f"Upgrade handler returned Ok with success payload {type(result.value).__name__}; expected Ok(None)"
+                raise TypeError(msg)
+        elif result is not None:
+            msg = f"Upgrade handler must return None or Result[None, str], got {type(result).__name__}"
+            raise TypeError(msg)
 
         self.ran = True

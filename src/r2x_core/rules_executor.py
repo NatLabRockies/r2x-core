@@ -2,29 +2,33 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
-from uuid import uuid4
+from dataclasses import dataclass
+from graphlib import CycleError, TopologicalSorter
+from typing import TYPE_CHECKING, cast
+from uuid import UUID
 
 from infrasys import Component, SupplementalAttribute
-from infrasys.exceptions import ISNotStored
+from infrasys.exceptions import ISAlreadyAttached, ISNotStored, ISOperationNotAllowed
 from loguru import logger
-from rust_ok import Err, Ok, Result
+from rust_ok import Err, Ok, Result, is_err
 
 from .plugin_context import PluginContext
 from .provenance import ProvenanceBuilder
 from .result import RuleApplicationStats, RuleResult, TranslationResult
 from .rules import Rule
 from .time_series import transfer_time_series_metadata
-from .utils import (
+from .utils.iteration import iter_components
+from .utils.rules import (
     RuleOutputs,
-    build_target_fields,
     create_rule_outputs,
-    create_target_component,
     evaluate_rule_filter,
-    iter_components,
     resolve_component_type,
     sort_rules_by_dependencies,
+    value_error_from,
 )
+
+if TYPE_CHECKING:
+    from .system import System
 
 
 def apply_rules_to_context(context: PluginContext) -> TranslationResult:
@@ -46,11 +50,19 @@ def apply_rules_to_context(context: PluginContext) -> TranslationResult:
         If the context has no rules defined or if circular dependencies are detected
     """
     if not context.rules:
-        raise ValueError(f"{type(context).__name__} has no rules. Use context.list_rules().")
+        msg = f"{type(context).__name__} has no rules. Use context.list_rules()."
+        raise ValueError(msg)
 
     sorted_rules = sort_rules_by_dependencies(context.list_rules()).unwrap_or_raise(exc_type=ValueError)
 
-    builder = _build_provenance_builder(context)
+    builder: ProvenanceBuilder | None = None
+    if context.preserve_source:
+        if context.source_system is None:
+            logger.warning(
+                "preserve_source=True but context has no source_system; skipping provenance capture"
+            )
+        else:
+            builder = ProvenanceBuilder(context.source_system)
 
     rule_results: list[RuleResult] = []
     total_converted = 0
@@ -133,7 +145,7 @@ def apply_single_rule(
     """
     converted = 0
     target_types = rule.get_target_types()
-    supplemental_rules = getattr(rule, "supplemental_attributes", ())
+    supplemental_rules = rule.supplemental_attributes
     if len(target_types) > 1 and supplemental_rules:
         return Err(ValueError("Rules with supplemental outputs must have exactly one primary target"))
     should_regenerate_uuid = len(target_types) > 1
@@ -142,35 +154,32 @@ def apply_single_rule(
     if read_system is None:
         return Err(ValueError(f"System '{rule.system}' is not set in context"))
 
-    source_class_result = _resolve_source_class(rule, context=context)
-    if source_class_result.is_err():
-        return source_class_result.map(lambda _: RuleApplicationStats(converted=0, skipped=0))
-    source_class = cast(type[Component], source_class_result.ok())
+    source_class_result = resolve_source_class(rule, context=context)
+    if is_err(source_class_result):
+        return Err(source_class_result.err())
+    source_class = source_class_result.unwrap()
 
     resolved_targets: list[type[Component | SupplementalAttribute]] = []
     for target_type in target_types:
-        target_class_result = _resolve_component_class(
+        target_class_result = resolve_component_class(
             target_type, context=context, label="target", allow_supplemental=True
         )
-        if target_class_result.is_err():
-            return target_class_result.map(lambda _: RuleApplicationStats(converted=0, skipped=0))
-        resolved_class = target_class_result.ok()
-        assert resolved_class is not None
-        resolved_targets.append(resolved_class)
+        if is_err(target_class_result):
+            return Err(target_class_result.err())
+        resolved_targets.append(target_class_result.unwrap())
 
     supplemental_classes: list[type[SupplementalAttribute]] = []
     for supplemental_rule in supplemental_rules:
         supplemental_class_result = resolve_supplemental_class(supplemental_rule.target_type, context=context)
-        if supplemental_class_result.is_err():
+        if is_err(supplemental_class_result):
             return Err(
-                ValueError(
+                value_error_from(
                     f"Rule '{rule.name or rule}', supplemental target "
-                    f"'{supplemental_rule.target_type}': {supplemental_class_result.err()}"
+                    f"'{supplemental_rule.target_type}': {supplemental_class_result.err()}",
+                    supplemental_class_result.err(),
                 )
             )
-        supplemental_class = supplemental_class_result.ok()
-        assert supplemental_class is not None
-        supplemental_classes.append(supplemental_class)
+        supplemental_classes.append(supplemental_class_result.unwrap())
 
     if supplemental_rules:
         for target_class in resolved_targets:
@@ -187,7 +196,9 @@ def apply_single_rule(
                 if not evaluate_rule_filter(src_component, rule_filter=rule.filter, context=context):
                     continue
             except ValueError as exc:
-                return Err(ValueError(f"Failed to evaluate filter for {src_component.label}: {exc}"))
+                return Err(
+                    value_error_from(f"Failed to evaluate filter for {src_component.label}: {exc}", exc)
+                )
         found_component = True
         for target_class in resolved_targets:
             outputs_result = create_rule_outputs(
@@ -198,21 +209,22 @@ def apply_single_rule(
                 context=context,
                 regenerate_uuid=should_regenerate_uuid,
             ).map_err(
-                lambda error, source_label=src_component.label: ValueError(
-                    f"Rule '{rule.name or rule}', source '{source_label}': {error}"
+                lambda error, source_label=src_component.label: value_error_from(
+                    f"Rule '{rule.name or rule}', source '{source_label}': {error}", error
                 )
             )
-            if outputs_result.is_err():
-                return outputs_result.map(lambda _: RuleApplicationStats(converted=0, skipped=0))
+            if is_err(outputs_result):
+                return Err(outputs_result.err())
 
             outputs = outputs_result.unwrap()
             attach_result = attach_rule_outputs(outputs, src_component, context)
-            if attach_result.is_err():
-                return attach_result.map_err(
-                    lambda error, source_label=src_component.label: ValueError(
-                        f"Rule '{rule.name or rule}', source '{source_label}': {error}"
+            if is_err(attach_result):
+                return Err(
+                    value_error_from(
+                        f"Rule '{rule.name or rule}', source '{src_component.label}': {attach_result.err()}",
+                        attach_result.err(),
                     )
-                ).map(lambda _: RuleApplicationStats(converted=0, skipped=0))
+                )
 
             if builder is not None and rule.system == "source" and context.target_system is not None:
                 builder.record_translation(src_component, outputs.primary, context.target_system)
@@ -226,83 +238,7 @@ def apply_single_rule(
     return Ok(RuleApplicationStats(converted=converted, skipped=0))
 
 
-def _build_provenance_builder(context: PluginContext) -> ProvenanceBuilder | None:
-    """Return a provenance builder when the context opts into source preservation.
-
-    Returns None when ``preserve_source`` is False or when the context is
-    missing the source system that the builder needs to inspect.
-    """
-    if not context.preserve_source:
-        return None
-    if context.source_system is None:
-        logger.warning("preserve_source=True but context has no source_system; skipping provenance capture")
-        return None
-    return ProvenanceBuilder(context.source_system)
-
-
-def _convert_component_with_class(
-    rule: Rule,
-    source_component: Component,
-    target_class: type[Component] | type[SupplementalAttribute],
-    context: PluginContext,
-    regenerate_uuid: bool,
-) -> Result[Component | SupplementalAttribute, ValueError]:
-    """Convert a single source component to a pre-resolved target class.
-
-    Separated from type resolution so callers can resolve once and reuse.
-    """
-    fields_result = build_target_fields(source_component, rule=rule, context=context).map_err(
-        lambda e: ValueError(f"Failed to build fields for {source_component.label}: {e}")
-    )
-
-    def create_component(kwargs: dict[str, Any]) -> Result[Component | SupplementalAttribute, ValueError]:
-        """
-        Create a target component instance with the given keyword arguments.
-
-        If `regenerate_uuid` is True and 'uuid' is present in kwargs, a new UUID is generated.
-        Returns an Ok result with the created component, or an Err if creation fails.
-
-        Parameters
-        ----------
-        kwargs : dict[str, Any]
-            The keyword arguments to use for constructing the component.
-
-        Returns
-        -------
-        Result[Any, ValueError]
-            Ok(component) if successful, Err(ValueError) if creation fails.
-        """
-        if regenerate_uuid and "uuid" in kwargs:
-            kwargs = dict(kwargs)
-            kwargs["uuid"] = str(uuid4())
-        return Ok(create_target_component(target_class, kwargs=kwargs))
-
-    return fields_result.and_then(create_component)
-
-
-def _convert_component(
-    rule: Rule,
-    source_component: Component,
-    target_type: str,
-    context: PluginContext,
-    regenerate_uuid: bool,
-) -> Result[Any, ValueError]:
-    """Convert a single source component to a target type.
-
-    Resolves the target class on every call. Prefer _convert_component_with_class
-    when converting many components with the same rule to avoid repeated resolution.
-    """
-    target_class_result = _resolve_component_class(
-        target_type, context=context, label="target", allow_supplemental=True
-    )
-    return target_class_result.and_then(
-        lambda target_class: _convert_component_with_class(
-            rule, source_component, target_class, context, regenerate_uuid
-        )
-    )
-
-
-def _resolve_component_class(
+def resolve_component_class(
     type_name: str,
     *,
     context: PluginContext,
@@ -311,27 +247,21 @@ def _resolve_component_class(
 ) -> Result[type[Component | SupplementalAttribute], ValueError]:
     """Resolve a named type and verify it is an infrasys component-compatible class."""
     class_result = resolve_component_type(type_name, context=context).map_err(
-        lambda e: ValueError(f"Failed to resolve {label} type '{type_name}': {e}")
+        lambda error: value_error_from(f"Failed to resolve {label} type '{type_name}': {error}", error)
     )
-    if class_result.is_err():
-        return class_result.map(lambda _: Component)
+    if is_err(class_result):
+        return Err(class_result.err())
 
-    resolved_class = class_result.ok()
-    is_component = isinstance(resolved_class, type) and issubclass(resolved_class, Component)
-    is_supplemental = (
-        allow_supplemental
-        and isinstance(resolved_class, type)
-        and issubclass(resolved_class, SupplementalAttribute)
-    )
-    if not (is_component or is_supplemental):
+    resolved_class = class_result.unwrap()
+    allowed: tuple[type, ...] = (Component, SupplementalAttribute) if allow_supplemental else (Component,)
+    if not isinstance(resolved_class, type) or not issubclass(resolved_class, allowed):
         expected = "Component or SupplementalAttribute" if allow_supplemental else "Component"
         return Err(ValueError(f"Resolved {label} type '{type_name}' is not a {expected} subclass"))
 
-    assert resolved_class is not None
-    return Ok(cast(type[Component] | type[SupplementalAttribute], resolved_class))
+    return Ok(resolved_class)
 
 
-def _resolve_source_class(rule: Rule, *, context: PluginContext) -> Result[type[Component], ValueError]:
+def resolve_source_class(rule: Rule, *, context: PluginContext) -> Result[type[Component], ValueError]:
     """Resolve all source types for a rule into a single component class.
 
     Rules with multiple source types are not supported here; the caller
@@ -346,7 +276,7 @@ def _resolve_source_class(rule: Rule, *, context: PluginContext) -> Result[type[
     if len(source_types) > 1:
         logger.warning("Rule '{}' defines multiple source types; only '{}' will be used", rule, source_type)
 
-    return _resolve_component_class(source_type, context=context, label="source").map(
+    return resolve_component_class(source_type, context=context, label="source").map(
         lambda resolved_class: cast(type[Component], resolved_class)
     )
 
@@ -355,13 +285,12 @@ def resolve_supplemental_class(
     type_name: str, *, context: PluginContext
 ) -> Result[type[SupplementalAttribute], ValueError]:
     """Resolve and validate a supplemental-attribute output type."""
-    class_result = _resolve_component_class(
+    class_result = resolve_component_class(
         type_name, context=context, label="supplemental target", allow_supplemental=True
     )
-    if class_result.is_err():
-        return class_result.map(lambda _: SupplementalAttribute)
-    resolved_class = class_result.ok()
-    assert resolved_class is not None
+    if is_err(class_result):
+        return Err(class_result.err())
+    resolved_class = class_result.unwrap()
     if not issubclass(resolved_class, SupplementalAttribute):
         return Err(
             ValueError(
@@ -371,20 +300,78 @@ def resolve_supplemental_class(
     return Ok(resolved_class)
 
 
-def _is_supplemental_attribute(component: Component) -> bool:
-    """Check if a component is a supplemental attribute.
+@dataclass(frozen=True)
+class ComponentRollbackNode:
+    """Store one graph node's original component, children, and ownership state."""
 
-    Parameters
-    ----------
-    component : Any
-        The component to check
+    component: Component
+    children: tuple[UUID, ...]
+    owned: bool
 
-    Returns
-    -------
-    bool
-        True if the component is a supplemental attribute, False otherwise
-    """
-    return isinstance(component, SupplementalAttribute)
+
+@dataclass(frozen=True)
+class ComponentRollbackPlan:
+    """Capture one primary's UUID-keyed graph and pre-attachment ownership."""
+
+    nodes: dict[UUID, ComponentRollbackNode]
+    order: tuple[UUID, ...]
+
+
+def component_rollback_plan(primary: Component, target_system: System) -> ComponentRollbackPlan:
+    """Capture the proposed graph and its operation-owned nodes before attachment."""
+    nodes: dict[UUID, ComponentRollbackNode] = {}
+    pending = [primary]
+
+    while pending:
+        component = pending.pop()
+        existing_node = nodes.get(component.uuid)
+        if existing_node is not None:
+            if existing_node.component is not component:
+                msg = f"Composed component graph contains distinct objects with UUID {component.uuid}"
+                raise ValueError(msg)
+            continue
+
+        try:
+            stored_component = target_system.get_component_by_uuid(component.uuid)
+        except ISNotStored:
+            owned = True
+        else:
+            if stored_component is not component:
+                msg = (
+                    f"Composed component UUID {component.uuid} refers to a different object "
+                    "already stored in the target system"
+                )
+                raise ValueError(msg)
+            owned = False
+
+        children: list[Component] = []
+        for field_name in type(component).model_fields:
+            value = getattr(component, field_name)
+            if isinstance(value, Component):
+                children.append(value)
+            elif isinstance(value, list):
+                component_values = [item for item in value if isinstance(item, Component)]
+                if component_values and len(component_values) != len(value):
+                    msg = (
+                        f"Component field '{type(component).__name__}.{field_name}' "
+                        "mixes Component and non-Component values"
+                    )
+                    raise ValueError(msg)
+                children.extend(component_values)
+
+        child_uuids = tuple(dict.fromkeys(child.uuid for child in children))
+        nodes[component.uuid] = ComponentRollbackNode(component, child_uuids, owned)
+        pending.extend(reversed(children))
+
+    try:
+        child_first_order = tuple(
+            TopologicalSorter({uuid: node.children for uuid, node in nodes.items()}).static_order()
+        )
+    except CycleError as error:
+        msg = f"Composed component graph for '{primary.label}' contains a cycle"
+        raise ValueError(msg) from error
+
+    return ComponentRollbackPlan(nodes, tuple(reversed(child_first_order)))
 
 
 def attach_rule_outputs(
@@ -392,7 +379,7 @@ def attach_rule_outputs(
     source_component: Component,
     context: PluginContext,
 ) -> Result[None, ValueError]:
-    """Attach a primary output and its supplemental attributes as one operation."""
+    """Attach outputs and roll back only newly stored composed components."""
     target_system = context.target_system
     if target_system is None:
         return Err(ValueError("target_system must be set in context"))
@@ -412,126 +399,110 @@ def attach_rule_outputs(
             target_system.get_supplemental_attribute_by_uuid(supplemental_attribute.uuid)
         except ISNotStored:
             continue
-        except Exception as error:
-            return Err(
-                ValueError(
-                    f"Failed to inspect supplemental output UUID {supplemental_attribute.uuid}: {error}"
-                )
-            )
         return Err(
             ValueError(
                 f"Supplemental output UUID {supplemental_attribute.uuid} is already stored in target system"
             )
         )
 
+    component_plan: ComponentRollbackPlan | None = None
     attached_supplemental: list[SupplementalAttribute] = []
-    primary_attached = False
-
-    def fail_with_rollback(error: ValueError) -> Result[None, ValueError]:
-        """Return the attachment error after attempting to remove partial outputs."""
-        rollback_result = _rollback_rule_outputs(outputs, attached_supplemental, primary_attached, context)
-        if rollback_result.is_err():
-            return Err(ValueError(f"{error}; {rollback_result.err()}"))
-        return Err(error)
+    attachment_context = "Failed to attach rule outputs"
 
     try:
-        attach_result = _attach_component(outputs.primary, source_component, context)
-        if attach_result.is_err():
-            return fail_with_rollback(attach_result.err())
-        primary_attached = isinstance(outputs.primary, Component)
+        if isinstance(outputs.primary, Component):
+            owner_component = outputs.primary
+            attachment_context = f"Failed to attach component '{outputs.primary.label}'"
+            component_plan = component_rollback_plan(outputs.primary, target_system)
+            target_system.add_component(outputs.primary)
+        else:
+            try:
+                owner_component = target_system.get_component_by_uuid(source_component.uuid)
+            except ISNotStored as error:
+                msg = (
+                    "Cannot attach supplemental attribute: target component with UUID "
+                    f"{source_component.uuid} not found in target system"
+                )
+                logger.error("{}: {}", msg, error)
+                raise ValueError(msg) from error
+
+            attachment_context = f"Failed to attach supplemental attribute '{outputs.primary.label}'"
+            target_system.add_supplemental_attribute(owner_component, outputs.primary)
+            attached_supplemental.append(outputs.primary)
 
         for supplemental_attribute in outputs.supplemental_attributes:
-            attach_result = _attach_component(supplemental_attribute, outputs.primary, context)
-            if attach_result.is_err():
-                return fail_with_rollback(attach_result.err())
+            attachment_context = f"Failed to attach supplemental attribute '{supplemental_attribute.label}'"
+            target_system.add_supplemental_attribute(owner_component, supplemental_attribute)
             attached_supplemental.append(supplemental_attribute)
             logger.trace(
                 "Attached supplemental attribute {} to {}",
                 type(supplemental_attribute).__name__,
-                outputs.primary.label,
+                owner_component.label,
             )
     except Exception as error:
-        return fail_with_rollback(ValueError(f"Failed to attach rule outputs: {error}"))
+        rollback_errors = rollback_rule_outputs(
+            target_system,
+            component_plan,
+            attached_supplemental,
+        )
+        expected_failure = isinstance(error, (ValueError, ISAlreadyAttached, ISOperationNotAllowed))
+        attachment_failure = f"{attachment_context}: {error}"
+        if rollback_errors:
+            rollback_details = "; ".join(
+                f"{label}: {rollback_error}" for label, rollback_error in rollback_errors
+            )
+            failure_causes = ExceptionGroup(
+                f"{attachment_context}; rollback failures: {rollback_details}",
+                [error, *(rollback_error for _, rollback_error in rollback_errors)],
+            )
+            if expected_failure:
+                message = f"{attachment_failure}; Failed to roll back rule outputs: {rollback_details}"
+                return Err(value_error_from(message, failure_causes))
+            raise failure_causes from error
+
+        if expected_failure:
+            return Err(value_error_from(attachment_failure, error))
+        raise
 
     return Ok(None)
 
 
-def _rollback_rule_outputs(
-    outputs: RuleOutputs,
-    supplemental_attributes: list[SupplementalAttribute],
-    primary_attached: bool,
-    context: PluginContext,
-) -> Result[None, ValueError]:
-    """Remove outputs already attached before a later attachment failed."""
-    target_system = context.target_system
-    if target_system is None:
-        return Ok(None)
-
-    rollback_errors: list[str] = []
-    for supplemental_attribute in reversed(supplemental_attributes):
+def rollback_rule_outputs(
+    target_system: System,
+    component_plan: ComponentRollbackPlan | None,
+    attached_supplemental: list[SupplementalAttribute],
+) -> list[tuple[str, Exception]]:
+    """Remove attached outputs and operation-owned components without cascading."""
+    rollback_errors: list[tuple[str, Exception]] = []
+    for supplemental_attribute in reversed(attached_supplemental):
         try:
             target_system.remove_supplemental_attribute(supplemental_attribute)
         except Exception as error:
-            rollback_errors.append(f"supplemental attribute: {error}")
+            rollback_errors.append(("supplemental attribute", error))
 
-    if primary_attached:
+    if component_plan is None:
+        return rollback_errors
+
+    blocked_uuids: set[UUID] = set()
+    for component_uuid in component_plan.order:
+        node = component_plan.nodes[component_uuid]
+        if component_uuid in blocked_uuids:
+            blocked_uuids.update(node.children)
+            continue
+        if not node.owned:
+            continue
+
         try:
-            target_system.remove_component(cast(Component, outputs.primary))
+            try:
+                stored_component = target_system.get_component_by_uuid(component_uuid)
+            except ISNotStored:
+                continue
+            if stored_component is not node.component:
+                msg = f"Component UUID {component_uuid} is stored by a different object during rollback"
+                raise ISAlreadyAttached(msg)
+            target_system.remove_component(node.component, cascade_down=False)
         except Exception as error:
-            rollback_errors.append(f"primary component: {error}")
+            rollback_errors.append(("component", error))
+            blocked_uuids.update(node.children)
 
-    if rollback_errors:
-        return Err(ValueError(f"Failed to roll back rule outputs: {'; '.join(rollback_errors)}"))
-    return Ok(None)
-
-
-def _attach_component(
-    component: Any,
-    source_component: Any,
-    context: PluginContext,
-) -> Result[None, ValueError]:
-    """Attach a component to the target system.
-
-    For regular components, adds them directly to the system.
-    For supplemental attributes, finds the corresponding target component
-    and attaches the supplemental attribute to it.
-
-    Parameters
-    ----------
-    component : Any
-        The component or supplemental attribute to attach
-    source_component : Any
-        The source component that was converted
-    context : PluginContext
-        The plugin context
-
-    Returns
-    -------
-    Result[None, ValueError]
-        Ok if attachment succeeds, Err otherwise
-    """
-    if context.target_system is None:
-        return Err(ValueError("target_system must be set in context"))
-    if not _is_supplemental_attribute(component):
-        context.target_system.add_component(component)
-        return Ok(None)
-
-    # Find the target component that corresponds to the source component
-    # We look for a component with the same UUID in the target system
-    try:
-        target_component = context.target_system.get_component_by_uuid(source_component.uuid)
-    except Exception as e:
-        logger.error(
-            "Failed to find target component with UUID {} for supplemental attribute attachment: {}",
-            source_component.uuid,
-            e,
-        )
-        return Err(
-            ValueError(
-                f"Cannot attach supplemental attribute: target component with UUID "
-                f"{source_component.uuid} not found in target system"
-            )
-        )
-
-    context.target_system.add_supplemental_attribute(target_component, component)
-    return Ok(None)
+    return rollback_errors

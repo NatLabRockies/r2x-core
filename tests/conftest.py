@@ -6,9 +6,6 @@ from loguru import logger
 
 from r2x_core.logger import setup_logging
 
-DATA_FOLDER = "tests/data"
-REEDS_SCENARIO = "test_Pacific"
-
 pytest_plugins = [
     "fixtures.rules",
     "fixtures.context",
@@ -44,13 +41,3 @@ def caplog(caplog):
     handler_id = logger.add(caplog.handler, format="{message}")
     yield caplog
     logger.remove(handler_id)
-
-
-@pytest.fixture
-def data_folder(pytestconfig):
-    return pytestconfig.rootpath.joinpath(DATA_FOLDER)
-
-
-@pytest.fixture
-def reeds_data_folder(pytestconfig):
-    return pytestconfig.rootpath.joinpath(DATA_FOLDER).joinpath(REEDS_SCENARIO)

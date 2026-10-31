@@ -25,13 +25,36 @@
     {
       "assertions": [
         "The response verifies current DataFile field names",
-        "The HDF5 settings are placed in reader.kwargs",
-        "The response does not invent an H5Format configuration model",
+        "HDF5 settings are placed in ReaderConfig.options, not kwargs",
+        "The response does not invent DataStore.read_data or DataReader.read_data_file",
+        "The response distinguishes tabular hdf5 from explicit hdf5_array format",
         "The response includes a reader or datastore validation path"
       ],
-      "expected_output": "A DataFile with a path source and ReaderConfig(kwargs=...) using current HDF5 reader options.",
+      "expected_output": "A DataFile with ReaderConfig(format='hdf5', options=...) and DataReader.read_data_files(...) returning a typed source.",
       "id": "data-api",
       "prompt": "Configure r2x-core to read an HDF5 file with named columns and timestamps."
+    },
+    {
+      "assertions": [
+        "The response checks ingestion.py, current root exports, and nearby tests",
+        "The response states build_system returns System rather than Result",
+        "The response distinguishes build_system from build_system_from_sources",
+        "The response uses component, time_series, or supplemental_attribute instruction shapes"
+      ],
+      "expected_output": "Use build_system for configured inputs/parser rules or build_system_from_sources for already-decoded inputs, with concrete typed output instructions.",
+      "id": "parser-ingestion-api",
+      "prompt": "Build a System from DataReader sources and parser_rules.json."
+    },
+    {
+      "assertions": [
+        "The response checks table_mapping.py and current root exports",
+        "The response uses TableMappingRecord.operations tagged by operation, not DataFile.proc_spec.steps tagged by op",
+        "The response chooses read_and_assemble_sources for combined file/table scheduling or assemble_table_records for decoded sources",
+        "The response does not claim DataStore reads or assembles tables"
+      ],
+      "expected_output": "Use the table-mapping API or build_system table_mapping_path, keeping table operations distinct from DataFile processing steps.",
+      "id": "table-mapping-api",
+      "prompt": "Assemble named tables from file inputs with a table_mapping.json mapping."
     },
     {
       "assertions": [
@@ -73,10 +96,10 @@
         "The response uses published r2x binaries or release installers and does not suggest building the CLI from source",
         "The response distinguishes r2x_plugin from r2x.transforms",
         "The response uses r2x sync and r2x list before execution",
-        "The response uses --show-help, --list, --print, and --dry-run as validation stages",
+        "The response uses --help, --list, --print, and --dry-run as validation stages",
         "The response checks durable output or pipefail behavior"
       ],
-      "expected_output": "Entry-point validation, r2x sync/list/show-help checks, dry-run pipeline validation, and a bounded real execution with separate stdout/stderr handling.",
+      "expected_output": "Entry-point validation, r2x sync/list/help checks, dry-run pipeline validation, and a bounded real execution with separate stdout/stderr handling.",
       "id": "r2x-cli-workflow",
       "prompt": "Make this r2x-core plugin discoverable and validate it through the r2x CLI."
     },

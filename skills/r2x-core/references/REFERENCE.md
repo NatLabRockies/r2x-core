@@ -1,178 +1,180 @@
 # r2x-core cross-cutting reference
 
-Use this reference when a task spans multiple r2x-core surfaces or when a
-public contract, result boundary, or persistence decision is unclear. Start
-with [QUICKREF.md](./QUICKREF.md) for exact calls, then load the focused file.
+Use this when a task spans multiple r2x-core surfaces or when a public contract,
+result boundary, or persistence decision is unclear. Start with
+[QUICKREF.md](./QUICKREF.md), then load the focused reference.
+
+## Contents
+
+- [Mental model](#mental-model)
+- [Public root surface](#public-root-surface)
+- [Contract matrix](#contract-matrix)
+- [Result and exception boundaries](#result-and-exception-boundaries)
+- [Logging policy](#logging-policy)
+- [Persistence](#persistence)
+- [Public API workflow](#public-api-workflow)
 
 ## Mental model
 
-r2x-core is the translator framework around infrasys:
+r2x-core has two related workflows around infrasys:
 
 ```text
-DataFile definitions -> DataStore/DataReader -> PluginContext
-                                      -> Plugin hooks
-                                      -> Rule executor
-                                      -> target System -> export/persistence
+DataFile -> DataReader -> optional table mapping -> parser instructions -> System
+source System -> PluginContext -> Rule executor -> target System
 ```
 
-It owns plugin lifecycle, rule execution, file ingestion, units, and upgrades.
-It does not own domain `System` / `Component` definitions.
+It owns plugin lifecycle, rule execution, file ingestion, optional table
+assembly, units, and upgrades. It does not own domain `System` / `Component`
+definitions.
 
-For execution through the Rust `r2x` CLI, read [R2X_CLI.md](./R2X_CLI.md).
+For system construction, read [INGESTION.md](./INGESTION.md). For named table
+assembly, read [TABLE_MAPPING.md](./TABLE_MAPPING.md). For execution through the
+Rust `r2x` CLI, read [R2X_CLI.md](./R2X_CLI.md).
 
 ## Public root surface
 
-Use root imports when exported by `src/r2x_core/__init__.py`:
+Import root-exported symbols from `r2x_core`. Representative APIs for the main
+surfaces are:
 
 ```python
 from r2x_core import (
-    CLIError, ComponentCreationError, DataFile, DataReader, DataStore, Err,
-    FileInfo, FileFormat, GitVersioningStrategy, H5Format, HasPerUnit,
-    HasUnits, JSONProcessing, Ok, Plugin, PluginConfig, PluginContext,
-    PluginError, ReaderConfig, Result, Rule, RuleFilter, RuleResult,
-    SemanticVersioningStrategy, System, TabularProcessing, TranslationResult,
-    Unit, UnitSystem, UpgradeError, UpgradeStep, UpgradeType, ValidationError,
-    VersionReader, VersionStrategy, apply_rules_to_context, apply_single_rule,
-    components_to_records, create_component, export_components_to_csv,
-    expose_plugin, get_unit_system, getter, h5_readers, is_err, is_ok,
-    run_upgrade_step, set_unit_system,
+    AllOfFilter, AnyOfFilter, ArraySource, ComponentInstruction,
+    ComponentReference, DataFile, DataReader, DataStore, DecodedSource,
+    DecodedSources, DocumentSource, Err, FieldFilter, FileInfo, FileProcessing,
+    FileReader, FileRequirement, FileType, GetterFilter, H5PyFileReader,
+    H5Reader, HasPerUnit, HasUnits, InlineTable, InputColumn, JSONProcessing,
+    Ok, Plugin, PluginConfig, PluginContext, PluginError, ReaderConfig,
+    RegularTimeAxis, Rule, RuleFilter, RuleResult, SourceAvailability,
+    SourcePredicate, SourceSelection, SupplementalAttributeInstruction,
+    System, TableMappingBackend, TableMappingRecord, TableOperation,
+    TabularProcessing, TabularSource, TimeSeriesInstruction, TranslationResult,
+    Unit, UnitSystem, UpgradeError, UpgradeStep, UpgradeType, VersionReader,
+    VersionStrategy, apply_rules_to_context, apply_single_rule,
+    assemble_table_records, assemble_tables, build_system,
+    build_system_from_sources, components_to_records,
+    export_components_to_csv, expose_plugin, get_unit_system, getter,
+    is_err, is_ok, run_upgrade_step, set_unit_system,
+    transfer_time_series_metadata,
 )
 ```
 
-If the symbol is not in `__all__`, treat it as private unless you are extending
-r2x-core itself. Do not create local fallback imports to hide API drift.
+Check `src/r2x_core/__init__.py` before relying on additional root imports.
+Some implementation type aliases, including `ParserInstruction`, are not
+re-exported. Prefer the concrete root-exported instruction models unless a
+source-level annotation is specifically needed.
 
 ## Contract matrix
 
 | Surface | Public boundary | Success/failure |
 | --- | --- | --- |
 | Plugin lifecycle | `Plugin.from_context(ctx).run()` | `PluginContext`; hook `Err` raises `PluginError` |
-| Function transform | `@expose_plugin` + explicit call | usually `Result[System, E]` |
-| All rules | `apply_rules_to_context(context)` | `TranslationResult` with `RuleResult` records |
+| Function transform | `@expose_plugin` + explicit call | Usually `Result[System, E]` |
+| All rules | `apply_rules_to_context(context)` | `TranslationResult` with per-rule results |
 | One rule | `apply_single_rule(rule, *, context=...)` | `Result[RuleApplicationStats, ValueError]` |
-| File read | `DataReader.read_data_file(...)` | format-specific payload or exception |
-| Store read | `DataStore.read_data(name, ...)` | format-specific payload or exception |
-| Unit setting | `set_unit_system(...)` | process-global display state |
-| Logging | Loguru + `setup_logging(...)` | disabled by default; application-owned sinks |
-| One upgrade | `run_upgrade_step(data, *, step=...)` | `Result[Any, str]` |
-| Component creation | `create_component(component_class, *, skip_none=True, skip_validation=False, **field_values)` | `Result[Component, pydantic.ValidationError]` |
+| File read | `DataReader.read_data_files(...)` | Named `DecodedSource` mapping or exception |
+| DataStore | `DataStore` mapping methods | File-mapping configuration; it does not read files |
+| Parser build | `build_system(...)` | Configured input-to-`System` construction |
+| Prepared parser build | `build_system_from_sources(...)` | `System` from decoded sources and instructions |
+| Table assembly | `assemble_tables(...)` / `assemble_table_records(...)` | Named `TabularSource` outputs |
+| Cross-boundary read | `DataReader.read_and_assemble_sources(...)` | Decoded files plus scheduled tables |
+| Unit setting | `set_unit_system(...)` | Process-global display state |
+| Logging | Loguru + `setup_logging(...)` | Disabled by default; application-owned sinks |
+| One upgrade | `run_upgrade_step(data, *, step=...)` | `Result[Any, UpgradeError]` |
 
 ## Result and exception boundaries
 
-Use the project's established boundary, not a universal rule:
+Use the boundary defined by the public operation, not a universal rule:
 
-- Hook and upgrade functions return `Ok`/`Err` when the framework contract says
-  `Result`.
-- `Plugin.run()` deliberately raises `PluginError` after a hook returns `Err`.
-  Catch that only at an outer orchestration boundary.
+- Lifecycle hooks and function transforms return `Ok` / `Err` when their
+  contract says `Result`. `Plugin.run()` deliberately raises `PluginError`
+  after a hook returns `Err`. Catch it at an outer orchestration boundary.
 - `apply_rules_to_context` returns a rich result and records individual rule
-  failures; inspect `translation.rule_results`.
-- `DataFile`/`DataStore` validation and file reads use Pydantic and ordinary
-  exceptions such as `ValidationError`, `FileNotFoundError`, `KeyError`, or
-  `ReaderError` according to the source path.
-- `create_component` returns `Err(PydanticValidationError)` rather than raising
-  a validation error for normal invalid input.
+  failures; inspect `translation.rule_results` and aggregate counts.
+- `apply_single_rule` returns `Result[RuleApplicationStats, ValueError]`.
+- `DataFile` and `DataStore` validation use Pydantic and ordinary exceptions.
+  `DataReader` returns typed sources and may raise path, validation, or
+  `ReaderError` failures. Processing failures are chained as the cause of
+  `ReaderError`.
+- `build_system` and `build_system_from_sources` return a `System` or raise
+  validation, source, or construction errors. They do not return `Result`.
+- Table-mapping records are strict. Unknown names, invalid operations,
+  undeclared dependencies, and invalid projections fail rather than falling
+  back to guesses.
+- Upgrade steps return `Result[Any, UpgradeError]`. A configured upgrade
+  handler returns `None` or `Ok(None)` on success and `Err(error)` on failure.
 
-Do not bare-unwrap result values in production code. Do not catch broad
-`Exception` to continue a translation, hide an API mismatch, or return `None`.
-Catch narrow exceptions at the boundary that can add useful context.
+Do not unwrap live results in production code. Do not catch broad `Exception`
+to continue a translation, hide an API mismatch, or return `None`. Catch narrow
+exceptions only at a boundary that can add useful context.
 
 ## Logging policy
 
-Use [LOGGING.md](./LOGGING.md) for the complete level and sink policy. The
-short version is:
+Use [LOGGING.md](./LOGGING.md) for the full level and sink policy. In short:
 
 - Use Loguru, not `print`, for library diagnostics.
-- `r2x_core` logging is disabled by default. Every application built on top of
-  it should also call `logger.disable("my_application")` in its package
-  initializer, then call `logger.enable("my_application")` at its application
-  entry point. Enable r2x-core and configure sinks with `setup_logging(...)` at
-  the application boundary, never during import.
-- Use `TRACE` for high-volume internals, `DEBUG` for developer diagnostics,
-  `INFO` for meaningful lifecycle milestones, `WARNING` for recoverable degraded
-  behavior, `ERROR` for a failed operation, and `CRITICAL` only at an outer
-  boundary that can act on an unrecoverable condition.
-- Keep logs structured with `get_logger(...).bind(...)` or bound extras. Do not
-  log secrets, complete payloads, or high-volume records.
-- TTY output is human-oriented; non-TTY stderr is JSON Lines and file sinks
-  capture `TRACE` and above. Do not parse TTY text in automation.
-
-## Typed Python patterns
-
-Follow the repository's Python standards around r2x-core APIs:
-
-```python
-from pathlib import Path
-from typing import Annotated
-from pydantic import Field
-
-
-def resolve_input(
-    path: Path,
-    *,
-    base_folder: Path,
-    must_exist: bool = True,
-) -> Path:
-    ...
-
-
-class InputConfig(PluginConfig):
-    folder: Annotated[Path, Field(description="Input folder")]
-    year: Annotated[int, Field(ge=2020, description="Planning year")]
-```
-
-Prefer canonical r2x-core, infrasys, or component models over duplicate local
-schemas. Use `Annotated`, constrained fields, Pydantic v2 validators, named
-structured returns, and protocols. Keep CLI parsing at the process boundary.
-
-## Public API workflow
-
-1. Identify the canonical owner of the model/data/system concept.
-2. Read root exports and the defining module.
-3. Read nearby tests for exact arguments, result access, and failure behavior.
-4. Use the focused skill reference for workflow and known traps.
-5. Implement the smallest public behavior change.
-6. Add a test through the public interface and run it.
-7. Round-trip persistence or real file readers when the boundary changed.
+- `r2x_core` logging is disabled by default. Applications should disable their
+  own namespace in the package initializer and enable it at the application
+  boundary. Configure sinks with `setup_logging(...)` there, never during
+  import.
+- Use `TRACE` for high-volume internals, `DEBUG` for decisions, `INFO` for
+  lifecycle milestones, `WARNING` for recoverable degradation, `ERROR` for a
+  failed operation, and `CRITICAL` only at an outer boundary that can act on an
+  unrecoverable condition.
+- Keep logs structured and non-sensitive. Do not log secrets, full systems,
+  DataFrames, or unbounded records.
+- TTY output is human-oriented; non-TTY stderr is JSON Lines. Do not parse TTY
+  text in automation.
 
 ## Persistence
 
-`r2x_core.System` extends infrasys `System` with R2X-specific base power and
-provenance behavior. Use:
+`r2x_core.System` extends infrasys `System` with R2X-specific behavior. Use the
+public serialization methods:
 
 ```python
 system.to_json("system.json", overwrite=True)
 loaded = System.from_json("system.json")
 ```
 
-When a model or serialized field changes, assert the loaded system's public
-fields, component counts, associations, units, and time-series metadata as
-applicable. Route foundational serialized schema migrations through infrasys
-upgrade hooks. Use r2x-core `UpgradeStep` for r2x-core files, mappings, and
-intermediate artifacts.
+When a serialized field changes, test public fields, component counts,
+associations, units, and time-series metadata after reload. Route foundational
+serialized `System` schema migrations through infrasys upgrade hooks. Use
+r2x-core `UpgradeStep` for file mappings, plugin configs, and intermediate
+artifacts.
+
+## Public API workflow
+
+1. Identify which package owns each model, data, or system concept.
+2. Read root exports, defining source, and adjacent tests for exact signatures
+   and failure behavior.
+3. Use the focused skill reference for workflow and known traps.
+4. Keep `DataFile.proc_spec` and table-mapping schemas separate.
+5. Implement the smallest public behavior change and test it through the public
+   interface.
+6. Round-trip persistence or real file readers when that boundary changes.
+7. Report source/docs mismatches explicitly.
 
 ## Public API anti-patterns
 
 - Treating a context return as a `Result`.
 - Passing rules/components as positional extras to rule executors.
-- Replacing `RuleFilter` records with a callable constructor.
-- Using stale `DataFile` names (`reader_config`, `processing`, `file_info`).
-- Treating file format markers as enums or configuration objects.
-- Constructing `VersionReader(strategy=...)`.
-- Adding `versioning_strategy` to `UpgradeStep`.
-- Import fallbacks that mask a source/docs mismatch.
-- Raw file I/O in plugin code when a `DataStore` boundary applies.
-- Handwritten component construction where `create_component` is the contract.
+- Instantiating the `RuleFilter` union instead of a concrete filter model.
+- Calling `DataStore.read_data(...)` or `DataReader.read_data_file(...)`.
+- Using `ReaderConfig(kwargs=...)`; the field is `options`.
+- Mixing table-mapping `operations` with `DataFile.proc_spec.steps`.
+- Treating reader format names as enums or configuration objects.
+- Constructing `VersionReader(strategy=...)` or adding
+  `versioning_strategy` to `UpgradeStep`.
+- Adding import fallbacks that mask a source/docs mismatch.
 - Calling `setup_logging()` from a library module or import side effect.
 - Using `INFO` for per-row/per-component diagnostics or `ERROR` for an expected
   branch.
 
 ## Handoff checklist
 
-- Surface and canonical owner identified.
+- API surface and model owner identified.
 - Root symbols and exact signatures verified.
 - Public call pattern shown or corrected.
 - Result/error contract described.
 - Public behavior test added or run.
-- Persistence/file/unit boundary checked when relevant.
+- Persistence, file, table, or unit boundary checked when relevant.
 - Source/docs mismatch called out explicitly.

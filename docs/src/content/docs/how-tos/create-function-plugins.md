@@ -1,10 +1,10 @@
 ---
-title: "Create Function-Based Transform Plugins"
+title: "Create Function Transform Plugins"
 ---
 
 <span id="create-function-based-transform-plugins"></span>
 
-Function-based plugins are simple, zero-overhead transforms that modify a `System` using a `PluginConfig`. They are marked with the `@expose_plugin` decorator for CLI discovery.
+A function plugin transforms a `System` using a `PluginConfig`. The `@expose_plugin` decorator marks the function. Register it as an entry point for the CLI to find it.
 
 ## Basic Transform Function
 
@@ -29,9 +29,9 @@ Create a simple transform that modifies a system:
 >>> system = System(name="my_system")
 >>> result = rename_system(system, config)
 >>> result.is_ok()
-True
+# True
 >>> result.unwrap().name
-'my_system_updated'
+# 'my_system_updated'
 ```
 
 ## With Configuration Validation
@@ -51,7 +51,8 @@ Use Pydantic field validators to enforce configuration constraints:
 ...     @classmethod
 ...     def validate_threshold(cls, v):
 ...         if v % 10 != 0:
-...             raise ValueError("Threshold must be a multiple of 10")
+...             msg = "Threshold must be a multiple of 10"
+...             raise ValueError(msg)
 ...         return v
 
 >>> @expose_plugin
@@ -67,7 +68,7 @@ Use Pydantic field validators to enforce configuration constraints:
 >>> system = System(name="test")
 >>> result = filter_by_threshold(system, config)
 >>> result.is_ok()
-True
+# True
 ```
 
 ## With Complex Configuration
@@ -106,7 +107,7 @@ Use nested Pydantic models for complex configurations:
 >>> system = System(name="test")
 >>> result = advanced_filter(system, config)
 >>> result.is_ok()
-True
+# True
 ```
 
 ## Error Handling with Result
@@ -134,9 +135,9 @@ Return errors when operations fail:
 >>> system = System(name="short")
 >>> result = validate_system_name(system, config)
 >>> result.is_err()
-True
+# True
 >>> result.error
-'System name too short (< 10 chars)'
+# 'System name too short (< 10 chars)'
 ```
 
 ## Direct Usage in Python
@@ -166,7 +167,7 @@ Call exposed functions directly with explicit arguments:
 ...     print(f"Success: {modified_system.name}")
 ... else:
 ...     print(f"Error: {result.error()}")
-Success: original
+# Success: original
 ```
 
 ### Advanced: Generic Configuration Types
@@ -208,18 +209,18 @@ Use a bounded type variable for generic plugin functions across all supported Py
 >>> scale_config = ScaleConfig(factor=2.5)
 >>> result = transform_system(system, scale_config)
 >>> result.unwrap().name
-'grid_transformed'
+# 'grid_transformed'
 
 >>> # Type checker ensures config matches the constraint
 >>> rotate_config = RotateConfig(angle=45.0)
 >>> result2 = transform_system(system, rotate_config)
 >>> result2.is_ok()
-True
+# True
 ```
 
 **Generic Configuration Benefits**:
 
-The bound on `C` lets type checkers require a `BaseTransformConfig` subclass while inferring the specific config type from each argument. Pydantic validates values when constructing the configuration model; the type bound does not add runtime validation.
+The bound on `C` lets type checkers require a `BaseTransformConfig` subclass while inferring the specific config type from each argument. Pydantic validates values when it creates the configuration model. The type bound does not add runtime validation.
 
 **When to Use**:
 
@@ -237,7 +238,7 @@ advanced_filter = "my_package.transforms:advanced_filter"
 ```
 
 The Rust CLI will:
-1. **Discover** exposed functions via AST-grep scanning for `@expose_plugin` decorator
+1. **Discover** exposed functions by scanning their syntax trees for the `@expose_plugin` decorator
 2. **Introspect** the `PluginConfig` class to generate CLI arguments
 3. **Invoke** the function with parsed arguments and system data
 
@@ -255,14 +256,14 @@ The Rust CLI will:
 ### ❌ Don't
 
 - Don't accept arbitrary keyword arguments in the signature
-- Don't modify the system in-place without returning it in a Result
+- If you change the system, return it in a `Result`
 - Don't use global state or external dependencies without injecting them
 - Don't raise exceptions - use `Err()` instead
 - Don't use overly complex config structures - break into nested models if needed
 
 ## Full Example: Break Generators Plugin
 
-Here's a complete example of a real-world transform plugin:
+Here is a complete transform plugin example:
 
 ```python doctest
 >>> from r2x_core import expose_plugin, PluginConfig, System
@@ -326,11 +327,11 @@ Here's a complete example of a real-world transform plugin:
 >>> system = System(name="western_grid")
 >>> result = break_generators(system, config)
 >>> result.is_ok()
-True
+# True
 ```
 
 ## See Also
 
 - [plugin system](/r2x-core/explanations/plugin-system/) - Plugin system architecture
 - [api](/r2x-core/references/api/) - API reference for `@expose_plugin` decorator
-- [manage datastores](/r2x-core/how-tos/manage-datastores/) - Working with DataStore for file operations
+- [manage datastores](/r2x-core/how-tos/manage-datastores/) - Managing input mapping configuration

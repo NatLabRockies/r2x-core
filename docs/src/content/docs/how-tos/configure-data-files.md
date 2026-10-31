@@ -1,116 +1,161 @@
 ---
-title: "Working with DataFiles"
+title: "Configure Data Files"
 ---
 
-<span id="working-with-datafiles"></span>
+`DataFile` describes one physical input, named source, ordered source selection,
+or an inline table defined in configuration. It contains availability settings,
+an optional reader with options, and an ordered processing spec. Path
+existence and glob matching are resolved at execution time.
 
-DataFiles configure how to load and process external data sources.
+## Working with datafiles
 
-## Basic DataFile
+### Configure file metadata
+
+`FileInfo.file_type` describes the content's purpose and does not restrict its
+physical format or output use. `requirement` controls whether a missing input is
+an error or is skipped.
 
 ```python doctest
->>> import tempfile
->>> from r2x_core import DataFile, FileInfo
->>> from pathlib import Path
->>> with tempfile.TemporaryDirectory() as tmpdir:
-...     csv_file = Path(tmpdir) / "data.csv"
-...     _ = csv_file.write_text("a,b,c\n1,2,3\n")
-...     file_spec = DataFile(
-...         name="data",
-...         fpath=csv_file,
-...         info=FileInfo(description="My data", is_input=True)
-...     )
-...     print(file_spec.name)
-...     print(file_spec.info.description)
-data
-My data
+>>> from r2x_core import DataFile, FileInfo, FileRequirement, FileType
+>>> profile = DataFile(
+...     name="profiles",
+...     relative_fpath="profiles.csv",
+...     info=FileInfo(
+...         description="Hourly load profiles",
+...         file_type=FileType.TIME_SERIES,
+...         requirement=FileRequirement.OPTIONAL,
+...         units="MW",
+...     ),
+... )
+>>> profile.info.file_type
+# <FileType.TIME_SERIES: 'time_series'>
+>>> profile.info.requirement
+# <FileRequirement.OPTIONAL: 'optional'>
 ```
 
-## Tabular Processing
-
-Define transformations for CSV and Excel files:
+An optional physical file can become required when a previously declared table
+contains a row matching an expression. The original file or HDF5 group error
+is preserved when the condition is true. Missing inputs remain optional when it
+is false, while malformed present files still fail.
 
 ```python doctest
->>> import tempfile
+>>> from r2x_core import DataFile, FileInfo, FileRequirement, SourcePredicate
+>>> condition = SourcePredicate(source="water_switch", predicate="enabled")
+>>> condition.source
+# 'water_switch'
+>>> water = DataFile(
+...     name="water_upgrades",
+...     relative_fpath="inputs_case/upgradelink_water.csv",
+...     info=FileInfo(requirement=FileRequirement.OPTIONAL),
+...     required_when={"source": "water_switch", "predicate": "enabled"},
+... )
+>>> water.required_when.source
+# 'water_switch'
+```
+
+The predicate source must be declared before the physical input and must be
+tabular. It is required when any row matches.
+
+## Select a reader
+
+Common extensions are inferred when unambiguous. Configure `reader.format` to
+select a registered reader for an uncommon extension. Put its options in
+`reader.options`. The selected Python reader checks them.
+JSON configuration cannot import arbitrary code.
+
+```python doctest
+>>> from r2x_core import DataFile, ReaderConfig
+>>> data_file = DataFile(
+...     name="profiles",
+...     relative_fpath="profiles.raw",
+...     reader=ReaderConfig(format="dummy_raw", options={"encoding": "utf-8"}),
+... )
+>>> data_file.format_name
+# 'dummy_raw'
+>>> data_file.reader.options
+# {'encoding': 'utf-8'}
+```
+
+## Configure ordered processing
+
+A processing spec is an ordered list of tagged operations. `FileProcessing` is
+the discriminated union of the tabular and JSON models. The representation and
+its paired processor determine compatibility, not the filename extension.
+
+```python doctest
+>>> from r2x_core import FileProcessing, TabularProcessing
+>>> processing: FileProcessing = TabularProcessing()
+>>> processing.kind
+# 'tabular'
+```
+
+```python doctest
+>>> from pathlib import Path
+>>> from tempfile import TemporaryDirectory
 >>> from r2x_core import DataFile, TabularProcessing
->>> from pathlib import Path
->>> with tempfile.TemporaryDirectory() as tmpdir:
-...     csv_file = Path(tmpdir) / "data.csv"
-...     _ = csv_file.write_text("old_name,unused,other\n1,2,3\n")
-...     data_file = DataFile(
-...         name="processed",
-...         fpath=csv_file,
-...         proc_spec=TabularProcessing(
-...             column_mapping={"old_name": "new_name"},
-...             drop_columns=["unused"]
-...         )
-...     )
-...     print(data_file.proc_spec.column_mapping)
-{'old_name': 'new_name'}
+>>> with TemporaryDirectory() as directory:
+...     path = Path(directory) / "data.csv"
+...     _ = path.write_text("old_name,unused\nalpha,1\n", encoding="utf-8")
+...     processing = TabularProcessing(steps=[
+...         {"op": "rename_columns", "column_mapping": {"old_name": "name"}},
+...         {"op": "drop_columns", "drop_columns": ["unused"]},
+...     ])
+...     data_file = DataFile(name="processed", fpath=path, proc_spec=processing)
+...     [step.op for step in data_file.proc_spec.steps]
+# ['rename_columns', 'drop_columns']
 ```
 
-## JSON Processing
+## Inline tables and source selection
 
-Define transformations for JSON files:
+An inline table has an explicit schema for its raw records, before its own
+`proc_spec` runs. Each row must contain exactly the schema keys. A whole row
+list or individual values can use placeholders, which are resolved and
+validated before processing. `rows=[]` is a present, typed empty source.
 
 ```python doctest
->>> import tempfile
->>> import json
->>> from r2x_core import DataFile, JSONProcessing
->>> from pathlib import Path
->>> with tempfile.TemporaryDirectory() as tmpdir:
-...     json_file = Path(tmpdir) / "data.json"
-...     _ = json_file.write_text(json.dumps({"old_key": "value"}))
-...     data_file = DataFile(
-...         name="json_data",
-...         fpath=json_file,
-...         proc_spec=JSONProcessing(key_mapping={"old_key": "new_key"})
-...     )
-...     print(data_file.proc_spec.key_mapping)
-{'old_key': 'new_key'}
+>>> from r2x_core import DataFile, InlineTable, SourceSelection
+>>> defaults = DataFile(
+...     name="defaults",
+...     inline_table=InlineTable.model_validate({
+...         "schema": {"year": "int64", "technology": "string"},
+...         "rows": [{"year": 2030, "technology": "wind"}],
+...     }),
+... )
+>>> defaults.inline_table.raw_schema
+# {'year': 'int64', 'technology': 'string'}
+>>> selected = DataFile(
+...     name="selected_costs",
+...     source_selection=SourceSelection(
+...         mode="first_present", sources=["default_costs", "market_costs"]
+...     ),
+... )
+>>> selected.source_selection.mode
+# 'first_present'
 ```
 
-## HDF5 Files
+`first_present` selects the first available named source even if it has no
+rows. `first_nonempty` skips sources that are absent or have no rows. An
+explicit `empty_fallback` inline table can provide a typed terminal result.
+Absent optional inputs are omitted. Inputs that exist but have no rows remain
+available. Malformed inputs still fail. Declare candidate sources before the
+selector in the ordered list of files.
 
-Work with HDF5 format files:
+JSON processing has a separate step vocabulary:
 
 ```python doctest
->>> import tempfile
->>> import h5py
->>> import numpy as np
->>> from r2x_core import DataFile, H5Format, ReaderConfig
->>> from pathlib import Path
->>> with tempfile.TemporaryDirectory() as tmpdir:
-...     h5_path = Path(tmpdir) / "data.h5"
-...     with h5py.File(h5_path, "w") as f:
-...         _ = f.create_dataset("load_profiles", data=np.array([1, 2, 3]))
-...     h5_file = DataFile(
-...         name="timeseries",
-...         fpath=h5_path,
-...         reader=ReaderConfig(kwargs={"key": "load_profiles"})
-...     )
-...     print(type(h5_file.file_type).__name__)
-H5Format
+>>> from r2x_core import JSONProcessing
+>>> processing = JSONProcessing(steps=[
+...     {"op": "rename_keys", "mapping": {"old_key": "new_key"}},
+...     {"op": "replace_values", "replacements": [
+...         {"old": 0, "new": "missing"},
+...         {"old": True, "new": "enabled"},
+...     ]},
+...     {"op": "select_keys", "keys": ["new_key"]},
+... ])
+>>> [step.op for step in processing.steps]
+# ['rename_keys', 'replace_values', 'select_keys']
 ```
 
-## File Format Detection
-
-Automatically detect and work with different file formats using FileFormat:
-
-```python doctest
->>> import tempfile
->>> from pathlib import Path
->>> from r2x_core import DataFile, FileFormat
->>> with tempfile.TemporaryDirectory() as tmpdir:
-...     csv_path = Path(tmpdir) / "data.csv"
-...     _ = csv_path.write_text("a,b\n1,2\n")
-...     csv_file = DataFile(name="csv_data", fpath=csv_path)
-...     # FileFormat is the base class for all file format types
-...     isinstance(csv_file.file_type, FileFormat)
-True
-```
-
-## See Also
-
-- [read data files](/r2x-core/how-tos/read-data-files/) - Reading files
-- [configure data settings](/r2x-core/how-tos/configure-data-settings/) - Configuration management
+See the [processor reference](/r2x-core/references/processors/) for operation
+schemas and [Read data files](/r2x-core/how-tos/read-data-files/) for source
+loading.

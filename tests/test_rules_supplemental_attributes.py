@@ -4,18 +4,22 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+import pytest
 from fixtures.source_system import BusComponent, BusGeographicInfo
 from fixtures.target_system import CircuitComponent, NodeComponent
 
 from r2x_core import PluginConfig, PluginContext
-from r2x_core.rules import Rule
+from r2x_core.rules import Rule, SupplementalAttributeRule
 from r2x_core.rules_executor import apply_rules_to_context
 from r2x_core.system import System
 
 
-def _build_test_config() -> PluginConfig:
+def build_test_config() -> PluginConfig:
     """Create a PluginConfig pointing at fixture modules for component resolution."""
     return PluginConfig(models=("fixtures.source_system", "fixtures.target_system"))
+
+
+pytestmark = pytest.mark.rules
 
 
 def test_rule_creates_supplemental_attribute():
@@ -56,7 +60,7 @@ def test_rule_creates_supplemental_attribute():
     context = PluginContext(
         source_system=source_system,
         target_system=target_system,
-        config=_build_test_config(),
+        config=build_test_config(),
         rules=(component_rule, supplemental_rule),
         store=None,
     )
@@ -109,7 +113,7 @@ def test_supplemental_attribute_without_target_component_fails():
     context = PluginContext(
         source_system=source_system,
         target_system=target_system,
-        config=_build_test_config(),
+        config=build_test_config(),
         rules=(supplemental_rule,),
         store=None,
     )
@@ -169,7 +173,7 @@ def test_multiple_supplemental_attributes_on_same_component():
     context = PluginContext(
         source_system=source_system,
         target_system=target_system,
-        config=_build_test_config(),
+        config=build_test_config(),
         rules=(component_rule, supplemental_rule1, supplemental_rule2),
         store=None,
     )
@@ -230,7 +234,7 @@ def test_one_rule_creates_primary_and_multiple_supplemental_attributes():
         PluginContext(
             source_system=source_system,
             target_system=target_system,
-            config=_build_test_config(),
+            config=build_test_config(),
             rules=(rule,),
         )
     )
@@ -246,7 +250,7 @@ def test_one_rule_creates_primary_and_multiple_supplemental_attributes():
 
 def test_rule_from_records_resolves_supplemental_getters():
     """Supplemental getter names are resolved when loading declarative records."""
-    from rust_ok import Ok
+    from rust_ok import Ok, Result
 
     from r2x_core.getters import GETTER_REGISTRY, getter
 
@@ -254,7 +258,7 @@ def test_rule_from_records_resolves_supplemental_getters():
     if getter_name not in GETTER_REGISTRY:
 
         @getter(name=getter_name)
-        def supplemental_rule_test_getter(_source, *, context):
+        def supplemental_rule_test_getter(source: object, *, context: object) -> Result[str, ValueError]:
             _ = context
             return Ok("north")
 
@@ -291,14 +295,14 @@ def test_duplicate_supplemental_outputs_fail_before_attachment():
         version=1,
         field_map={"name": "name", "uuid": "uuid"},
         supplemental_attributes=[
-            {
-                "target_type": "BusGeographicInfo",
-                "field_map": {"uuid": "uuid", "location_name": "zone"},
-            },
-            {
-                "target_type": "BusGeographicInfo",
-                "field_map": {"uuid": "uuid", "location_name": "zone"},
-            },
+            SupplementalAttributeRule(
+                target_type="BusGeographicInfo",
+                field_map={"uuid": "uuid", "location_name": "zone"},
+            ),
+            SupplementalAttributeRule(
+                target_type="BusGeographicInfo",
+                field_map={"uuid": "uuid", "location_name": "zone"},
+            ),
         ],
     )
 
@@ -306,7 +310,7 @@ def test_duplicate_supplemental_outputs_fail_before_attachment():
         PluginContext(
             source_system=source_system,
             target_system=target_system,
-            config=_build_test_config(),
+            config=build_test_config(),
             rules=(rule,),
         )
     )
@@ -329,10 +333,10 @@ def test_empty_supplemental_output_is_not_attached():
         version=1,
         field_map={"name": "name", "uuid": "uuid"},
         supplemental_attributes=[
-            {
-                "target_type": "BusGeographicInfo",
-                "field_map": {"location_name": "missing_zone"},
-            }
+            SupplementalAttributeRule(
+                target_type="BusGeographicInfo",
+                field_map={"location_name": "missing_zone"},
+            )
         ],
     )
 
@@ -340,7 +344,7 @@ def test_empty_supplemental_output_is_not_attached():
         PluginContext(
             source_system=source_system,
             target_system=target_system,
-            config=_build_test_config(),
+            config=build_test_config(),
             rules=(rule,),
         )
     )
@@ -362,11 +366,11 @@ def test_required_supplemental_output_reports_missing_value():
         version=1,
         field_map={"name": "name", "uuid": "uuid"},
         supplemental_attributes=[
-            {
-                "target_type": "BusGeographicInfo",
-                "field_map": {"location_name": "missing_zone"},
-                "optional": False,
-            }
+            SupplementalAttributeRule(
+                target_type="BusGeographicInfo",
+                field_map={"location_name": "missing_zone"},
+                optional=False,
+            )
         ],
     )
 
@@ -374,7 +378,7 @@ def test_required_supplemental_output_reports_missing_value():
         PluginContext(
             source_system=source_system,
             target_system=target_system,
-            config=_build_test_config(),
+            config=build_test_config(),
             rules=(rule,),
         )
     )
@@ -397,10 +401,10 @@ def test_invalid_supplemental_data_reports_rule_source_and_output():
         version=1,
         field_map={"name": "name", "uuid": "uuid"},
         supplemental_attributes=[
-            {
-                "target_type": "BusGeographicInfo",
-                "field_map": {"latitude": "zone"},
-            }
+            SupplementalAttributeRule(
+                target_type="BusGeographicInfo",
+                field_map={"latitude": "zone"},
+            )
         ],
     )
 
@@ -408,7 +412,7 @@ def test_invalid_supplemental_data_reports_rule_source_and_output():
         PluginContext(
             source_system=source_system,
             target_system=target_system,
-            config=_build_test_config(),
+            config=build_test_config(),
             rules=(rule,),
         )
     )
@@ -434,10 +438,10 @@ def test_multi_target_supplemental_failure_leaves_target_unchanged():
         version=1,
         field_map={"name": "name", "uuid": "uuid"},
         supplemental_attributes=[
-            {
-                "target_type": "BusGeographicInfo",
-                "field_map": {"uuid": "uuid", "location_name": "zone"},
-            }
+            SupplementalAttributeRule(
+                target_type="BusGeographicInfo",
+                field_map={"uuid": "uuid", "location_name": "zone"},
+            )
         ],
     )
 
@@ -445,7 +449,7 @@ def test_multi_target_supplemental_failure_leaves_target_unchanged():
         PluginContext(
             source_system=source_system,
             target_system=target_system,
-            config=_build_test_config(),
+            config=build_test_config(),
             rules=(rule,),
         )
     )
@@ -471,10 +475,10 @@ def test_missing_supplemental_target_type_reports_output():
         version=1,
         field_map={"name": "name", "uuid": "uuid"},
         supplemental_attributes=[
-            {
-                "target_type": "MissingSupplementalAttribute",
-                "field_map": {"location_name": "zone"},
-            }
+            SupplementalAttributeRule(
+                target_type="MissingSupplementalAttribute",
+                field_map={"location_name": "zone"},
+            )
         ],
     )
 
@@ -482,7 +486,7 @@ def test_missing_supplemental_target_type_reports_output():
         PluginContext(
             source_system=source_system,
             target_system=target_system,
-            config=_build_test_config(),
+            config=build_test_config(),
             rules=(rule,),
         )
     )

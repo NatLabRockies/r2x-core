@@ -1,6 +1,6 @@
 # File Formats
 
 ```{eval-rst}
-.. automodule:: r2x_core.file_types
+.. automodule:: r2x_core.types
     :members:
 ```

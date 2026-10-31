@@ -27,7 +27,7 @@ IMPORT_PATTERN = r"from\s+r2x_core\s+import\s+([^#\n]+)"
 DIRECT_PATTERN = r"r2x_core\.(\w+)"
 
 
-def _extract_doctest_content(text: str) -> str:
+def extract_doctest_content(text: str) -> str:
     """Extract all doctest blocks from markdown text."""
     lines = text.split("\n")
     blocks = []
@@ -47,7 +47,7 @@ def _extract_doctest_content(text: str) -> str:
     return "\n".join(blocks)
 
 
-def _extract_symbols_from_doctest(doctest_text: str) -> set[str]:
+def extract_symbols_from_doctest(doctest_text: str) -> set[str]:
     """Extract r2x_core symbols from doctest content."""
     symbols = set()
 
@@ -66,7 +66,7 @@ def _extract_symbols_from_doctest(doctest_text: str) -> set[str]:
     return symbols
 
 
-def _scan_docs_for_symbols() -> set[str]:
+def scan_docs_for_symbols() -> set[str]:
     """Scan all documentation files for symbols used in doctests."""
     documented = set()
 
@@ -76,12 +76,15 @@ def _scan_docs_for_symbols() -> set[str]:
     for md_file in DOCS_ROOT.glob("**/*.md"):
         try:
             content = md_file.read_text(encoding="utf-8")
-            doctest_content = _extract_doctest_content(content)
-            documented.update(_extract_symbols_from_doctest(doctest_content))
+            doctest_content = extract_doctest_content(content)
+            documented.update(extract_symbols_from_doctest(doctest_content))
         except Exception:
             pass
 
     return documented
+
+
+pytestmark = pytest.mark.docs
 
 
 @pytest.mark.doc_coverage
@@ -94,7 +97,7 @@ def test_public_symbols_documented() -> None:
         If any required symbol is missing from documentation.
     """
     public_symbols = set(r2x_core.__all__)
-    documented_symbols = _scan_docs_for_symbols()
+    documented_symbols = scan_docs_for_symbols()
 
     required = public_symbols - SKIP_SYMBOLS
     missing = sorted(required - documented_symbols)

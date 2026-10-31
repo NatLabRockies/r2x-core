@@ -5,11 +5,11 @@ title: "Build and run a lifecycle plugin"
 <span id="plugin-system"></span>
 
 Build a small plugin that creates a system and then transforms it.
-The example uses only public `config` and `system` properties; the context is
+The example uses only public `config` and `system` properties. The context is
 bound through `from_context()`. No ReEDS inputs or external model package is needed.
 Complete [installation](/r2x-core/install/) first.
 
-The lifecycle visits implemented hooks in this order; missing hooks are skipped.
+The lifecycle visits implemented hooks in this order. Missing hooks are skipped.
 
 ```mermaid
 flowchart TD
@@ -27,7 +27,7 @@ flowchart TD
 
 `on_build()` returns the system placed into the context. `on_transform()` can
 then use that system. A hook returning `Err` stops the lifecycle with `PluginError`.
-The comments explain expected values; the following output and assertions check them.
+The comments explain expected values. The output and assertions check them.
 
 ```python doctest
 >>> from r2x_core import Plugin, PluginConfig, PluginContext, PluginError, System
@@ -48,7 +48,7 @@ The comments explain expected values; the following output and assertions check 
 >>> result = BuildDemo.from_context(context).run()
 >>> # Expected: the build hook ran before the transform hook.
 >>> result.system.name
-'capacity-demo-ready'
+# 'capacity-demo-ready'
 >>> assert result is context
 >>> # Expected: an invalid name is rejected before a system is built.
 >>> invalid = PluginContext(config=BuildConfig(system_name=" "))
@@ -57,7 +57,7 @@ The comments explain expected values; the following output and assertions check 
 ... except PluginError as error:
 ...     assert "system_name must not be blank" in str(error)
 ...     print(type(error).__name__)
-PluginError
+# PluginError
 >>> assert invalid.system is None
 ```
 
@@ -73,13 +73,13 @@ filtering, scaling, persistence and an independent reload.
 
 Only implemented hooks run. The full order and updated context fields are in
 [Plugin lifecycle](/r2x-core/references/plugins/).
-Earlier hooks may mutate state or write files before a later hook fails; execution
+Earlier hooks may mutate state or write files before a later hook fails. Execution
 is not transactional. Start a retry from a fresh context unless the plugin
 explicitly supports resuming partially completed work.
 
 Use [function plugins](/r2x-core/how-tos/create-function-plugins/) for a transform
 that does not need a class lifecycle. For installed execution and discovery,
-use the separate [r2x-cli tutorial](https://natlabrockies.github.io/r2x-cli/getting-started/).
+use the separate [r2x-cli Getting Started guide](https://github.com/NatLabRockies/r2x-cli/blob/main/docs/getting-started.md#validate-and-run-a-pipeline).
 
 <span id="creating-a-simple-plugin"></span>
 

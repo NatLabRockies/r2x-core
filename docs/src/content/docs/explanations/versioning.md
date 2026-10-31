@@ -34,7 +34,7 @@ A version strategy compares the current version with the target and range constr
 
 <span id="custom-strategies"></span>
 
-Semantic versions and ordered Git histories need different comparison rules; see [versioning](/r2x-core/references/versioning/) for those contracts.
+Semantic versions and ordered Git histories need different comparison rules. See [versioning](/r2x-core/references/versioning/) for details.
 
 `run_upgrade_step(data, *, step, upgrader_context=None)` only invokes a selected transformation.
 It returns `Ok(data)` on success. For an `UpgradeError`, `OSError`, or `ValueError` raised by the transformation, it returns `Err(UpgradeError(...))` and retains the original exception as its cause.
@@ -55,7 +55,7 @@ Those decisions belong to the caller or the model package's upgrade coordinator.
 ## Mutation and recovery
 
 A callable can mutate its input or write files before raising an exception.
-Returning an expected failure in `Err` does not undo those changes; neither does propagating an unexpected exception.
+Returning an expected failure in `Err` does not undo those changes. Propagating an unexpected exception does not undo them either.
 Design file upgrades around copies or explicit backups when recovery is required, and test a step against a small fixture before applying it to a full dataset.
 
 <span id="real-world-example"></span>

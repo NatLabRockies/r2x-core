@@ -55,7 +55,7 @@ jobs:
           enable-cache: true
           version: ${{ env.UV_VERSION }}
 
-      - uses: jdx/mise-action@146a28175021df8ca24f8ee1828cc2a60f980bd5 # v3.5.1
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
         with:
           install: true
 

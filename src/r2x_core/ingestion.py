@@ -241,23 +241,31 @@ def build_components(
             )
             if not is_ok(reference_type_result):
                 return Err(reference_type_result.err())
+            # ComponentReference permits only "component" or "list", so else is list mode.
             if reference.resolve_as == "component":
                 name_result = source_name(row, reference.name_field)
                 if not is_ok(name_result):
                     return Err(name_result.err())
-                names = [name_result.value]
+                component_result = get_component(
+                    system, reference_type_result.value, name_result.value, label="reference"
+                )
+                if not is_ok(component_result):
+                    return Err(component_result.err())
+                values[field] = component_result.value
             else:
                 names_result = source_names(row, reference.name_field)
                 if not is_ok(names_result):
                     return Err(names_result.err())
-                names = names_result.value
-            resolved: list[Component] = []
-            for name in names:
-                component_result = get_component(system, reference_type_result.value, name, label="reference")
-                if not is_ok(component_result):
-                    return Err(component_result.err())
-                resolved.append(component_result.value)
-            values[field] = resolved[0] if reference.resolve_as == "component" else resolved
+                # Resolve each name before model validation to reuse stored components.
+                resolved: list[Component] = []
+                for name in names_result.value:
+                    component_result = get_component(
+                        system, reference_type_result.value, name, label="reference"
+                    )
+                    if not is_ok(component_result):
+                        return Err(component_result.err())
+                    resolved.append(component_result.value)
+                values[field] = resolved
         try:
             component = component_type.model_validate(values)
         except ValidationError as error:

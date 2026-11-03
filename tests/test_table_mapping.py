@@ -9,7 +9,7 @@ from typing import cast
 
 import polars as pl
 import pytest
-from fixtures.ingestion_models import NestedValuesComponent, PSSEBus, PSSEGenerator
+from fixtures.ingestion_models import NestedValuesComponent, PSSEBus, PSSEBusGroup, PSSEGenerator
 from pydantic import ValidationError
 
 import r2x_core
@@ -219,6 +219,79 @@ def test_build_system_assembles_csv_inputs_before_parser_rules(tmp_path: Path) -
     assert generators["G-South"].active_power_mw == 20.0
     assert generators["G-North"].bus is buses["North"]
     assert generators["G-South"].bus is buses["South"]
+
+
+def test_build_system_resolves_grouped_names_to_existing_components(tmp_path: Path) -> None:
+    """Resolve table-aggregated names to the existing components in order."""
+    config_dir, input_dir = write_pipeline_files(tmp_path)
+    (input_dir / "members.csv").write_text(
+        "group_name,bus_name\nCentral,South\nCentral,North\nNeighbor,North\n", encoding="utf-8"
+    )
+
+    file_mapping_path = config_dir / "file_mapping.json"
+    file_mapping = json.loads(file_mapping_path.read_bytes())
+    file_mapping.append({"name": "group_members", "relative_fpath": "members.csv"})
+    file_mapping_path.write_text(json.dumps(file_mapping), encoding="utf-8")
+
+    table_mapping_path = config_dir / "table_mapping.json"
+    table_mapping = json.loads(table_mapping_path.read_bytes())
+    table_mapping.append(
+        {
+            "name": "bus_group_rows",
+            "source": "group_members",
+            "operations": [
+                {
+                    "operation": "group_by",
+                    "columns": ["group_name"],
+                    "aggregate": [{"operation": "list", "column": "bus_name", "output": "member_names"}],
+                }
+            ],
+            "columns": {"name": "group_name", "member_names": "member_names"},
+        }
+    )
+    table_mapping_path.write_text(json.dumps(table_mapping), encoding="utf-8")
+
+    parser_rules_path = config_dir / "parser_rules.json"
+    parser_rules = json.loads(parser_rules_path.read_bytes())
+    parser_rules.append(
+        {
+            "kind": "component",
+            "source": "bus_group_rows",
+            "component_type": "PSSEBusGroup",
+            "references": {
+                "buses": {
+                    "component_type": "PSSEBus",
+                    "name_field": "member_names",
+                    "resolve_as": "list",
+                }
+            },
+        }
+    )
+    parser_rules_path.write_text(json.dumps(parser_rules), encoding="utf-8")
+
+    system = build_system(
+        PluginConfig(models=("fixtures.ingestion_models",), config_path_override=config_dir),
+        name="grouped-buses",
+        input_folder=input_dir,
+        table_mapping_path=table_mapping_path,
+    )
+
+    central = system.get_component(PSSEBusGroup, "Central")
+    neighbor = system.get_component(PSSEBusGroup, "Neighbor")
+    assert [bus.name for bus in central.buses] == ["South", "North"]
+    assert central.buses[0] is system.get_component(PSSEBus, "South")
+    assert central.buses[1] is system.get_component(PSSEBus, "North")
+    assert neighbor.buses[0] is central.buses[1]
+    assert len(tuple(system.get_components(PSSEBus))) == 2
+
+    path = tmp_path / "grouped-system.json"
+    system.to_json(path)
+    restored = r2x_core.System.from_json(path)
+    restored_central = restored.get_component(PSSEBusGroup, "Central")
+    restored_neighbor = restored.get_component(PSSEBusGroup, "Neighbor")
+    assert [bus.name for bus in restored_central.buses] == ["South", "North"]
+    assert restored_central.buses[1] is restored.get_component(PSSEBus, "North")
+    assert restored_neighbor.buses[0] is restored_central.buses[1]
 
 
 def source_tables() -> dict[str, TabularSource[pl.LazyFrame]]:

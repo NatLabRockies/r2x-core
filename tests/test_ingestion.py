@@ -13,7 +13,7 @@ import h5py
 import numpy as np
 import polars as pl
 import pytest
-from fixtures.ingestion_models import PSSEBus, PSSEGenerator
+from fixtures.ingestion_models import PSSEBus, PSSEBusGroup, PSSEGenerator
 from infrasys import Component, SupplementalAttribute
 from pydantic import ValidationError
 from rust_ok import Err, Ok, Result, is_err, is_ok
@@ -1477,6 +1477,240 @@ def test_build_system_rejects_invalid_component_references(
             name="invalid-reference",
         )
     assert message in str(error.value)
+
+
+def build_system_with_bus_group(member_names: JSONValue, *, component_type: str = "PSSEBusGroup") -> System:
+    """Build real components from a list-valued reference source."""
+    from r2x_core import build_system_from_sources
+
+    return build_system_from_sources(
+        {
+            "buses": DocumentSource(
+                [
+                    {"name": "North", "number": 1, "base_kv": 230.0},
+                    {"name": "South", "number": 2, "base_kv": 115.0},
+                ],
+                None,
+            ),
+            "groups": DocumentSource([{"name": "Group", "member_names": member_names}], None),
+        },
+        config=PluginConfig(models=("fixtures.ingestion_models",)),
+        instructions=[
+            ComponentInstruction(kind="component", source="buses", component_type="PSSEBus"),
+            ComponentInstruction(
+                kind="component",
+                source="groups",
+                component_type=component_type,
+                references={
+                    "buses": ComponentReference(
+                        component_type="PSSEBus", name_field="member_names", resolve_as="list"
+                    )
+                },
+            ),
+        ],
+        name="bus-groups",
+    )
+
+
+@pytest.mark.parametrize(
+    "member_names",
+    [[], ["North"], ["South", "North"], ["North", "North"]],
+    ids=["empty", "one", "ordered", "repeated"],
+)
+def test_list_reference_preserves_source_order_and_component_identity(member_names: list[str]) -> None:
+    """Respect list shape and preserve each resolved component instance."""
+    system = build_system_with_bus_group(member_names)
+    buses = system.get_component(PSSEBusGroup, "Group").buses
+
+    assert [bus.name for bus in buses] == member_names
+    assert all(
+        bus is system.get_component(PSSEBus, name) for bus, name in zip(buses, member_names, strict=True)
+    )
+    assert len(tuple(system.get_components(PSSEBus))) == 2
+
+
+@pytest.mark.parametrize(
+    ("member_names", "message"),
+    [
+        (None, "must contain a list of non-empty strings"),
+        ("North", "must contain a list of non-empty strings"),
+        (42, "must contain a list of non-empty strings"),
+        ({"name": "North"}, "must contain a list of non-empty strings"),
+        ([None], "invalid name at index 0"),
+        (["North", ""], "invalid name at index 1"),
+        (["North", 3], "invalid name at index 1"),
+    ],
+    ids=["null-list", "scalar", "number", "object", "null-member", "empty-member", "number-member"],
+)
+def test_list_reference_rejects_invalid_source_shapes(member_names: JSONValue, message: str) -> None:
+    """Reject null, scalar, and invalid list members without coercion."""
+    with pytest.raises(ValueError, match=message):
+        build_system_with_bus_group(member_names)
+
+
+def test_list_reference_reports_missing_component() -> None:
+    """Do not silently drop a name that cannot be resolved."""
+    with pytest.raises(ValueError, match="Missing reference PSSEBus named 'Unknown'"):
+        build_system_with_bus_group(["North", "Unknown"])
+
+
+@pytest.mark.parametrize(
+    ("rows", "message"),
+    [
+        ([{"name": "Group"}], "Source has no field"),
+        ([{"name": "First"}, {"name": "Second", "member_names": []}], "Source record has no field"),
+    ],
+    ids=["missing-column", "missing-row-field"],
+)
+def test_list_reference_rejects_missing_source_field(rows: list[dict[str, JSONValue]], message: str) -> None:
+    """Report missing reference fields at the source and record levels."""
+    from r2x_core import build_system_from_sources
+
+    instruction = ComponentInstruction(
+        kind="component",
+        source="groups",
+        component_type="PSSEBusGroup",
+        references={
+            "buses": ComponentReference(
+                component_type="PSSEBus", name_field="member_names", resolve_as="list"
+            )
+        },
+    )
+    with pytest.raises(ValueError, match=message):
+        build_system_from_sources(
+            {"groups": DocumentSource(rows, None)},
+            config=PluginConfig(models=("fixtures.ingestion_models",)),
+            instructions=[instruction],
+            name="missing-source-field",
+        )
+
+
+def test_list_reference_shape_must_match_target_component_field() -> None:
+    """Reject a list reference for a target field that expects one component."""
+    from r2x_core import build_system_from_sources
+
+    with pytest.raises(ValidationError, match="bus"):
+        build_system_from_sources(
+            {
+                "buses": DocumentSource([{"name": "North", "number": 1, "base_kv": 230.0}], None),
+                "generators": DocumentSource([{"name": "G", "power": 1.0, "bus_names": ["North"]}], None),
+            },
+            config=PluginConfig(models=("fixtures.ingestion_models",)),
+            instructions=[
+                ComponentInstruction(kind="component", source="buses", component_type="PSSEBus"),
+                ComponentInstruction(
+                    kind="component",
+                    source="generators",
+                    component_type="PSSEGenerator",
+                    fields={"active_power_mw": "power"},
+                    references={
+                        "bus": ComponentReference(
+                            component_type="PSSEBus", name_field="bus_names", resolve_as="list"
+                        )
+                    },
+                ),
+            ],
+            name="wrong-target-shape",
+        )
+
+
+def test_empty_reference_list_still_validates_component_type() -> None:
+    """An empty list does not hide an invalid configured component type."""
+    from r2x_core import build_system_from_sources
+
+    instruction = ComponentInstruction(
+        kind="component",
+        source="groups",
+        component_type="PSSEBusGroup",
+        references={
+            "buses": ComponentReference(
+                component_type="UnknownBus", name_field="member_names", resolve_as="list"
+            )
+        },
+    )
+    with pytest.raises(ValueError, match="Model type 'UnknownBus'"):
+        build_system_from_sources(
+            {"groups": DocumentSource([{"name": "Group", "member_names": []}], None)},
+            config=PluginConfig(models=("fixtures.ingestion_models",)),
+            instructions=[instruction],
+            name="invalid-reference-type",
+        )
+
+
+def test_empty_reference_list_is_validated_by_target_model() -> None:
+    """Leave minimum list length to the component model."""
+    with pytest.raises(ValidationError, match="at least 1 item"):
+        build_system_with_bus_group([], component_type="PSSERequiredBusGroup")
+
+
+def test_component_reference_schema_describes_result_shapes() -> None:
+    """Expose the supported modes and default through the public JSON schema."""
+    schema = ComponentReference.model_json_schema()
+    resolve_as = schema["properties"]["resolve_as"]
+    assert resolve_as["enum"] == ["component", "list"]
+    assert resolve_as["default"] == "component"
+
+
+@pytest.mark.parametrize("resolve_as", ["many", "single", "", None, True])
+def test_component_reference_rejects_invalid_resolve_as(resolve_as: JSONValue) -> None:
+    """Accept only the documented reference result shapes."""
+    with pytest.raises(ValidationError, match="resolve_as"):
+        ComponentReference.model_validate(
+            {"component_type": "PSSEBus", "name_field": "bus_name", "resolve_as": resolve_as}
+        )
+
+
+@pytest.mark.parametrize("resolve_as", [None, "component"], ids=["default", "explicit"])
+def test_scalar_reference_returns_existing_component(resolve_as: str | None) -> None:
+    """Resolve both the default and explicit component modes to the stored object."""
+    from r2x_core import build_system_from_sources
+
+    reference: dict[str, str] = {"component_type": "PSSEBus", "name_field": "bus_name"}
+    if resolve_as is not None:
+        reference["resolve_as"] = resolve_as
+    system = build_system_from_sources(
+        {
+            "buses": DocumentSource([{"name": "North", "number": 1, "base_kv": 230.0}], None),
+            "generators": DocumentSource([{"name": "G", "bus_name": "North", "power": 1.0}], None),
+        },
+        config=PluginConfig(models=("fixtures.ingestion_models",)),
+        instructions=[
+            ComponentInstruction(kind="component", source="buses", component_type="PSSEBus"),
+            ComponentInstruction.model_validate(
+                {
+                    "kind": "component",
+                    "source": "generators",
+                    "component_type": "PSSEGenerator",
+                    "fields": {"active_power_mw": "power"},
+                    "references": {"bus": reference},
+                }
+            ),
+        ],
+        name="scalar-reference",
+    )
+
+    assert system.get_component(PSSEGenerator, "G").bus is system.get_component(PSSEBus, "North")
+
+
+@pytest.mark.parametrize("bus_name", [None, ["North"], 2])
+def test_scalar_reference_rejects_non_string_names(bus_name: JSONValue) -> None:
+    """Do not coerce non-string values to a scalar component reference."""
+    from r2x_core import build_system_from_sources
+
+    instruction = ComponentInstruction(
+        kind="component",
+        source="generators",
+        component_type="PSSEGenerator",
+        fields={"active_power_mw": "power"},
+        references={"bus": ComponentReference(component_type="PSSEBus", name_field="bus_name")},
+    )
+    with pytest.raises(ValueError, match="must contain a non-empty string"):
+        build_system_from_sources(
+            {"generators": DocumentSource([{"name": "G", "power": 1.0, "bus_name": bus_name}], None)},
+            config=PluginConfig(models=("fixtures.ingestion_models",)),
+            instructions=[instruction],
+            name="invalid-scalar-reference",
+        )
 
 
 def test_supplemental_builder_validates_attributes_and_shares_to_selected_owners() -> None:

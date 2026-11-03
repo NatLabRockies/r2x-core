@@ -82,6 +82,110 @@ previously constructed component by type and name. A missing or ambiguous
 reference fails explicitly. Component names are unique within a component type.
 The same name may be used by a different type.
 
+### Resolve a list of components
+
+Use `resolve_as: "list"` when a component field contains a list of existing
+components. The source field must contain a list of nonempty names. The parser
+resolves each name by `component_type` and passes the existing objects to the
+model. Omit `resolve_as`, or set it to `"component"`, for one name and one
+component. A scalar and a list are not converted into each other.
+
+For example, suppose an earlier table named `membership` has one `group` and
+`bus_name` per row. A record in `table_mapping.json` collects each group's
+names without listing them in the configuration:
+
+```json
+{
+  "name": "group_rows",
+  "source": "membership",
+  "operations": [
+    {
+      "operation": "group_by",
+      "columns": ["group"],
+      "aggregate": [{"operation": "list", "column": "bus_name", "output": "bus_names"}]
+    }
+  ],
+  "columns": {"name": "group", "bus_names": "bus_names"}
+}
+```
+
+Given application models `Bus` and `BusGroup`, where `BusGroup.buses` is a
+`list[Bus]`, the relevant `parser_rules.json` instructions are:
+
+```json
+[
+  {"kind": "component", "source": "bus_rows", "component_type": "Bus"},
+  {
+    "kind": "component",
+    "source": "group_rows",
+    "component_type": "BusGroup",
+    "references": {
+      "buses": {
+        "component_type": "Bus",
+        "name_field": "bus_names",
+        "resolve_as": "list"
+      }
+    }
+  }
+]
+```
+
+Supply `table_mapping_path` to `build_system` to run the table mapping. The
+referenced components must be constructed by earlier instructions. The parser
+preserves list order and repeated names. Empty lists reach the target model for
+validation. A null list, non-string or empty name, missing field, and missing or
+ambiguous component raise an error. Table `group_by` retains null inputs, so
+clean or reject them before resolving references.
+
+The same behavior is available when sources and instructions are already in
+memory:
+
+```python doctest
+>>> import sys
+>>> import types
+>>> import polars as pl
+>>> from infrasys import Component
+>>> from r2x_core import (
+...     ComponentInstruction, ComponentReference, DocumentSource, PluginConfig,
+...     TableMappingRecord, TabularSource, assemble_table_records, build_system_from_sources,
+... )
+>>> from r2x_core.polars_adapter import PolarsTabularBackend
+>>> class Bus(Component):
+...     pass
+...
+>>> class BusGroup(Component):
+...     buses: list[Bus]
+...
+>>> models = types.ModuleType("reference_example_models")
+>>> models.Bus = Bus
+>>> models.BusGroup = BusGroup
+>>> sys.modules[models.__name__] = models
+>>> backend = PolarsTabularBackend()
+>>> members = pl.DataFrame({"group": ["North-South", "North-South"], "bus_name": ["South", "North"]})
+>>> mapping = TableMappingRecord.model_validate({
+...     "name": "group_rows", "source": "membership",
+...     "operations": [{"operation": "group_by", "columns": ["group"], "aggregate": [
+...         {"operation": "list", "column": "bus_name", "output": "bus_names"}
+...     ]}],
+...     "columns": {"name": "group", "bus_names": "bus_names"},
+... })
+>>> tables = assemble_table_records({"membership": TabularSource(members.lazy(), backend)}, [mapping], backend=backend)
+>>> instructions = [
+...     ComponentInstruction(kind="component", source="bus_rows", component_type="Bus"),
+...     ComponentInstruction(
+...         kind="component", source="group_rows", component_type="BusGroup",
+...         references={"buses": ComponentReference(component_type="Bus", name_field="bus_names", resolve_as="list")},
+...     ),
+... ]
+>>> sources = {"bus_rows": DocumentSource([{"name": "North"}, {"name": "South"}], None)} | tables
+>>> system = build_system_from_sources(sources, config=PluginConfig(models=(models.__name__,)), instructions=instructions, name="example")
+>>> group = system.get_component(BusGroup, "North-South")
+>>> [bus.name for bus in group.buses]
+# ['South', 'North']
+>>> group.buses[0] is system.get_component(Bus, "South")
+# True
+```
+
 For an uncommon physical format, register an application `FileReader` and its
 symbolic `reader.format` in `file_mapping.json`. The reader returns named typed
 sources. Core still handles configured output and attachment. See

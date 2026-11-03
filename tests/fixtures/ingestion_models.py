@@ -19,6 +19,18 @@ class PSSEGenerator(Component):
     available: bool = True
 
 
+class PSSEBusGroup(Component):
+    """Group of buses linked by component reference."""
+
+    buses: list[PSSEBus]
+
+
+class PSSERequiredBusGroup(Component):
+    """Group that requires at least one bus."""
+
+    buses: list[PSSEBus] = Field(min_length=1)
+
+
 class BusGeo(SupplementalAttribute):
     """Supplemental region label for a bus."""
 

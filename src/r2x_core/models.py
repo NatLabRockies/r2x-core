@@ -791,10 +791,23 @@ class JSONProcessing(StrictConfigModel):
 
 
 class ComponentReference(StrictConfigModel):
-    """Resolve a source field as the name of a previously built component."""
+    """Resolve source names to previously built components.
+
+    ``name_field`` identifies one source field. By default, ``resolve_as`` is
+    ``"component"`` and the field contains one non-empty name. With ``"list"``,
+    it contains an ordered list of non-empty names. List resolution preserves
+    duplicates and permits an empty list, subject to target-model validation.
+    Every name must identify one previously built component of ``component_type``.
+    Target-model validation must preserve each resolved object's identity and,
+    for lists, the list shape and order. Otherwise construction raises an error.
+    Validators receive the stored objects, and their side effects are not rolled back.
+    """
 
     component_type: NonEmptyString
     name_field: NonEmptyString
+    resolve_as: Literal["component", "list"] = Field(
+        default="component", description="Resolve one name as a component or a list of names as a list."
+    )
 
 
 class ComponentOwner(StrictConfigModel):

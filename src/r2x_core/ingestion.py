@@ -235,6 +235,7 @@ def build_components(
             if not is_ok(value_result):
                 return Err(value_result.err())
             values[target] = value_result.value
+        resolved_references: dict[str, Component | tuple[Component, ...]] = {}
         for field, reference in instruction.references.items():
             reference_type_result = resolve_model_type(
                 reference.component_type, config=config, expected=Component
@@ -252,6 +253,7 @@ def build_components(
                 if not is_ok(component_result):
                     return Err(component_result.err())
                 values[field] = component_result.value
+                resolved_references[field] = component_result.value
             else:
                 names_result = source_names(row, reference.name_field)
                 if not is_ok(names_result):
@@ -266,10 +268,26 @@ def build_components(
                         return Err(component_result.err())
                     resolved.append(component_result.value)
                 values[field] = resolved
+                # Validators can mutate input lists, so snapshot the resolved identities.
+                resolved_references[field] = tuple(resolved)
         try:
             component = component_type.model_validate(values)
         except ValidationError as error:
             return Err(error)
+        for field, expected in resolved_references.items():
+            actual = getattr(component, field, None)
+            if isinstance(expected, tuple):
+                if not isinstance(actual, list):
+                    msg = f"{component_type.__name__}.{field} must remain a list after model validation"
+                    return Err(ValueError(msg))
+                preserved = len(actual) == len(expected) and all(
+                    item is original for item, original in zip(actual, expected, strict=True)
+                )
+            else:
+                preserved = actual is expected
+            if not preserved:
+                msg = f"{component_type.__name__}.{field} must preserve resolved component identity and order after model validation"
+                return Err(ValueError(msg))
         if not component.name:
             msg = f"Component {component_type.__name__} has an empty name"
             return Err(ValueError(msg))

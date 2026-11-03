@@ -225,7 +225,7 @@ def test_build_system_resolves_grouped_names_to_existing_components(tmp_path: Pa
     """Resolve table-aggregated names to the existing components in order."""
     config_dir, input_dir = write_pipeline_files(tmp_path)
     (input_dir / "members.csv").write_text(
-        "group_name,bus_name\nCentral,South\nCentral,North\nNeighbor,North\n", encoding="utf-8"
+        "group_name,bus_name\nCentral,South\nCentral,North\nCentral,South\nNeighbor,North\n", encoding="utf-8"
     )
 
     file_mapping_path = config_dir / "file_mapping.json"
@@ -278,20 +278,30 @@ def test_build_system_resolves_grouped_names_to_existing_components(tmp_path: Pa
 
     central = system.get_component(PSSEBusGroup, "Central")
     neighbor = system.get_component(PSSEBusGroup, "Neighbor")
-    assert [bus.name for bus in central.buses] == ["South", "North"]
+    assert [bus.name for bus in central.buses] == ["South", "North", "South"]
     assert central.buses[0] is system.get_component(PSSEBus, "South")
     assert central.buses[1] is system.get_component(PSSEBus, "North")
+    assert central.buses[2] is central.buses[0]
     assert neighbor.buses[0] is central.buses[1]
     assert len(tuple(system.get_components(PSSEBus))) == 2
+    assert {bus.name for bus in system.list_child_components(central)} == {"North", "South"}
+    assert {
+        group.name
+        for group in system.list_parent_components(central.buses[1])
+        if isinstance(group, PSSEBusGroup)
+    } == {"Central", "Neighbor"}
 
     path = tmp_path / "grouped-system.json"
     system.to_json(path)
     restored = r2x_core.System.from_json(path)
     restored_central = restored.get_component(PSSEBusGroup, "Central")
     restored_neighbor = restored.get_component(PSSEBusGroup, "Neighbor")
-    assert [bus.name for bus in restored_central.buses] == ["South", "North"]
+    assert [bus.name for bus in restored_central.buses] == ["South", "North", "South"]
     assert restored_central.buses[1] is restored.get_component(PSSEBus, "North")
+    assert restored_central.buses[2] is restored.get_component(PSSEBus, "South")
+    assert restored_central.buses[2] is restored_central.buses[0]
     assert restored_neighbor.buses[0] is restored_central.buses[1]
+    assert {bus.name for bus in restored.list_child_components(restored_central)} == {"North", "South"}
 
 
 def source_tables() -> dict[str, TabularSource[pl.LazyFrame]]:

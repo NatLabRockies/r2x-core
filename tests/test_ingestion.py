@@ -1479,7 +1479,9 @@ def test_build_system_rejects_invalid_component_references(
     assert message in str(error.value)
 
 
-def build_system_with_bus_group(member_names: JSONValue, *, component_type: str = "PSSEBusGroup") -> System:
+def build_system_with_bus_group(
+    member_names: JSONValue, *, component_type: str = "PSSEBusGroup", bus_type: str = "PSSEBus"
+) -> System:
     """Build real components from a list-valued reference source."""
     from r2x_core import build_system_from_sources
 
@@ -1496,14 +1498,14 @@ def build_system_with_bus_group(member_names: JSONValue, *, component_type: str 
         },
         config=PluginConfig(models=("fixtures.ingestion_models",)),
         instructions=[
-            ComponentInstruction(kind="component", source="buses", component_type="PSSEBus"),
+            ComponentInstruction(kind="component", source="buses", component_type=bus_type),
             ComponentInstruction(
                 kind="component",
                 source="groups",
                 component_type=component_type,
                 references={
                     "buses": ComponentReference(
-                        component_type="PSSEBus", name_field="member_names", resolve_as="list"
+                        component_type=bus_type, name_field="member_names", resolve_as="list"
                     )
                 },
             ),
@@ -1611,6 +1613,106 @@ def test_list_reference_shape_must_match_target_component_field() -> None:
                 ),
             ],
             name="wrong-target-shape",
+        )
+
+
+@pytest.mark.parametrize("member_names", [[], ["North", "South"]], ids=["empty", "populated"])
+def test_list_reference_rejects_target_coercion_to_tuple(member_names: list[str]) -> None:
+    """Reject target validation that changes a resolved list into a tuple."""
+    with pytest.raises(ValueError, match=r"PSSETupleBusGroup\.buses.*list"):
+        build_system_with_bus_group(member_names, component_type="PSSETupleBusGroup")
+
+
+def test_list_reference_rejects_model_deleted_field() -> None:
+    """Report a validation error if a model validator deletes a reference field."""
+    with pytest.raises(ValueError, match=r"PSSEDeletedBusGroup\.buses.*list"):
+        build_system_with_bus_group(["North"], component_type="PSSEDeletedBusGroup")
+
+
+def test_list_reference_rejects_revalidated_component_copies() -> None:
+    """Do not attach a group containing copies of the stored components."""
+    with pytest.raises(ValueError, match=r"PSSERevalidatedBusGroup\.buses.*preserve"):
+        build_system_with_bus_group(
+            ["North", "South"], component_type="PSSERevalidatedBusGroup", bus_type="PSSERevalidatedBus"
+        )
+
+
+def test_list_reference_rejects_model_reordering_in_place() -> None:
+    """Detect validators that mutate the resolved list before returning it."""
+    with pytest.raises(ValueError, match=r"PSSEReorderedBusGroup\.buses.*preserve"):
+        build_system_with_bus_group(["North", "South"], component_type="PSSEReorderedBusGroup")
+
+
+@pytest.mark.parametrize(
+    "component_type", ["PSSEShortenedBusGroup", "PSSEExpandedBusGroup", "PSSESubstitutedBusGroup"]
+)
+def test_list_reference_rejects_model_membership_changes(component_type: str) -> None:
+    """Detect validators that change membership while retaining list shape."""
+    with pytest.raises(ValueError, match=rf"{component_type}\.buses.*preserve"):
+        build_system_with_bus_group(["North", "South"], component_type=component_type)
+
+
+def test_scalar_reference_rejects_revalidated_component_copy() -> None:
+    """Do not attach a scalar reference copied during model validation."""
+    from r2x_core import build_system_from_sources
+
+    with pytest.raises(ValueError, match=r"PSSERevalidatedGenerator\.bus.*preserve"):
+        build_system_from_sources(
+            {
+                "buses": DocumentSource([{"name": "North", "number": 1, "base_kv": 230.0}], None),
+                "generators": DocumentSource([{"name": "G", "power": 1.0, "bus_name": "North"}], None),
+            },
+            config=PluginConfig(models=("fixtures.ingestion_models",)),
+            instructions=[
+                ComponentInstruction(kind="component", source="buses", component_type="PSSERevalidatedBus"),
+                ComponentInstruction(
+                    kind="component",
+                    source="generators",
+                    component_type="PSSERevalidatedGenerator",
+                    fields={"active_power_mw": "power"},
+                    references={
+                        "bus": ComponentReference(component_type="PSSERevalidatedBus", name_field="bus_name")
+                    },
+                ),
+            ],
+            name="revalidated-reference",
+        )
+
+
+def test_scalar_reference_rejects_model_substitution() -> None:
+    """Reject a validator that replaces one reference with another stored object."""
+    from r2x_core import build_system_from_sources
+
+    with pytest.raises(ValueError, match=r"PSSESwitchingGenerator\.bus.*preserve"):
+        build_system_from_sources(
+            {
+                "buses": DocumentSource(
+                    [
+                        {"name": "North", "number": 1, "base_kv": 230.0},
+                        {"name": "South", "number": 2, "base_kv": 115.0},
+                    ],
+                    None,
+                ),
+                "generators": DocumentSource(
+                    [{"name": "G", "bus_name": "North", "alternate_name": "South"}], None
+                ),
+            },
+            config=PluginConfig(models=("fixtures.ingestion_models",)),
+            instructions=[
+                ComponentInstruction(kind="component", source="buses", component_type="PSSEBus"),
+                ComponentInstruction(
+                    kind="component",
+                    source="generators",
+                    component_type="PSSESwitchingGenerator",
+                    references={
+                        "bus": ComponentReference(component_type="PSSEBus", name_field="bus_name"),
+                        "alternate_bus": ComponentReference(
+                            component_type="PSSEBus", name_field="alternate_name"
+                        ),
+                    },
+                ),
+            ],
+            name="substituted-reference",
         )
 
 

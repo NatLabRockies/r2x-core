@@ -85,8 +85,11 @@ mapping. Use `references` to resolve previously constructed components by type
 and source name field. The default `resolve_as="component"` expects one
 nonempty name. Set `resolve_as="list"` for a list of nonempty names. The
 builder preserves list order and duplicates, passes an empty list to the target
-model, and rejects wrong shapes or unresolved names. Component names must be
-nonempty and unique within their type.
+model, and rejects wrong shapes or unresolved names. Target-model validation
+must preserve the resolved object identities and list order and shape. The
+builder raises an error before attachment when it does not. Validators receive
+stored objects, and their mutations are not rolled back. Component names must
+be nonempty and unique within their type.
 
 For example, when a table mapping produces a `line_names` list column:
 

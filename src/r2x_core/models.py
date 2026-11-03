@@ -798,6 +798,9 @@ class ComponentReference(StrictConfigModel):
     it contains an ordered list of non-empty names. List resolution preserves
     duplicates and permits an empty list, subject to target-model validation.
     Every name must identify one previously built component of ``component_type``.
+    Target-model validation must preserve each resolved object's identity and,
+    for lists, the list shape and order. Otherwise construction raises an error.
+    Validators receive the stored objects, and their side effects are not rolled back.
     """
 
     component_type: NonEmptyString

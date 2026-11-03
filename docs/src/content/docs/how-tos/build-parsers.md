@@ -137,6 +137,15 @@ validation. A null list, non-string or empty name, missing field, and missing or
 ambiguous component raise an error. Table `group_by` retains null inputs, so
 clean or reject them before resolving references.
 
+Target-model validation must preserve each resolved object's identity. A list
+reference must also remain a list with the same members in the same order. If
+validation copies, replaces, removes, or reorders references, or converts the
+list to a tuple, the parser raises a `ValueError` before attaching the component.
+For example, configuring a referenced model with Pydantic's
+`revalidate_instances="always"` can create copies and cause this error.
+Validators receive the stored objects, so they must not mutate them. A failure
+does not roll back mutations made by validators.
+
 The same behavior is available when sources and instructions are already in
 memory:
 

@@ -81,9 +81,34 @@ system = build_system(config, name="parsed", input_folder=Path("/data"))
 ```
 
 For target fields with different source names, use `fields` as a target-to-source
-mapping. Use `references` to resolve a previously constructed component by its
-type and a source name field. The builder validates components before attaching
-them. Component names must be nonempty and unique within their type.
+mapping. Use `references` to resolve previously constructed components by type
+and source name field. The default `resolve_as="component"` expects one
+nonempty name. Set `resolve_as="list"` for a list of nonempty names. The
+builder preserves list order and duplicates, passes an empty list to the target
+model, and rejects wrong shapes or unresolved names. Target-model validation
+must preserve the resolved object identities and list order and shape. The
+builder raises an error before attachment when it does not. Validators receive
+stored objects, and their mutations are not rolled back. Component names must
+be nonempty and unique within their type.
+
+For example, when a table mapping produces a `line_names` list column:
+
+```json
+{
+  "kind": "component",
+  "source": "grouped_interface_rows",
+  "component_type": "GroupedInterface",
+  "references": {
+    "lines": {
+      "component_type": "TransmissionLine",
+      "name_field": "line_names",
+      "resolve_as": "list"
+    }
+  }
+}
+```
+
+The `TransmissionLine` components must be built by earlier instructions.
 
 `build_system` accepts app-specific reader implementations in `readers` and
 mapping-step handlers in `step_handlers`. Set `table_mapping_path` to opt into

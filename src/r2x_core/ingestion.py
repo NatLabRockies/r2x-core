@@ -235,25 +235,59 @@ def build_components(
             if not is_ok(value_result):
                 return Err(value_result.err())
             values[target] = value_result.value
+        resolved_references: dict[str, Component | tuple[Component, ...]] = {}
         for field, reference in instruction.references.items():
             reference_type_result = resolve_model_type(
                 reference.component_type, config=config, expected=Component
             )
             if not is_ok(reference_type_result):
                 return Err(reference_type_result.err())
-            name_result = source_name(row, reference.name_field)
-            if not is_ok(name_result):
-                return Err(name_result.err())
-            component_result = get_component(
-                system, reference_type_result.value, name_result.value, label="reference"
-            )
-            if not is_ok(component_result):
-                return Err(component_result.err())
-            values[field] = component_result.value
+            # ComponentReference permits only "component" or "list", so else is list mode.
+            if reference.resolve_as == "component":
+                name_result = source_name(row, reference.name_field)
+                if not is_ok(name_result):
+                    return Err(name_result.err())
+                component_result = get_component(
+                    system, reference_type_result.value, name_result.value, label="reference"
+                )
+                if not is_ok(component_result):
+                    return Err(component_result.err())
+                values[field] = component_result.value
+                resolved_references[field] = component_result.value
+            else:
+                names_result = source_names(row, reference.name_field)
+                if not is_ok(names_result):
+                    return Err(names_result.err())
+                # Resolve each name before model validation to reuse stored components.
+                resolved: list[Component] = []
+                for name in names_result.value:
+                    component_result = get_component(
+                        system, reference_type_result.value, name, label="reference"
+                    )
+                    if not is_ok(component_result):
+                        return Err(component_result.err())
+                    resolved.append(component_result.value)
+                values[field] = resolved
+                # Validators can mutate input lists, so snapshot the resolved identities.
+                resolved_references[field] = tuple(resolved)
         try:
             component = component_type.model_validate(values)
         except ValidationError as error:
             return Err(error)
+        for field, expected in resolved_references.items():
+            actual = getattr(component, field, None)
+            if isinstance(expected, tuple):
+                if not isinstance(actual, list):
+                    msg = f"{component_type.__name__}.{field} must remain a list after model validation"
+                    return Err(ValueError(msg))
+                preserved = len(actual) == len(expected) and all(
+                    item is original for item, original in zip(actual, expected, strict=True)
+                )
+            else:
+                preserved = actual is expected
+            if not preserved:
+                msg = f"{component_type.__name__}.{field} must preserve resolved component identity and order after model validation"
+                return Err(ValueError(msg))
         if not component.name:
             msg = f"Component {component_type.__name__} has an empty name"
             return Err(ValueError(msg))
@@ -635,3 +669,21 @@ def source_name(row: Record, field: str) -> Result[str, ValueError]:
         msg = f"Component name field {field!r} must contain a non-empty string"
         return Err(ValueError(msg))
     return Ok(name)
+
+
+def source_names(row: Record, field: str) -> Result[list[str], ValueError]:
+    """Read an ordered list of non-empty component names from one record."""
+    value_result = required_value(row, field)
+    if not is_ok(value_result):
+        return Err(value_result.err())
+    values = value_result.value
+    if not isinstance(values, list):
+        msg = f"Component name field {field!r} must contain a list of non-empty strings"
+        return Err(ValueError(msg))
+    names: list[str] = []
+    for index, name in enumerate(values):
+        if not isinstance(name, str) or not name:
+            msg = f"Component name field {field!r} has an invalid name at index {index}: expected a non-empty string"
+            return Err(ValueError(msg))
+        names.append(name)
+    return Ok(names)
